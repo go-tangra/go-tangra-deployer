@@ -1,0 +1,210 @@
+syntax = "proto3";
+
+package deployer.service.v1;
+
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "gnostic/openapi/v3/annotations.proto";
+
+// Deployer Statistics Service provides aggregated statistics about the deployment system
+service DeployerStatisticsService {
+  // GetStatistics returns comprehensive statistics about the Deployer system
+  rpc GetStatistics (GetStatisticsRequest) returns (GetStatisticsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/deployer/statistics"
+    };
+  }
+
+  // GetTenantStatistics returns statistics for a specific tenant
+  rpc GetTenantStatistics (GetTenantStatisticsRequest) returns (TenantStatistics) {
+    option (google.api.http) = {
+      get: "/api/v1/deployer/statistics/tenant/{tenant_id}"
+    };
+  }
+}
+
+// GetStatisticsRequest is the request message for GetStatistics
+message GetStatisticsRequest {
+  // Number of recent errors to return (default: 10)
+  optional int32 recent_errors_limit = 1 [
+    (gnostic.openapi.v3.property) = {description: "Maximum number of recent errors to return"}
+  ];
+
+  // Filter by specific tenant ID (optional, admin only)
+  optional uint32 tenant_id = 2 [
+    (gnostic.openapi.v3.property) = {description: "Filter statistics by tenant ID"}
+  ];
+}
+
+// GetStatisticsResponse is the response message for GetStatistics
+message GetStatisticsResponse {
+  // Deployment job statistics
+  JobStatistics jobs = 1;
+
+  // Deployment target statistics
+  TargetStatistics targets = 2;
+
+  // Target configuration statistics
+  ConfigurationStatistics configurations = 3;
+
+  // Recent errors/failures
+  repeated RecentError recent_errors = 4;
+
+  // Per-tenant breakdown (only for platform admin requests)
+  repeated TenantStatistics tenant_breakdown = 5;
+
+  // Statistics generation timestamp
+  google.protobuf.Timestamp generated_at = 6;
+}
+
+// JobStatistics contains statistics about deployment jobs
+message JobStatistics {
+  // Total number of jobs
+  int64 total_count = 1;
+
+  // Number of pending jobs
+  int64 pending_count = 2;
+
+  // Number of processing jobs
+  int64 processing_count = 3;
+
+  // Number of completed jobs
+  int64 completed_count = 4;
+
+  // Number of failed jobs
+  int64 failed_count = 5;
+
+  // Number of cancelled jobs
+  int64 cancelled_count = 6;
+
+  // Number of retrying jobs
+  int64 retrying_count = 7;
+
+  // Number of partial jobs (parent jobs with mixed child results)
+  int64 partial_count = 8;
+
+  // Jobs grouped by status
+  map<string, int64> by_status = 9;
+
+  // Jobs grouped by trigger type
+  map<string, int64> by_trigger_type = 10;
+
+  // Jobs in the last 24 hours
+  JobTimeBreakdown last_24_hours = 11;
+
+  // Jobs in the last 7 days
+  JobTimeBreakdown last_7_days = 12;
+}
+
+// JobTimeBreakdown provides job counts within a time period
+message JobTimeBreakdown {
+  // Total jobs in period
+  int64 total = 1;
+
+  // Successful jobs
+  int64 succeeded = 2;
+
+  // Failed jobs
+  int64 failed = 3;
+
+  // Success rate percentage (0-100)
+  double success_rate = 4;
+}
+
+// TargetStatistics contains statistics about deployment targets
+message TargetStatistics {
+  // Total number of targets
+  int64 total_count = 1 [
+    (gnostic.openapi.v3.property) = {description: "Total number of deployment targets"}
+  ];
+
+  // Number of targets with auto-deploy enabled
+  int64 auto_deploy_enabled_count = 2 [
+    (gnostic.openapi.v3.property) = {description: "Number of targets with auto-deploy on renewal"}
+  ];
+
+  // Number of targets with auto-deploy disabled
+  int64 auto_deploy_disabled_count = 3 [
+    (gnostic.openapi.v3.property) = {description: "Number of targets with auto-deploy disabled"}
+  ];
+}
+
+// ConfigurationStatistics contains statistics about target configurations
+message ConfigurationStatistics {
+  // Total number of configurations
+  int64 total_count = 1 [
+    (gnostic.openapi.v3.property) = {description: "Total number of target configurations"}
+  ];
+
+  // Number of active configurations
+  int64 active_count = 2 [
+    (gnostic.openapi.v3.property) = {description: "Number of active configurations"}
+  ];
+
+  // Number of inactive configurations
+  int64 inactive_count = 3 [
+    (gnostic.openapi.v3.property) = {description: "Number of inactive configurations"}
+  ];
+
+  // Number of configurations in error state
+  int64 error_count = 4 [
+    (gnostic.openapi.v3.property) = {description: "Number of configurations in error state"}
+  ];
+
+  // Configurations grouped by status
+  map<string, int64> by_status = 5;
+
+  // Configurations grouped by provider type
+  map<string, int64> by_provider_type = 6;
+}
+
+// RecentError represents a recent deployment failure
+message RecentError {
+  // Error timestamp
+  google.protobuf.Timestamp occurred_at = 1;
+
+  // Job ID that failed
+  string job_id = 2;
+
+  // Target configuration ID
+  string configuration_id = 3;
+
+  // Target configuration name
+  string configuration_name = 4;
+
+  // Certificate ID
+  string certificate_id = 5;
+
+  // Error message
+  string error_message = 6;
+
+  // Tenant ID
+  uint32 tenant_id = 7;
+
+  // Provider type
+  string provider_type = 8;
+}
+
+// GetTenantStatisticsRequest is the request for GetTenantStatistics
+message GetTenantStatisticsRequest {
+  // Tenant ID to get statistics for
+  uint32 tenant_id = 1 [
+    (gnostic.openapi.v3.property) = {description: "Tenant ID"}
+  ];
+}
+
+// TenantStatistics provides statistics for a specific tenant
+message TenantStatistics {
+  // Tenant ID
+  uint32 tenant_id = 1;
+
+  // Job statistics for this tenant
+  JobStatistics jobs = 2;
+
+  // Target statistics for this tenant
+  TargetStatistics targets = 3;
+
+  // Configuration statistics for this tenant
+  ConfigurationStatistics configurations = 4;
+}

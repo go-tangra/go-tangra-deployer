@@ -1,0 +1,248 @@
+syntax = "proto3";
+
+package deployer.service.v1;
+
+import "buf/validate/validate.proto";
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/struct.proto";
+
+// Job status
+enum JobStatus {
+  JOB_STATUS_UNSPECIFIED = 0;
+  JOB_STATUS_PENDING = 1;
+  JOB_STATUS_PROCESSING = 2;
+  JOB_STATUS_COMPLETED = 3;
+  JOB_STATUS_FAILED = 4;
+  JOB_STATUS_CANCELLED = 5;
+  JOB_STATUS_RETRYING = 6;
+  // For parent jobs: some child jobs completed, some failed
+  JOB_STATUS_PARTIAL = 7;
+}
+
+// Trigger type
+enum TriggerType {
+  TRIGGER_TYPE_UNSPECIFIED = 0;
+  TRIGGER_TYPE_MANUAL = 1;
+  TRIGGER_TYPE_EVENT = 2;
+  TRIGGER_TYPE_AUTO_RENEWAL = 3;
+}
+
+// Job type
+enum JobType {
+  JOB_TYPE_UNSPECIFIED = 0;
+  // Parent job: deploys to a target group, spawns child jobs
+  JOB_TYPE_PARENT = 1;
+  // Child job: deploys to a single configuration, owned by a parent job
+  JOB_TYPE_CHILD = 2;
+  // Direct job: deploys to a single configuration directly (legacy)
+  JOB_TYPE_DIRECT = 3;
+}
+
+// Deployment job entity
+message DeploymentJob {
+  optional string id = 1 [json_name = "id"];
+  optional uint32 tenant_id = 2 [json_name = "tenantId"];
+
+  // For parent jobs: deployment target group ID
+  optional string deployment_target_id = 3 [json_name = "deploymentTargetId"];
+  // Name of the deployment target (for display)
+  optional string deployment_target_name = 4 [json_name = "deploymentTargetName"];
+
+  // For child/direct jobs: target configuration ID
+  optional string target_configuration_id = 5 [json_name = "targetConfigurationId"];
+  // Name of the target configuration (for display)
+  optional string target_configuration_name = 6 [json_name = "targetConfigurationName"];
+
+  // For child jobs: parent job ID
+  optional string parent_job_id = 7 [json_name = "parentJobId"];
+
+  // Computed job type
+  optional JobType job_type = 8 [json_name = "jobType"];
+
+  optional string certificate_id = 10 [json_name = "certificateId"];
+  optional string certificate_serial = 11 [json_name = "certificateSerial"];
+  optional JobStatus status = 12 [json_name = "status"];
+  optional string status_message = 13 [json_name = "statusMessage"];
+  optional int32 progress = 14 [json_name = "progress"];
+  optional int32 retry_count = 15 [json_name = "retryCount"];
+  optional int32 max_retries = 16 [json_name = "maxRetries"];
+  optional TriggerType triggered_by = 17 [json_name = "triggeredBy"];
+  optional google.protobuf.Struct result = 18 [json_name = "result"];
+  optional google.protobuf.Timestamp started_at = 19 [json_name = "startedAt"];
+  optional google.protobuf.Timestamp completed_at = 20 [json_name = "completedAt"];
+  optional google.protobuf.Timestamp next_retry_at = 21 [json_name = "nextRetryAt"];
+
+  // For parent jobs: child job summary
+  optional int32 total_child_jobs = 30 [json_name = "totalChildJobs"];
+  optional int32 completed_child_jobs = 31 [json_name = "completedChildJobs"];
+  optional int32 failed_child_jobs = 32 [json_name = "failedChildJobs"];
+
+  // For parent jobs: list of child jobs (populated when requested)
+  repeated DeploymentJob child_jobs = 40 [json_name = "childJobs"];
+
+  optional uint32 created_by = 100 [json_name = "createdBy"];
+  optional google.protobuf.Timestamp create_time = 200 [json_name = "createTime"];
+  optional google.protobuf.Timestamp update_time = 201 [json_name = "updateTime"];
+}
+
+// Create a new deployment job
+message CreateJobRequest {
+  // Option 1: Deploy to a deployment target group (creates parent job + child jobs)
+  optional string deployment_target_id = 1 [json_name = "deploymentTargetId"];
+
+  // Option 2: Deploy directly to a single target configuration (creates direct job)
+  optional string target_configuration_id = 2 [json_name = "targetConfigurationId"];
+
+  // Certificate to deploy
+  string certificate_id = 3 [
+    json_name = "certificateId",
+    (google.api.field_behavior) = REQUIRED
+  ];
+
+  optional TriggerType triggered_by = 4 [json_name = "triggeredBy"];
+  optional int32 max_retries = 5 [json_name = "maxRetries"];
+}
+
+message CreateJobResponse {
+  DeploymentJob job = 1 [json_name = "job"];
+}
+
+// Get job status
+message GetJobStatusRequest {
+  string id = 1 [
+    json_name = "id",
+    (google.api.field_behavior) = REQUIRED
+  ];
+  // Include child jobs in the response (for parent jobs)
+  optional bool include_child_jobs = 2 [json_name = "includeChildJobs"];
+}
+
+message GetJobStatusResponse {
+  DeploymentJob job = 1 [json_name = "job"];
+}
+
+// Get job result
+message GetJobResultRequest {
+  string id = 1 [
+    json_name = "id",
+    (google.api.field_behavior) = REQUIRED
+  ];
+  // Include child jobs in the response (for parent jobs)
+  optional bool include_child_jobs = 2 [json_name = "includeChildJobs"];
+}
+
+message GetJobResultResponse {
+  DeploymentJob job = 1 [json_name = "job"];
+  repeated JobHistoryEntry history = 2 [json_name = "history"];
+}
+
+// Job history entry
+message JobHistoryEntry {
+  optional int32 id = 1 [json_name = "id"];
+  optional string job_id = 2 [json_name = "jobId"];
+  optional string action = 3 [json_name = "action"];
+  optional string result = 4 [json_name = "result"];
+  optional string message = 5 [json_name = "message"];
+  optional int64 duration_ms = 6 [json_name = "durationMs"];
+  optional google.protobuf.Struct details = 7 [json_name = "details"];
+  optional google.protobuf.Timestamp create_time = 200 [json_name = "createTime"];
+}
+
+// List deployment jobs
+message ListJobsRequest {
+  optional uint32 tenant_id = 1 [json_name = "tenantId"];
+  // Filter by deployment target group (for parent jobs)
+  optional string deployment_target_id = 2 [json_name = "deploymentTargetId"];
+  // Filter by target configuration (for child/direct jobs)
+  optional string target_configuration_id = 3 [json_name = "targetConfigurationId"];
+  optional string certificate_id = 4 [json_name = "certificateId"];
+  optional JobStatus status = 5 [json_name = "status"];
+  optional TriggerType triggered_by = 6 [json_name = "triggeredBy"];
+  // Filter by job type
+  optional JobType job_type = 7 [json_name = "jobType"];
+  // Filter by parent job ID (to list child jobs)
+  optional string parent_job_id = 8 [json_name = "parentJobId"];
+  optional google.protobuf.Timestamp created_after = 10 [json_name = "createdAfter"];
+  optional google.protobuf.Timestamp created_before = 11 [json_name = "createdBefore"];
+  // Include child jobs in response (for parent jobs)
+  optional bool include_child_jobs = 12 [json_name = "includeChildJobs"];
+  optional uint32 page = 20 [json_name = "page"];
+  optional uint32 page_size = 21 [json_name = "pageSize"];
+}
+
+message ListJobsResponse {
+  repeated DeploymentJob items = 1 [json_name = "items"];
+  uint64 total = 2 [json_name = "total"];
+}
+
+// Cancel a deployment job
+message CancelJobRequest {
+  string id = 1 [
+    json_name = "id",
+    (google.api.field_behavior) = REQUIRED
+  ];
+  // For parent jobs: also cancel child jobs
+  optional bool cancel_child_jobs = 2 [json_name = "cancelChildJobs"];
+}
+
+message CancelJobResponse {
+  DeploymentJob job = 1 [json_name = "job"];
+}
+
+// Retry a failed deployment job
+message RetryJobRequest {
+  string id = 1 [
+    json_name = "id",
+    (google.api.field_behavior) = REQUIRED
+  ];
+  // For parent jobs: retry only failed child jobs
+  optional bool retry_failed_children_only = 2 [json_name = "retryFailedChildrenOnly"];
+}
+
+message RetryJobResponse {
+  DeploymentJob job = 1 [json_name = "job"];
+}
+
+// Deployment Job Service
+service DeploymentJobService {
+  // Create a new deployment job
+  rpc CreateJob(CreateJobRequest) returns (CreateJobResponse) {
+    option (google.api.http) = {
+      post: "/v1/deployment-jobs"
+      body: "*"
+    };
+  }
+  // Get job status
+  rpc GetJobStatus(GetJobStatusRequest) returns (GetJobStatusResponse) {
+    option (google.api.http) = {
+      get: "/v1/deployment-jobs/{id}/status"
+    };
+  }
+  // Get job result with history
+  rpc GetJobResult(GetJobResultRequest) returns (GetJobResultResponse) {
+    option (google.api.http) = {
+      get: "/v1/deployment-jobs/{id}/result"
+    };
+  }
+  // List deployment jobs
+  rpc ListJobs(ListJobsRequest) returns (ListJobsResponse) {
+    option (google.api.http) = {
+      get: "/v1/deployment-jobs"
+    };
+  }
+  // Cancel a pending or processing job
+  rpc CancelJob(CancelJobRequest) returns (CancelJobResponse) {
+    option (google.api.http) = {
+      post: "/v1/deployment-jobs/{id}/cancel"
+    };
+  }
+  // Retry a failed job
+  rpc RetryJob(RetryJobRequest) returns (RetryJobResponse) {
+    option (google.api.http) = {
+      post: "/v1/deployment-jobs/{id}/retry"
+    };
+  }
+}

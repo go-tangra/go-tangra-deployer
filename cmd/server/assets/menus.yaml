@@ -1,0 +1,115 @@
+# Deployer Module Menu Definitions
+# This file defines the menu structure for the Deployer module
+# Used by admin service for dynamic menu registration
+
+module:
+  id: deployer
+  name: Deployer
+  description: Certificate Deployment Service
+
+menus:
+  - id: deployer
+    parent_id: null
+    type: CATALOG
+    name: Deployer
+    path: /deployer
+    icon: lucide:rocket
+    order: 410
+    authority:
+      - platform:admin
+      - tenant:manager
+
+  - id: deployer-jobs
+    parent_id: deployer
+    type: MENU
+    name: Deployment Jobs
+    path: job
+    component: app/deployer/job/index.vue
+    icon: lucide:list-todo
+    order: 1
+    authority:
+      - platform:admin
+      - tenant:manager
+
+  - id: deployer-targets
+    parent_id: deployer
+    type: MENU
+    name: Deployment Targets
+    path: target
+    component: app/deployer/target/index.vue
+    icon: lucide:target
+    order: 2
+    authority:
+      - platform:admin
+      - tenant:manager
+
+  - id: deployer-configurations
+    parent_id: deployer
+    type: MENU
+    name: Target Configurations
+    path: configuration
+    component: app/deployer/configuration/index.vue
+    icon: lucide:settings-2
+    order: 3
+    authority:
+      - platform:admin
+      - tenant:manager
+
+permission_groups:
+  - name: Deployer
+    module: deployer
+    description: Deployer Certificate Deployment Permissions
+    permissions:
+      - name: View Jobs
+        code: deployer.job.view
+        description: View deployment jobs
+      - name: Create Jobs
+        code: deployer.job.create
+        description: Create new deployment jobs
+      - name: Update Jobs
+        code: deployer.job.update
+        description: Update deployment jobs
+      - name: Delete Jobs
+        code: deployer.job.delete
+        description: Delete deployment jobs
+      - name: View Targets
+        code: deployer.target.view
+        description: View deployment targets
+      - name: Manage Targets
+        code: deployer.target.manage
+        description: Create, update, and delete deployment targets
+      - name: Manage Configurations
+        code: deployer.configuration.manage
+        description: Manage target configurations
+
+roles:
+  - name: Deployer Administrator
+    code: deployer.admin
+    description: Full access to Deployer module
+    is_system: true
+    permissions:
+      - deployer.job.view
+      - deployer.job.create
+      - deployer.job.update
+      - deployer.job.delete
+      - deployer.target.view
+      - deployer.target.manage
+      - deployer.configuration.manage
+
+  - name: Deployer Operator
+    code: deployer.operator
+    description: Can create and manage deployment jobs
+    is_system: true
+    permissions:
+      - deployer.job.view
+      - deployer.job.create
+      - deployer.job.update
+      - deployer.target.view
+
+  - name: Deployer Viewer
+    code: deployer.viewer
+    description: Read-only access to Deployer module
+    is_system: true
+    permissions:
+      - deployer.job.view
+      - deployer.target.view

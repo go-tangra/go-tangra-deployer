@@ -1,0 +1,33 @@
+syntax = "proto3";
+package kratos.api;
+
+option go_package = "go-wind-admin/app/deployer/service/internal/conf;conf";
+
+message Deployer {
+  string data_dir = 1; // Data directory for the deployer service
+  EventConfig events = 2; // Event subscription configuration
+  JobConfig jobs = 3; // Job execution configuration
+  EncryptionConfig encryption = 4; // Credentials encryption configuration
+}
+
+// Configuration for event subscriptions via Redis pub/sub
+message EventConfig {
+  bool enabled = 1; // Enable/disable event subscriptions
+  string topic_prefix = 2; // Prefix for event topics (default: "lcm")
+  repeated string subscribe_events = 3; // Events to subscribe to
+}
+
+// Configuration for job execution
+message JobConfig {
+  int32 worker_count = 1; // Number of concurrent job workers (default: 5)
+  int32 max_retries = 2; // Default max retries for jobs (default: 3)
+  int32 retry_delay_seconds = 3; // Initial retry delay in seconds (default: 60)
+  float retry_backoff_multiplier = 4; // Backoff multiplier for retries (default: 2.0)
+  int32 job_timeout_seconds = 5; // Default job timeout in seconds (default: 300)
+  int32 cleanup_days = 6; // Days to keep completed jobs (default: 30)
+}
+
+// Configuration for credentials encryption
+message EncryptionConfig {
+  string key = 1; // AES encryption key (32 bytes for AES-256)
+}

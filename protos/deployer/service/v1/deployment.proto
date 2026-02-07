@@ -1,0 +1,190 @@
+syntax = "proto3";
+
+package deployer.service.v1;
+
+import "buf/validate/validate.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+import "deployer/service/v1/deployment_job.proto";
+
+// Deployment result
+message DeploymentResult {
+  bool success = 1 [json_name = "success"];
+  optional string message = 2 [json_name = "message"];
+  optional string resource_id = 3 [json_name = "resourceId"];
+  optional google.protobuf.Struct details = 4 [json_name = "details"];
+  optional int64 duration_ms = 5 [json_name = "durationMs"];
+}
+
+// Deploy request - deploy to a single target configuration
+message DeployRequest {
+  string target_configuration_id = 1 [
+    json_name = "targetConfigurationId",
+    (google.api.field_behavior) = REQUIRED
+  ];
+  string certificate_id = 2 [
+    json_name = "certificateId",
+    (google.api.field_behavior) = REQUIRED
+  ];
+  optional bool wait_for_completion = 3 [json_name = "waitForCompletion"];
+  optional int32 timeout_seconds = 4 [json_name = "timeoutSeconds"];
+}
+
+message DeployResponse {
+  DeploymentJob job = 1 [json_name = "job"];
+  optional DeploymentResult result = 2 [json_name = "result"];
+}
+
+// Verify request
+message VerifyRequest {
+  string target_configuration_id = 1 [
+    json_name = "targetConfigurationId",
+    (google.api.field_behavior) = REQUIRED
+  ];
+  string certificate_id = 2 [
+    json_name = "certificateId",
+    (google.api.field_behavior) = REQUIRED
+  ];
+}
+
+message VerifyResponse {
+  DeploymentResult result = 1 [json_name = "result"];
+}
+
+// Rollback request
+message RollbackRequest {
+  string target_configuration_id = 1 [
+    json_name = "targetConfigurationId",
+    (google.api.field_behavior) = REQUIRED
+  ];
+  string certificate_id = 2 [
+    json_name = "certificateId",
+    (google.api.field_behavior) = REQUIRED
+  ];
+  optional string previous_certificate_id = 3 [json_name = "previousCertificateId"];
+}
+
+message RollbackResponse {
+  DeploymentJob job = 1 [json_name = "job"];
+  optional DeploymentResult result = 2 [json_name = "result"];
+}
+
+// Deploy to a deployment target group (creates parent job with child jobs)
+message DeployToTargetRequest {
+  // The deployment target group ID
+  string deployment_target_id = 1 [
+    json_name = "deploymentTargetId",
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).string.min_len = 1
+  ];
+  // The certificate to deploy
+  string certificate_id = 2 [
+    json_name = "certificateId",
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).string.min_len = 1
+  ];
+  // Optional: trigger reason
+  optional TriggerType triggered_by = 3 [json_name = "triggeredBy"];
+}
+
+message DeployToTargetResponse {
+  // The parent job created
+  DeploymentJob job = 1 [json_name = "job"];
+}
+
+// Deploy to multiple target configurations directly
+message DeployToConfigurationsRequest {
+  // The certificate to deploy
+  string certificate_id = 1 [
+    json_name = "certificateId",
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).string.min_len = 1
+  ];
+  // List of target configuration IDs to deploy to
+  repeated string configuration_ids = 2 [
+    json_name = "configurationIds",
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).repeated.min_items = 1
+  ];
+  // Optional: trigger reason
+  optional TriggerType triggered_by = 3 [json_name = "triggeredBy"];
+}
+
+// Result for a single configuration deployment
+message ConfigurationDeploymentResult {
+  string configuration_id = 1 [json_name = "configurationId"];
+  string configuration_name = 2 [json_name = "configurationName"];
+  optional DeploymentJob job = 3 [json_name = "job"];
+  optional string error = 4 [json_name = "error"];
+}
+
+message DeployToConfigurationsResponse {
+  // Total number of configurations
+  int32 total = 1 [json_name = "total"];
+  // Number of successful job creations
+  int32 succeeded = 2 [json_name = "succeeded"];
+  // Number of failed job creations
+  int32 failed = 3 [json_name = "failed"];
+  // Individual results per configuration
+  repeated ConfigurationDeploymentResult results = 4 [json_name = "results"];
+}
+
+// Legacy: Deploy to multiple targets (deprecated, use DeployToTarget or DeployToConfigurations)
+message DeployToTargetsRequest {
+  option deprecated = true;
+  // The certificate to deploy
+  string certificate_id = 1 [
+    json_name = "certificateId",
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).string.min_len = 1
+  ];
+  // List of target configuration IDs to deploy to
+  repeated string target_ids = 2 [
+    json_name = "targetIds",
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).repeated.min_items = 1
+  ];
+  // Optional: trigger reason
+  optional string triggered_by = 3 [json_name = "triggeredBy"];
+}
+
+// Legacy: Result for a single target deployment (deprecated)
+message TargetDeploymentResult {
+  option deprecated = true;
+  string target_id = 1 [json_name = "targetId"];
+  string target_name = 2 [json_name = "targetName"];
+  optional DeploymentJob job = 3 [json_name = "job"];
+  optional string error = 4 [json_name = "error"];
+}
+
+message DeployToTargetsResponse {
+  option deprecated = true;
+  // Total number of targets
+  int32 total = 1 [json_name = "total"];
+  // Number of successful job creations
+  int32 succeeded = 2 [json_name = "succeeded"];
+  // Number of failed job creations
+  int32 failed = 3 [json_name = "failed"];
+  // Individual results per target
+  repeated TargetDeploymentResult results = 4 [json_name = "results"];
+}
+
+// Deployment Service - Manual deployment operations
+service DeploymentService {
+  // Deploy a certificate to a single target configuration
+  rpc Deploy(DeployRequest) returns (DeployResponse) {}
+  // Deploy a certificate to a deployment target group (creates parent job + child jobs)
+  rpc DeployToTarget(DeployToTargetRequest) returns (DeployToTargetResponse) {}
+  // Deploy a certificate to multiple target configurations directly
+  rpc DeployToConfigurations(DeployToConfigurationsRequest) returns (DeployToConfigurationsResponse) {}
+  // Verify a deployment
+  rpc Verify(VerifyRequest) returns (VerifyResponse) {}
+  // Rollback a deployment
+  rpc Rollback(RollbackRequest) returns (RollbackResponse) {}
+  // Legacy: Deploy to multiple targets (deprecated)
+  rpc DeployToTargets(DeployToTargetsRequest) returns (DeployToTargetsResponse) {
+    option deprecated = true;
+  }
+}

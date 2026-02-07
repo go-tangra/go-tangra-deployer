@@ -1,0 +1,1329 @@
+# Generated with protoc-gen-openapi
+# https://github.com/google/gnostic/tree/master/cmd/protoc-gen-openapi
+
+openapi: 3.0.3
+info:
+    title: ""
+    version: 0.0.1
+paths:
+    /api/v1/deployer/statistics:
+        get:
+            tags:
+                - DeployerStatisticsService
+            description: GetStatistics returns comprehensive statistics about the Deployer system
+            operationId: DeployerStatisticsService_GetStatistics
+            parameters:
+                - name: recentErrorsLimit
+                  in: query
+                  description: 'Number of recent errors to return (default: 10)'
+                  schema:
+                    type: integer
+                    format: int32
+                - name: tenantId
+                  in: query
+                  description: Filter by specific tenant ID (optional, admin only)
+                  schema:
+                    type: integer
+                    format: uint32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetStatisticsResponse'
+    /api/v1/deployer/statistics/tenant/{tenantId}:
+        get:
+            tags:
+                - DeployerStatisticsService
+            description: GetTenantStatistics returns statistics for a specific tenant
+            operationId: DeployerStatisticsService_GetTenantStatistics
+            parameters:
+                - name: tenantId
+                  in: path
+                  description: Tenant ID to get statistics for
+                  required: true
+                  schema:
+                    type: integer
+                    format: uint32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/TenantStatistics'
+    /v1/deployment-jobs:
+        get:
+            tags:
+                - DeploymentJobService
+            description: List deployment jobs
+            operationId: DeploymentJobService_ListJobs
+            parameters:
+                - name: tenantId
+                  in: query
+                  schema:
+                    type: integer
+                    format: uint32
+                - name: deploymentTargetId
+                  in: query
+                  description: Filter by deployment target group (for parent jobs)
+                  schema:
+                    type: string
+                - name: targetConfigurationId
+                  in: query
+                  description: Filter by target configuration (for child/direct jobs)
+                  schema:
+                    type: string
+                - name: certificateId
+                  in: query
+                  schema:
+                    type: string
+                - name: status
+                  in: query
+                  schema:
+                    enum:
+                        - JOB_STATUS_UNSPECIFIED
+                        - JOB_STATUS_PENDING
+                        - JOB_STATUS_PROCESSING
+                        - JOB_STATUS_COMPLETED
+                        - JOB_STATUS_FAILED
+                        - JOB_STATUS_CANCELLED
+                        - JOB_STATUS_RETRYING
+                        - JOB_STATUS_PARTIAL
+                    type: string
+                    format: enum
+                - name: triggeredBy
+                  in: query
+                  schema:
+                    enum:
+                        - TRIGGER_TYPE_UNSPECIFIED
+                        - TRIGGER_TYPE_MANUAL
+                        - TRIGGER_TYPE_EVENT
+                        - TRIGGER_TYPE_AUTO_RENEWAL
+                    type: string
+                    format: enum
+                - name: jobType
+                  in: query
+                  description: Filter by job type
+                  schema:
+                    enum:
+                        - JOB_TYPE_UNSPECIFIED
+                        - JOB_TYPE_PARENT
+                        - JOB_TYPE_CHILD
+                        - JOB_TYPE_DIRECT
+                    type: string
+                    format: enum
+                - name: parentJobId
+                  in: query
+                  description: Filter by parent job ID (to list child jobs)
+                  schema:
+                    type: string
+                - name: createdAfter
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: createdBefore
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: includeChildJobs
+                  in: query
+                  description: Include child jobs in response (for parent jobs)
+                  schema:
+                    type: boolean
+                - name: page
+                  in: query
+                  schema:
+                    type: integer
+                    format: uint32
+                - name: pageSize
+                  in: query
+                  schema:
+                    type: integer
+                    format: uint32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListJobsResponse'
+        post:
+            tags:
+                - DeploymentJobService
+            description: Create a new deployment job
+            operationId: DeploymentJobService_CreateJob
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/CreateJobRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CreateJobResponse'
+    /v1/deployment-jobs/{id}/cancel:
+        post:
+            tags:
+                - DeploymentJobService
+            description: Cancel a pending or processing job
+            operationId: DeploymentJobService_CancelJob
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: cancelChildJobs
+                  in: query
+                  description: 'For parent jobs: also cancel child jobs'
+                  schema:
+                    type: boolean
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CancelJobResponse'
+    /v1/deployment-jobs/{id}/result:
+        get:
+            tags:
+                - DeploymentJobService
+            description: Get job result with history
+            operationId: DeploymentJobService_GetJobResult
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: includeChildJobs
+                  in: query
+                  description: Include child jobs in the response (for parent jobs)
+                  schema:
+                    type: boolean
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetJobResultResponse'
+    /v1/deployment-jobs/{id}/retry:
+        post:
+            tags:
+                - DeploymentJobService
+            description: Retry a failed job
+            operationId: DeploymentJobService_RetryJob
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: retryFailedChildrenOnly
+                  in: query
+                  description: 'For parent jobs: retry only failed child jobs'
+                  schema:
+                    type: boolean
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RetryJobResponse'
+    /v1/deployment-jobs/{id}/status:
+        get:
+            tags:
+                - DeploymentJobService
+            description: Get job status
+            operationId: DeploymentJobService_GetJobStatus
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: includeChildJobs
+                  in: query
+                  description: Include child jobs in the response (for parent jobs)
+                  schema:
+                    type: boolean
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetJobStatusResponse'
+    /v1/deployment-targets:
+        get:
+            tags:
+                - DeploymentTargetService
+            description: List deployment targets
+            operationId: DeploymentTargetService_ListTargets
+            parameters:
+                - name: tenantId
+                  in: query
+                  schema:
+                    type: integer
+                    format: uint32
+                - name: autoDeployOnRenewal
+                  in: query
+                  schema:
+                    type: boolean
+                - name: includeConfigurations
+                  in: query
+                  description: Include linked configurations in the response
+                  schema:
+                    type: boolean
+                - name: page
+                  in: query
+                  schema:
+                    type: integer
+                    format: uint32
+                - name: pageSize
+                  in: query
+                  schema:
+                    type: integer
+                    format: uint32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListTargetsResponse'
+        post:
+            tags:
+                - DeploymentTargetService
+            description: Create a new deployment target (group)
+            operationId: DeploymentTargetService_CreateTarget
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/CreateTargetRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CreateTargetResponse'
+    /v1/deployment-targets/{id}:
+        get:
+            tags:
+                - DeploymentTargetService
+            description: Get a deployment target by ID
+            operationId: DeploymentTargetService_GetTarget
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: includeConfigurations
+                  in: query
+                  description: Include linked configurations in the response
+                  schema:
+                    type: boolean
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetTargetResponse'
+        put:
+            tags:
+                - DeploymentTargetService
+            description: Update a deployment target
+            operationId: DeploymentTargetService_UpdateTarget
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UpdateTargetRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/UpdateTargetResponse'
+        delete:
+            tags:
+                - DeploymentTargetService
+            description: Delete a deployment target
+            operationId: DeploymentTargetService_DeleteTarget
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content: {}
+    /v1/deployment-targets/{id}/configurations:
+        get:
+            tags:
+                - DeploymentTargetService
+            description: List configurations linked to a deployment target
+            operationId: DeploymentTargetService_ListTargetConfigurations
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: page
+                  in: query
+                  schema:
+                    type: integer
+                    format: uint32
+                - name: pageSize
+                  in: query
+                  schema:
+                    type: integer
+                    format: uint32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListTargetConfigurationsResponse'
+        post:
+            tags:
+                - DeploymentTargetService
+            description: Add configurations to a deployment target
+            operationId: DeploymentTargetService_AddConfigurations
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/AddConfigurationsRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/AddConfigurationsResponse'
+        delete:
+            tags:
+                - DeploymentTargetService
+            description: Remove configurations from a deployment target
+            operationId: DeploymentTargetService_RemoveConfigurations
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: configurationIds
+                  in: query
+                  schema:
+                    type: array
+                    items:
+                        type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RemoveConfigurationsResponse'
+    /v1/target-configurations:
+        get:
+            tags:
+                - TargetConfigurationService
+            description: List target configurations
+            operationId: TargetConfigurationService_ListConfigurations
+            parameters:
+                - name: tenantId
+                  in: query
+                  schema:
+                    type: integer
+                    format: uint32
+                - name: providerType
+                  in: query
+                  schema:
+                    type: string
+                - name: status
+                  in: query
+                  schema:
+                    enum:
+                        - CONFIG_STATUS_UNSPECIFIED
+                        - CONFIG_STATUS_ACTIVE
+                        - CONFIG_STATUS_INACTIVE
+                        - CONFIG_STATUS_ERROR
+                    type: string
+                    format: enum
+                - name: page
+                  in: query
+                  schema:
+                    type: integer
+                    format: uint32
+                - name: pageSize
+                  in: query
+                  schema:
+                    type: integer
+                    format: uint32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListConfigurationsResponse'
+        post:
+            tags:
+                - TargetConfigurationService
+            description: Create a new target configuration
+            operationId: TargetConfigurationService_CreateConfiguration
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/CreateConfigurationRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CreateConfigurationResponse'
+    /v1/target-configurations/providers:
+        get:
+            tags:
+                - TargetConfigurationService
+            description: List available providers
+            operationId: TargetConfigurationService_ListProviders
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListConfigurationProvidersResponse'
+    /v1/target-configurations/validate-credentials:
+        post:
+            tags:
+                - TargetConfigurationService
+            description: Validate provider credentials
+            operationId: TargetConfigurationService_ValidateCredentials
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ValidateConfigurationCredentialsRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ValidateConfigurationCredentialsResponse'
+    /v1/target-configurations/{id}:
+        get:
+            tags:
+                - TargetConfigurationService
+            description: Get a target configuration by ID
+            operationId: TargetConfigurationService_GetConfiguration
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetConfigurationResponse'
+        put:
+            tags:
+                - TargetConfigurationService
+            description: Update a target configuration
+            operationId: TargetConfigurationService_UpdateConfiguration
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UpdateConfigurationRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/UpdateConfigurationResponse'
+        delete:
+            tags:
+                - TargetConfigurationService
+            description: Delete a target configuration
+            operationId: TargetConfigurationService_DeleteConfiguration
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content: {}
+components:
+    schemas:
+        AddConfigurationsRequest:
+            required:
+                - id
+                - configurationIds
+            type: object
+            properties:
+                id:
+                    type: string
+                configurationIds:
+                    type: array
+                    items:
+                        type: string
+            description: Add configurations to a deployment target
+        AddConfigurationsResponse:
+            type: object
+            properties:
+                target:
+                    $ref: '#/components/schemas/DeploymentTarget'
+        CancelJobResponse:
+            type: object
+            properties:
+                job:
+                    $ref: '#/components/schemas/DeploymentJob'
+        CertificateFilter:
+            type: object
+            properties:
+                issuerName:
+                    type: string
+                    description: Matches the certificate issuer name (exact match)
+                commonNamePattern:
+                    type: string
+                    description: Matches the certificate Common Name (regex pattern)
+                sanPattern:
+                    type: string
+                    description: Matches any Subject Alternative Name - DNS names (regex pattern)
+                subjectOrganization:
+                    type: string
+                    description: Matches the certificate Subject Organization (exact match)
+                subjectOrgUnit:
+                    type: string
+                    description: Matches the certificate Subject Organizational Unit (exact match)
+                subjectCountry:
+                    type: string
+                    description: Matches the certificate Subject Country (exact match)
+                labels:
+                    type: array
+                    items:
+                        type: string
+                    description: Labels for matching (reserved for future use)
+                domainPattern:
+                    type: string
+                    description: 'Deprecated: Use common_name_pattern and san_pattern instead'
+            description: |-
+                Certificate filter for auto-deployment
+                 All specified fields must match (AND logic). Empty fields are ignored.
+        ConfigurationStatistics:
+            type: object
+            properties:
+                totalCount:
+                    type: string
+                    description: Total number of target configurations
+                activeCount:
+                    type: string
+                    description: Number of active configurations
+                inactiveCount:
+                    type: string
+                    description: Number of inactive configurations
+                errorCount:
+                    type: string
+                    description: Number of configurations in error state
+                byStatus:
+                    type: object
+                    additionalProperties:
+                        type: string
+                    description: Configurations grouped by status
+                byProviderType:
+                    type: object
+                    additionalProperties:
+                        type: string
+                    description: Configurations grouped by provider type
+            description: ConfigurationStatistics contains statistics about target configurations
+        CreateConfigurationRequest:
+            required:
+                - tenantId
+                - name
+                - providerType
+                - credentials
+            type: object
+            properties:
+                tenantId:
+                    type: integer
+                    format: uint32
+                name:
+                    type: string
+                description:
+                    type: string
+                providerType:
+                    type: string
+                credentials:
+                    type: object
+                config:
+                    type: object
+            description: Create a new target configuration
+        CreateConfigurationResponse:
+            type: object
+            properties:
+                configuration:
+                    $ref: '#/components/schemas/TargetConfiguration'
+        CreateJobRequest:
+            required:
+                - certificateId
+            type: object
+            properties:
+                deploymentTargetId:
+                    type: string
+                    description: 'Option 1: Deploy to a deployment target group (creates parent job + child jobs)'
+                targetConfigurationId:
+                    type: string
+                    description: 'Option 2: Deploy directly to a single target configuration (creates direct job)'
+                certificateId:
+                    type: string
+                    description: Certificate to deploy
+                triggeredBy:
+                    enum:
+                        - TRIGGER_TYPE_UNSPECIFIED
+                        - TRIGGER_TYPE_MANUAL
+                        - TRIGGER_TYPE_EVENT
+                        - TRIGGER_TYPE_AUTO_RENEWAL
+                    type: string
+                    format: enum
+                maxRetries:
+                    type: integer
+                    format: int32
+            description: Create a new deployment job
+        CreateJobResponse:
+            type: object
+            properties:
+                job:
+                    $ref: '#/components/schemas/DeploymentJob'
+        CreateTargetRequest:
+            required:
+                - tenantId
+                - name
+            type: object
+            properties:
+                tenantId:
+                    type: integer
+                    format: uint32
+                name:
+                    type: string
+                description:
+                    type: string
+                autoDeployOnRenewal:
+                    type: boolean
+                certificateFilters:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/CertificateFilter'
+                configurationIds:
+                    type: array
+                    items:
+                        type: string
+                    description: 'Optional: link configurations during creation'
+            description: Create a new deployment target (group)
+        CreateTargetResponse:
+            type: object
+            properties:
+                target:
+                    $ref: '#/components/schemas/DeploymentTarget'
+        DeploymentJob:
+            type: object
+            properties:
+                id:
+                    type: string
+                tenantId:
+                    type: integer
+                    format: uint32
+                deploymentTargetId:
+                    type: string
+                    description: 'For parent jobs: deployment target group ID'
+                deploymentTargetName:
+                    type: string
+                    description: Name of the deployment target (for display)
+                targetConfigurationId:
+                    type: string
+                    description: 'For child/direct jobs: target configuration ID'
+                targetConfigurationName:
+                    type: string
+                    description: Name of the target configuration (for display)
+                parentJobId:
+                    type: string
+                    description: 'For child jobs: parent job ID'
+                jobType:
+                    enum:
+                        - JOB_TYPE_UNSPECIFIED
+                        - JOB_TYPE_PARENT
+                        - JOB_TYPE_CHILD
+                        - JOB_TYPE_DIRECT
+                    type: string
+                    description: Computed job type
+                    format: enum
+                certificateId:
+                    type: string
+                certificateSerial:
+                    type: string
+                status:
+                    enum:
+                        - JOB_STATUS_UNSPECIFIED
+                        - JOB_STATUS_PENDING
+                        - JOB_STATUS_PROCESSING
+                        - JOB_STATUS_COMPLETED
+                        - JOB_STATUS_FAILED
+                        - JOB_STATUS_CANCELLED
+                        - JOB_STATUS_RETRYING
+                        - JOB_STATUS_PARTIAL
+                    type: string
+                    format: enum
+                statusMessage:
+                    type: string
+                progress:
+                    type: integer
+                    format: int32
+                retryCount:
+                    type: integer
+                    format: int32
+                maxRetries:
+                    type: integer
+                    format: int32
+                triggeredBy:
+                    enum:
+                        - TRIGGER_TYPE_UNSPECIFIED
+                        - TRIGGER_TYPE_MANUAL
+                        - TRIGGER_TYPE_EVENT
+                        - TRIGGER_TYPE_AUTO_RENEWAL
+                    type: string
+                    format: enum
+                result:
+                    type: object
+                startedAt:
+                    type: string
+                    format: date-time
+                completedAt:
+                    type: string
+                    format: date-time
+                nextRetryAt:
+                    type: string
+                    format: date-time
+                totalChildJobs:
+                    type: integer
+                    description: 'For parent jobs: child job summary'
+                    format: int32
+                completedChildJobs:
+                    type: integer
+                    format: int32
+                failedChildJobs:
+                    type: integer
+                    format: int32
+                childJobs:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/DeploymentJob'
+                    description: 'For parent jobs: list of child jobs (populated when requested)'
+                createdBy:
+                    type: integer
+                    format: uint32
+                createTime:
+                    type: string
+                    format: date-time
+                updateTime:
+                    type: string
+                    format: date-time
+            description: Deployment job entity
+        DeploymentTarget:
+            type: object
+            properties:
+                id:
+                    type: string
+                tenantId:
+                    type: integer
+                    format: uint32
+                name:
+                    type: string
+                description:
+                    type: string
+                autoDeployOnRenewal:
+                    type: boolean
+                certificateFilters:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/CertificateFilter'
+                configurations:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/TargetConfiguration'
+                    description: Linked target configurations (populated when requested)
+                configurationCount:
+                    type: integer
+                    description: Count of linked configurations
+                    format: int32
+                createdBy:
+                    type: integer
+                    format: uint32
+                updatedBy:
+                    type: integer
+                    format: uint32
+                createTime:
+                    type: string
+                    format: date-time
+                updateTime:
+                    type: string
+                    format: date-time
+            description: Deployment target entity - represents a GROUP of target configurations
+        GetConfigurationResponse:
+            type: object
+            properties:
+                configuration:
+                    $ref: '#/components/schemas/TargetConfiguration'
+        GetJobResultResponse:
+            type: object
+            properties:
+                job:
+                    $ref: '#/components/schemas/DeploymentJob'
+                history:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/JobHistoryEntry'
+        GetJobStatusResponse:
+            type: object
+            properties:
+                job:
+                    $ref: '#/components/schemas/DeploymentJob'
+        GetStatisticsResponse:
+            type: object
+            properties:
+                jobs:
+                    allOf:
+                        - $ref: '#/components/schemas/JobStatistics'
+                    description: Deployment job statistics
+                targets:
+                    allOf:
+                        - $ref: '#/components/schemas/TargetStatistics'
+                    description: Deployment target statistics
+                configurations:
+                    allOf:
+                        - $ref: '#/components/schemas/ConfigurationStatistics'
+                    description: Target configuration statistics
+                recentErrors:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/RecentError'
+                    description: Recent errors/failures
+                tenantBreakdown:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/TenantStatistics'
+                    description: Per-tenant breakdown (only for platform admin requests)
+                generatedAt:
+                    type: string
+                    description: Statistics generation timestamp
+                    format: date-time
+            description: GetStatisticsResponse is the response message for GetStatistics
+        GetTargetResponse:
+            type: object
+            properties:
+                target:
+                    $ref: '#/components/schemas/DeploymentTarget'
+        JobHistoryEntry:
+            type: object
+            properties:
+                id:
+                    type: integer
+                    format: int32
+                jobId:
+                    type: string
+                action:
+                    type: string
+                result:
+                    type: string
+                message:
+                    type: string
+                durationMs:
+                    type: string
+                details:
+                    type: object
+                createTime:
+                    type: string
+                    format: date-time
+            description: Job history entry
+        JobStatistics:
+            type: object
+            properties:
+                totalCount:
+                    type: string
+                    description: Total number of jobs
+                pendingCount:
+                    type: string
+                    description: Number of pending jobs
+                processingCount:
+                    type: string
+                    description: Number of processing jobs
+                completedCount:
+                    type: string
+                    description: Number of completed jobs
+                failedCount:
+                    type: string
+                    description: Number of failed jobs
+                cancelledCount:
+                    type: string
+                    description: Number of cancelled jobs
+                retryingCount:
+                    type: string
+                    description: Number of retrying jobs
+                partialCount:
+                    type: string
+                    description: Number of partial jobs (parent jobs with mixed child results)
+                byStatus:
+                    type: object
+                    additionalProperties:
+                        type: string
+                    description: Jobs grouped by status
+                byTriggerType:
+                    type: object
+                    additionalProperties:
+                        type: string
+                    description: Jobs grouped by trigger type
+                last24Hours:
+                    allOf:
+                        - $ref: '#/components/schemas/JobTimeBreakdown'
+                    description: Jobs in the last 24 hours
+                last7Days:
+                    allOf:
+                        - $ref: '#/components/schemas/JobTimeBreakdown'
+                    description: Jobs in the last 7 days
+            description: JobStatistics contains statistics about deployment jobs
+        JobTimeBreakdown:
+            type: object
+            properties:
+                total:
+                    type: string
+                    description: Total jobs in period
+                succeeded:
+                    type: string
+                    description: Successful jobs
+                failed:
+                    type: string
+                    description: Failed jobs
+                successRate:
+                    type: number
+                    description: Success rate percentage (0-100)
+                    format: double
+            description: JobTimeBreakdown provides job counts within a time period
+        ListConfigurationProvidersResponse:
+            type: object
+            properties:
+                providers:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/ProviderInfo'
+        ListConfigurationsResponse:
+            type: object
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/TargetConfiguration'
+                total:
+                    type: string
+        ListJobsResponse:
+            type: object
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/DeploymentJob'
+                total:
+                    type: string
+        ListTargetConfigurationsResponse:
+            type: object
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/TargetConfiguration'
+                total:
+                    type: string
+        ListTargetsResponse:
+            type: object
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/DeploymentTarget'
+                total:
+                    type: string
+        ProviderInfo:
+            type: object
+            properties:
+                type:
+                    type: string
+                displayName:
+                    type: string
+                description:
+                    type: string
+                supportsVerification:
+                    type: boolean
+                supportsRollback:
+                    type: boolean
+                requiredConfigFields:
+                    type: array
+                    items:
+                        type: string
+                requiredCredentialFields:
+                    type: array
+                    items:
+                        type: string
+            description: Provider info
+        RecentError:
+            type: object
+            properties:
+                occurredAt:
+                    type: string
+                    description: Error timestamp
+                    format: date-time
+                jobId:
+                    type: string
+                    description: Job ID that failed
+                configurationId:
+                    type: string
+                    description: Target configuration ID
+                configurationName:
+                    type: string
+                    description: Target configuration name
+                certificateId:
+                    type: string
+                    description: Certificate ID
+                errorMessage:
+                    type: string
+                    description: Error message
+                tenantId:
+                    type: integer
+                    description: Tenant ID
+                    format: uint32
+                providerType:
+                    type: string
+                    description: Provider type
+            description: RecentError represents a recent deployment failure
+        RemoveConfigurationsResponse:
+            type: object
+            properties:
+                target:
+                    $ref: '#/components/schemas/DeploymentTarget'
+        RetryJobResponse:
+            type: object
+            properties:
+                job:
+                    $ref: '#/components/schemas/DeploymentJob'
+        TargetConfiguration:
+            type: object
+            properties:
+                id:
+                    type: string
+                tenantId:
+                    type: integer
+                    format: uint32
+                name:
+                    type: string
+                description:
+                    type: string
+                providerType:
+                    type: string
+                config:
+                    type: object
+                status:
+                    enum:
+                        - CONFIG_STATUS_UNSPECIFIED
+                        - CONFIG_STATUS_ACTIVE
+                        - CONFIG_STATUS_INACTIVE
+                        - CONFIG_STATUS_ERROR
+                    type: string
+                    format: enum
+                statusMessage:
+                    type: string
+                lastDeploymentAt:
+                    type: string
+                    format: date-time
+                createdBy:
+                    type: integer
+                    format: uint32
+                updatedBy:
+                    type: integer
+                    format: uint32
+                createTime:
+                    type: string
+                    format: date-time
+                updateTime:
+                    type: string
+                    format: date-time
+            description: Target configuration entity - represents a single deployment endpoint
+        TargetStatistics:
+            type: object
+            properties:
+                totalCount:
+                    type: string
+                    description: Total number of deployment targets
+                autoDeployEnabledCount:
+                    type: string
+                    description: Number of targets with auto-deploy on renewal
+                autoDeployDisabledCount:
+                    type: string
+                    description: Number of targets with auto-deploy disabled
+            description: TargetStatistics contains statistics about deployment targets
+        TenantStatistics:
+            type: object
+            properties:
+                tenantId:
+                    type: integer
+                    description: Tenant ID
+                    format: uint32
+                jobs:
+                    allOf:
+                        - $ref: '#/components/schemas/JobStatistics'
+                    description: Job statistics for this tenant
+                targets:
+                    allOf:
+                        - $ref: '#/components/schemas/TargetStatistics'
+                    description: Target statistics for this tenant
+                configurations:
+                    allOf:
+                        - $ref: '#/components/schemas/ConfigurationStatistics'
+                    description: Configuration statistics for this tenant
+            description: TenantStatistics provides statistics for a specific tenant
+        UpdateConfigurationRequest:
+            required:
+                - id
+            type: object
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                description:
+                    type: string
+                credentials:
+                    type: object
+                config:
+                    type: object
+                status:
+                    enum:
+                        - CONFIG_STATUS_UNSPECIFIED
+                        - CONFIG_STATUS_ACTIVE
+                        - CONFIG_STATUS_INACTIVE
+                        - CONFIG_STATUS_ERROR
+                    type: string
+                    format: enum
+            description: Update a target configuration
+        UpdateConfigurationResponse:
+            type: object
+            properties:
+                configuration:
+                    $ref: '#/components/schemas/TargetConfiguration'
+        UpdateTargetRequest:
+            required:
+                - id
+            type: object
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                description:
+                    type: string
+                autoDeployOnRenewal:
+                    type: boolean
+                certificateFilters:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/CertificateFilter'
+            description: Update a deployment target
+        UpdateTargetResponse:
+            type: object
+            properties:
+                target:
+                    $ref: '#/components/schemas/DeploymentTarget'
+        ValidateConfigurationCredentialsRequest:
+            required:
+                - providerType
+                - credentials
+            type: object
+            properties:
+                providerType:
+                    type: string
+                credentials:
+                    type: object
+                config:
+                    type: object
+                    description: Optional config for context-aware validation (e.g., zone_id for Cloudflare)
+            description: Validate credentials
+        ValidateConfigurationCredentialsResponse:
+            type: object
+            properties:
+                valid:
+                    type: boolean
+                message:
+                    type: string
+tags:
+    - name: DeployerStatisticsService
+      description: Deployer Statistics Service provides aggregated statistics about the deployment system
+    - name: DeploymentJobService
+      description: Deployment Job Service
+    - name: DeploymentTargetService
+      description: Deployment Target Service
+    - name: TargetConfigurationService
+      description: Target Configuration Service

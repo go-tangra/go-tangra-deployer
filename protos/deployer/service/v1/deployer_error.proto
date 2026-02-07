@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package deployer.service.v1;
+
+import "errors/errors.proto";
+
+enum DeployerErrorReason {
+  option (errors.default_code) = 500;
+
+  // 400
+  BAD_REQUEST = 0 [(errors.code) = 400]; // Bad request
+  INVALID_PROVIDER_TYPE = 1 [(errors.code) = 400]; // Invalid provider type
+  INVALID_CREDENTIALS = 2 [(errors.code) = 400]; // Invalid credentials format
+  INVALID_CONFIG = 3 [(errors.code) = 400]; // Invalid provider configuration
+  INVALID_CERTIFICATE = 4 [(errors.code) = 400]; // Invalid certificate data
+
+  // 401
+  UNAUTHORIZED = 100 [(errors.code) = 401]; // Unauthorized
+
+  // 403
+  FORBIDDEN = 300 [(errors.code) = 403]; // Access Denied
+  CREDENTIALS_INVALID = 301 [(errors.code) = 403]; // Provider credentials are invalid
+
+  // 404
+  NOT_FOUND = 400 [(errors.code) = 404]; // Resource not found
+  TARGET_NOT_FOUND = 401 [(errors.code) = 404]; // Deployment target not found
+  JOB_NOT_FOUND = 402 [(errors.code) = 404]; // Deployment job not found
+  CERTIFICATE_NOT_FOUND = 403 [(errors.code) = 404]; // Certificate not found
+  PROVIDER_NOT_FOUND = 404 [(errors.code) = 404]; // Provider not found
+  CONFIGURATION_NOT_FOUND = 405 [(errors.code) = 404]; // Target configuration not found
+
+  // 409
+  CONFLICT = 900 [(errors.code) = 409]; // Conflict
+  JOB_ALREADY_RUNNING = 901 [(errors.code) = 409]; // Job is already running
+  TARGET_NAME_EXISTS = 902 [(errors.code) = 409]; // Target with this name already exists
+  CONFIGURATION_NAME_EXISTS = 903 [(errors.code) = 409]; // Configuration with this name already exists
+
+  // 422
+  UNPROCESSABLE_ENTITY = 1100 [(errors.code) = 422]; // Unprocessable entity
+  DEPLOYMENT_FAILED = 1101 [(errors.code) = 422]; // Deployment failed
+  VERIFICATION_FAILED = 1102 [(errors.code) = 422]; // Verification failed
+  ROLLBACK_FAILED = 1103 [(errors.code) = 422]; // Rollback failed
+
+  // 500
+  INTERNAL_SERVER_ERROR = 2000 [(errors.code) = 500]; // Internal Server Error
+  PROVIDER_ERROR = 2001 [(errors.code) = 500]; // Provider returned an error
+
+  // 503
+  SERVICE_UNAVAILABLE = 2300 [(errors.code) = 503]; // Service unavailable
+  PROVIDER_UNAVAILABLE = 2301 [(errors.code) = 503]; // Provider is unavailable
+}
