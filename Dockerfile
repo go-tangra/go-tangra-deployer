@@ -10,7 +10,11 @@ ARG APP_VERSION=1.0.0
 ENV GOTOOLCHAIN=auto
 
 # Install build dependencies
-RUN apk add --no-cache git make
+RUN apk add --no-cache git make curl
+
+# Install buf for proto descriptor generation
+RUN curl -sSL "https://github.com/bufbuild/buf/releases/latest/download/buf-$(uname -s)-$(uname -m)" -o /usr/local/bin/buf && \
+    chmod +x /usr/local/bin/buf
 
 # Set working directory
 WORKDIR /src
@@ -21,6 +25,9 @@ RUN go mod download
 
 # Copy the entire source code
 COPY . .
+
+# Regenerate proto descriptor (ensures embedded descriptor.bin is always up to date)
+RUN buf build -o cmd/server/assets/descriptor.bin
 
 # Build the server
 RUN CGO_ENABLED=0 \
