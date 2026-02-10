@@ -15,7 +15,7 @@ import (
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
 	"github.com/go-tangra/go-tangra-deployer/pkg/deploy/registry"
 
-	appViewer "github.com/go-tangra/go-tangra-deployer/pkg/viewer"
+	appViewer "github.com/go-tangra/go-tangra-common/viewer"
 )
 
 // JobExecutor handles background job execution

@@ -72,8 +72,8 @@ github.com/go-playground/form/v4 v4.3.0 h1:OVttojbQv2WNCs4P+VnjPtrt/+30Ipw4890W3
 github.com/go-playground/form/v4 v4.3.0/go.mod h1:Cpe1iYJKoXb1vILRXEwxpWMGWyQuqplQ/4cvPecy+Jo=
 github.com/go-sql-driver/mysql v1.9.3 h1:U/N249h2WzJ3Ukj8SowVFjdtZKfu9vlLZxjPXV1aweo=
 github.com/go-sql-driver/mysql v1.9.3/go.mod h1:qn46aNg1333BRMNU69Lq93t8du/dwxI64Gl8i5p1WMU=
-github.com/go-tangra/go-tangra-common v0.3.0 h1:hwXKQaKoLBHldO5V2D9cnMTI0UR4LMw4TUlgq6zNM98=
-github.com/go-tangra/go-tangra-common v0.3.0/go.mod h1:WfHq0ljechqgEFVcID5cyqQMfjZAWhR/4Z7OabT4p30=
+github.com/go-tangra/go-tangra-common v0.4.0 h1:n6GVoOFfNghSS/mI0/mk6tGg3kXjQs9ZCGfu52MTBN4=
+github.com/go-tangra/go-tangra-common v0.4.0/go.mod h1:VrbcTN+5B3/PDimsSmgE/S9CjxeaULAPehIuYGZzDl0=
 github.com/go-tangra/go-tangra-lcm v0.0.1 h1:9algN4tV4S/lB0BA5n+lX2G3Z9gls8/jbZ6uU93GGpg=
 github.com/go-tangra/go-tangra-lcm v0.0.1/go.mod h1:v53u+plOiQbhhD7g/q0igy+Pv9XuGXnSXmkyHQszQG8=
 github.com/go-test/deep v1.0.3 h1:ZrJSEWsXzPOxaZnFteGEfooLba+ju3FYIbOrS+rQd68=
@@ -182,8 +182,8 @@ github.com/tx7do/go-crud/entgo v0.0.38 h1:P6Y6pyH1YezLOEk9vnaI+455mQQcb8YS/P7D8U
 github.com/tx7do/go-crud/entgo v0.0.38/go.mod h1:rawbQPbY6KPWKbCWIBZKa871iuAfPXIpExMAMZTfsJ4=
 github.com/tx7do/go-crud/pagination v0.0.11 h1:x0TAzoUs2wUAw//GEHZhzQ69La3RKkgycY6qXmSJ7Xo=
 github.com/tx7do/go-crud/pagination v0.0.11/go.mod h1:NSLa1QzYF5vUhueBsEBBXFxtqYO43jNhxl1DtsHNeLM=
-github.com/tx7do/go-crud/viewer v0.0.5 h1:YuaDaoBXEB1JWD1WjHqbXGBb3aaQ+bx3IWGp/y0BZSg=
-github.com/tx7do/go-crud/viewer v0.0.5/go.mod h1:t5MGistb4OfREu9aMj85eeYJqswnNpFRWgbL4nHTXiY=
+github.com/tx7do/go-crud/viewer v0.0.6 h1:y1DLUwS9JzbLGHiZGq2FlBXl1WLl9CPkeQFHr0bNvcw=
+github.com/tx7do/go-crud/viewer v0.0.6/go.mod h1:t5MGistb4OfREu9aMj85eeYJqswnNpFRWgbL4nHTXiY=
 github.com/tx7do/go-utils v1.1.34 h1:pE37CWljZkuqT1xs3nHsmg1SFXxJVAPXfbhUPXAo3fA=
 github.com/tx7do/go-utils v1.1.34/go.mod h1:h4l7qbtVr1MCDtgue/FGimhdPxwfR9UIL91U3CKnQSk=
 github.com/tx7do/go-utils/id v0.0.2 h1:mV5kyr+G9bB5obPWeZHxRiaFRVr7P0IznaSrM/D6B5U=
