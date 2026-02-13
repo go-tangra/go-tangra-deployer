@@ -425,7 +425,9 @@ func (r *DeploymentJobRepo) Cancel(ctx context.Context, id string, cancelChildJo
 			if childJob.Status == deploymentjob.StatusJOB_STATUS_PENDING ||
 				childJob.Status == deploymentjob.StatusJOB_STATUS_PROCESSING ||
 				childJob.Status == deploymentjob.StatusJOB_STATUS_RETRYING {
-				_, _ = r.UpdateStatus(ctx, childJob.ID, deploymentjob.StatusJOB_STATUS_CANCELLED, "Cancelled by parent job", childJob.Progress)
+				if _, err := r.UpdateStatus(ctx, childJob.ID, deploymentjob.StatusJOB_STATUS_CANCELLED, "Cancelled by parent job", childJob.Progress); err != nil {
+				r.log.Warnf("Failed to cancel child job %s: %v", childJob.ID, err)
+			}
 			}
 		}
 	}

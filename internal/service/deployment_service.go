@@ -430,7 +430,9 @@ func (s *DeploymentService) Rollback(ctx context.Context, req *deployerV1.Rollba
 
 	result, err := provider.Rollback(ctx, certData, config.Config, credentials)
 	if err != nil {
-		_, _ = s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, err.Error(), 0)
+		if _, statusErr := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, err.Error(), 0); statusErr != nil {
+			s.log.Warnf("Failed to update job %s status after rollback error: %v", job.ID, statusErr)
+		}
 		return nil, err
 	}
 
@@ -439,18 +441,27 @@ func (s *DeploymentService) Rollback(ctx context.Context, req *deployerV1.Rollba
 	if !result.Success {
 		historyResult = deploymenthistory.ResultRESULT_FAILURE
 	}
-	_, _ = s.historyRepo.Create(ctx, job.ID, deploymenthistory.ActionACTION_ROLLBACK,
-		historyResult, result.Message, time.Since(startTime).Milliseconds(), result.Details)
+	if _, err := s.historyRepo.Create(ctx, job.ID, deploymenthistory.ActionACTION_ROLLBACK,
+		historyResult, result.Message, time.Since(startTime).Milliseconds(), result.Details); err != nil {
+		s.log.Warnf("Failed to create rollback history for job %s: %v", job.ID, err)
+	}
 
 	// Update job status
 	if result.Success {
-		_, _ = s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_COMPLETED, "Rollback complete", 100)
+		if _, err := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_COMPLETED, "Rollback complete", 100); err != nil {
+			s.log.Warnf("Failed to update job %s status after rollback: %v", job.ID, err)
+		}
 	} else {
-		_, _ = s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, result.Message, 0)
+		if _, err := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, result.Message, 0); err != nil {
+			s.log.Warnf("Failed to update job %s status after rollback failure: %v", job.ID, err)
+		}
 	}
 
 	// Reload job
-	job, _ = s.jobRepo.GetByID(ctx, job.ID)
+	job, err = s.jobRepo.GetByID(ctx, job.ID)
+	if err != nil {
+		s.log.Warnf("Failed to reload job %s after rollback: %v", job.ID, err)
+	}
 
 	return &deployerV1.RollbackResponse{
 		Job:    s.jobRepo.ToProto(job),
@@ -471,14 +482,18 @@ func (s *DeploymentService) executeDeployment(ctx context.Context, job *data.Dep
 	// Get provider
 	provider, err := registry.Get(config.ProviderType)
 	if err != nil {
-		_, _ = s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, "Provider not found", 0)
+		if _, statusErr := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, "Provider not found", 0); statusErr != nil {
+			s.log.Warnf("Failed to update job %s status: %v", job.ID, statusErr)
+		}
 		return nil, err
 	}
 
 	// Get credentials
 	credentials, err := s.configService.GetDecryptedCredentials(ctx, config.ID)
 	if err != nil {
-		_, _ = s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, "Failed to get credentials", 0)
+		if _, statusErr := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, "Failed to get credentials", 0); statusErr != nil {
+			s.log.Warnf("Failed to update job %s status: %v", job.ID, statusErr)
+		}
 		return nil, err
 	}
 
@@ -490,15 +505,21 @@ func (s *DeploymentService) executeDeployment(ctx context.Context, job *data.Dep
 
 	// Progress callback
 	progressCb := func(progress int32, message string) {
-		_, _ = s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_PROCESSING, message, progress)
+		if _, err := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_PROCESSING, message, progress); err != nil {
+			s.log.Warnf("Failed to update job %s progress: %v", job.ID, err)
+		}
 	}
 
 	// Execute deployment
 	result, err := provider.Deploy(ctx, certData, config.Config, credentials, progressCb)
 	if err != nil {
-		_, _ = s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, err.Error(), 0)
-		_, _ = s.historyRepo.Create(ctx, job.ID, deploymenthistory.ActionACTION_DEPLOY,
-			deploymenthistory.ResultRESULT_FAILURE, err.Error(), time.Since(startTime).Milliseconds(), nil)
+		if _, statusErr := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, err.Error(), 0); statusErr != nil {
+			s.log.Warnf("Failed to update job %s status after deploy error: %v", job.ID, statusErr)
+		}
+		if _, histErr := s.historyRepo.Create(ctx, job.ID, deploymenthistory.ActionACTION_DEPLOY,
+			deploymenthistory.ResultRESULT_FAILURE, err.Error(), time.Since(startTime).Milliseconds(), nil); histErr != nil {
+			s.log.Warnf("Failed to create deploy failure history for job %s: %v", job.ID, histErr)
+		}
 		return nil, err
 	}
 
@@ -507,15 +528,23 @@ func (s *DeploymentService) executeDeployment(ctx context.Context, job *data.Dep
 	if !result.Success {
 		historyResult = deploymenthistory.ResultRESULT_FAILURE
 	}
-	_, _ = s.historyRepo.Create(ctx, job.ID, deploymenthistory.ActionACTION_DEPLOY,
-		historyResult, result.Message, result.DurationMs, result.Details)
+	if _, err := s.historyRepo.Create(ctx, job.ID, deploymenthistory.ActionACTION_DEPLOY,
+		historyResult, result.Message, result.DurationMs, result.Details); err != nil {
+		s.log.Warnf("Failed to create deployment history for job %s: %v", job.ID, err)
+	}
 
 	// Update job status
 	if result.Success {
-		_, _ = s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_COMPLETED, "Deployment complete", 100)
-		_ = s.configRepo.UpdateLastDeployment(ctx, config.ID)
+		if _, err := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_COMPLETED, "Deployment complete", 100); err != nil {
+			s.log.Warnf("Failed to update job %s status after deployment: %v", job.ID, err)
+		}
+		if err := s.configRepo.UpdateLastDeployment(ctx, config.ID); err != nil {
+			s.log.Warnf("Failed to update last deployment for config %s: %v", config.ID, err)
+		}
 	} else {
-		_, _ = s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, result.Message, 0)
+		if _, err := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, result.Message, 0); err != nil {
+			s.log.Warnf("Failed to update job %s status after deployment failure: %v", job.ID, err)
+		}
 	}
 
 	return toProtoResult(result), nil

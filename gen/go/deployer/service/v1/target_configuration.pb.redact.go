@@ -28,6 +28,7 @@ var (
 	_ timestamppb.Timestamp
 	_ emptypb.Empty
 	_ structpb.Struct
+	_ redact.FieldRules
 )
 
 // RegisterRedactedTargetConfigurationServiceServer wraps the TargetConfigurationServiceServer with the redacted server and registers the service in GRPC
@@ -195,7 +196,8 @@ func (x *CreateConfigurationRequest) Redact() string {
 
 	// Safe field: ProviderType
 
-	// Safe field: Credentials
+	// Redacting field: Credentials
+	x.Credentials = &structpb.Struct{}
 
 	// Safe field: Config
 	return x.String()
@@ -273,7 +275,8 @@ func (x *UpdateConfigurationRequest) Redact() string {
 
 	// Safe field: Description
 
-	// Safe field: Credentials
+	// Redacting field: Credentials
+	x.Credentials = &structpb.Struct{}
 
 	// Safe field: Config
 
@@ -309,7 +312,8 @@ func (x *ValidateConfigurationCredentialsRequest) Redact() string {
 
 	// Safe field: ProviderType
 
-	// Safe field: Credentials
+	// Redacting field: Credentials
+	x.Credentials = &structpb.Struct{}
 
 	// Safe field: Config
 	return x.String()

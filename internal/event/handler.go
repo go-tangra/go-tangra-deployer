@@ -40,7 +40,7 @@ func (h *Handler) HandleCertificateEvent(ctx context.Context, event *Certificate
 	case "renewal.completed":
 		return h.handleRenewalCompleted(ctx, event)
 	default:
-		h.log.Debugf("Ignoring unknown event type: %s", event.EventType)
+		h.log.Infof("Ignoring unknown event type: %s", event.EventType)
 		return nil
 	}
 }
@@ -54,7 +54,7 @@ func (h *Handler) handleCertificateIssued(ctx context.Context, event *Certificat
 	}
 
 	if len(targets) == 0 {
-		h.log.Debugf("No matching auto-deploy target groups for certificate %s", event.CertificateID)
+		h.log.Infof("No matching auto-deploy target groups for certificate %s", event.CertificateID)
 		return nil
 	}
 
@@ -68,7 +68,7 @@ func (h *Handler) handleCertificateIssued(ctx context.Context, event *Certificat
 		// Get configurations linked to this target
 		configs := target.Edges.Configurations
 		if len(configs) == 0 {
-			h.log.Debugf("Target group %s has no configurations, skipping", target.ID)
+			h.log.Infof("Target group %s has no configurations, skipping", target.ID)
 			continue
 		}
 

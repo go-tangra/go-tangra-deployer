@@ -206,7 +206,7 @@ func (s *Subscriber) listen(pubsub *redis.PubSub) {
 
 // handleMessage processes a pub/sub message
 func (s *Subscriber) handleMessage(msg *redis.Message) {
-	s.log.Debugf("Received event on channel %s: %s", msg.Channel, msg.Payload)
+	s.log.Infof("Received event on channel %s: %s", msg.Channel, msg.Payload)
 
 	// Parse the LCM event wrapper
 	var lcmEvent LCMEvent

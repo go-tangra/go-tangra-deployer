@@ -8,6 +8,7 @@ package servicev1
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+	_ "github.com/menta2k/protoc-gen-redact/v3/redact/v3"
 	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -1033,7 +1034,7 @@ var File_deployer_service_v1_target_configuration_proto protoreflect.FileDescrip
 
 const file_deployer_service_v1_target_configuration_proto_rawDesc = "" +
 	"\n" +
-	".deployer/service/v1/target_configuration.proto\x12\x13deployer.service.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/api/field_behavior.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xba\x06\n" +
+	".deployer/service/v1/target_configuration.proto\x12\x13deployer.service.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/api/field_behavior.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x16redact/v3/redact.proto\"\xba\x06\n" +
 	"\x13TargetConfiguration\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tH\x00R\x02id\x88\x01\x01\x12 \n" +
 	"\ttenant_id\x18\x02 \x01(\rH\x01R\btenantId\x88\x01\x01\x12\x17\n" +
@@ -1074,14 +1075,14 @@ const file_deployer_service_v1_target_configuration_proto_rawDesc = "" +
 	"\x15supports_verification\x18\x04 \x01(\bR\x14supportsVerification\x12+\n" +
 	"\x11supports_rollback\x18\x05 \x01(\bR\x10supportsRollback\x124\n" +
 	"\x16required_config_fields\x18\x06 \x03(\tR\x14requiredConfigFields\x12<\n" +
-	"\x1arequired_credential_fields\x18\a \x03(\tR\x18requiredCredentialFields\"\xd4\x02\n" +
+	"\x1arequired_credential_fields\x18\a \x03(\tR\x18requiredCredentialFields\"\xdd\x02\n" +
 	"\x1aCreateConfigurationRequest\x12 \n" +
 	"\ttenant_id\x18\x01 \x01(\rB\x03\xe0A\x02R\btenantId\x12!\n" +
 	"\x04name\x18\x02 \x01(\tB\r\xe0A\x02\xbaH\ar\x05\x10\x01\x18\x80\x01R\x04name\x12/\n" +
 	"\vdescription\x18\x03 \x01(\tB\b\xbaH\x05r\x03\x18\x80\x04H\x00R\vdescription\x88\x01\x01\x12/\n" +
 	"\rprovider_type\x18\x04 \x01(\tB\n" +
-	"\xe0A\x02\xbaH\x04r\x02\x10\x01R\fproviderType\x12>\n" +
-	"\vcredentials\x18\x05 \x01(\v2\x17.google.protobuf.StructB\x03\xe0A\x02R\vcredentials\x124\n" +
+	"\xe0A\x02\xbaH\x04r\x02\x10\x01R\fproviderType\x12G\n" +
+	"\vcredentials\x18\x05 \x01(\v2\x17.google.protobuf.StructB\f\xe0A\x02ڶ\x1a\x05\x9a\x01\x02\x10\x01R\vcredentials\x124\n" +
 	"\x06config\x18\x06 \x01(\v2\x17.google.protobuf.StructH\x01R\x06config\x88\x01\x01B\x0e\n" +
 	"\f_descriptionB\t\n" +
 	"\a_config\"m\n" +
@@ -1107,13 +1108,13 @@ const file_deployer_service_v1_target_configuration_proto_rawDesc = "" +
 	"_page_size\"r\n" +
 	"\x1aListConfigurationsResponse\x12>\n" +
 	"\x05items\x18\x01 \x03(\v2(.deployer.service.v1.TargetConfigurationR\x05items\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x04R\x05total\"\x83\x03\n" +
+	"\x05total\x18\x02 \x01(\x04R\x05total\"\x8e\x03\n" +
 	"\x1aUpdateConfigurationRequest\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tB\x03\xe0A\x02R\x02id\x12#\n" +
 	"\x04name\x18\x02 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01H\x00R\x04name\x88\x01\x01\x12/\n" +
-	"\vdescription\x18\x03 \x01(\tB\b\xbaH\x05r\x03\x18\x80\x04H\x01R\vdescription\x88\x01\x01\x12>\n" +
-	"\vcredentials\x18\x04 \x01(\v2\x17.google.protobuf.StructH\x02R\vcredentials\x88\x01\x01\x124\n" +
+	"\vdescription\x18\x03 \x01(\tB\b\xbaH\x05r\x03\x18\x80\x04H\x01R\vdescription\x88\x01\x01\x12I\n" +
+	"\vcredentials\x18\x04 \x01(\v2\x17.google.protobuf.StructB\tڶ\x1a\x05\x9a\x01\x02\x10\x01H\x02R\vcredentials\x88\x01\x01\x124\n" +
 	"\x06config\x18\x05 \x01(\v2\x17.google.protobuf.StructH\x03R\x06config\x88\x01\x01\x12E\n" +
 	"\x06status\x18\x06 \x01(\x0e2(.deployer.service.v1.ConfigurationStatusH\x04R\x06status\x88\x01\x01B\a\n" +
 	"\x05_nameB\x0e\n" +
@@ -1124,10 +1125,10 @@ const file_deployer_service_v1_target_configuration_proto_rawDesc = "" +
 	"\x1bUpdateConfigurationResponse\x12N\n" +
 	"\rconfiguration\x18\x01 \x01(\v2(.deployer.service.v1.TargetConfigurationR\rconfiguration\"1\n" +
 	"\x1aDeleteConfigurationRequest\x12\x13\n" +
-	"\x02id\x18\x01 \x01(\tB\x03\xe0A\x02R\x02id\"\xc4\x01\n" +
+	"\x02id\x18\x01 \x01(\tB\x03\xe0A\x02R\x02id\"\xcd\x01\n" +
 	"'ValidateConfigurationCredentialsRequest\x12(\n" +
-	"\rprovider_type\x18\x01 \x01(\tB\x03\xe0A\x02R\fproviderType\x12>\n" +
-	"\vcredentials\x18\x02 \x01(\v2\x17.google.protobuf.StructB\x03\xe0A\x02R\vcredentials\x12/\n" +
+	"\rprovider_type\x18\x01 \x01(\tB\x03\xe0A\x02R\fproviderType\x12G\n" +
+	"\vcredentials\x18\x02 \x01(\v2\x17.google.protobuf.StructB\f\xe0A\x02ڶ\x1a\x05\x9a\x01\x02\x10\x01R\vcredentials\x12/\n" +
 	"\x06config\x18\x03 \x01(\v2\x17.google.protobuf.StructR\x06config\"k\n" +
 	"(ValidateConfigurationCredentialsResponse\x12\x14\n" +
 	"\x05valid\x18\x01 \x01(\bR\x05valid\x12\x1d\n" +

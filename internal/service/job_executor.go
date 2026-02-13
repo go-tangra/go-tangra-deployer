@@ -204,7 +204,7 @@ func (e *JobExecutor) processJobs() {
 func (e *JobExecutor) processJob(job *ent.DeploymentJob) error {
 	// Skip parent jobs - they aggregate child job status
 	if job.TargetConfigurationID == nil || *job.TargetConfigurationID == "" {
-		e.log.Debugf("Skipping parent job %s (no target configuration)", job.ID)
+		e.log.Infof("Skipping parent job %s (no target configuration)", job.ID)
 		return nil
 	}
 
@@ -272,7 +272,9 @@ func (e *JobExecutor) processJob(job *ent.DeploymentJob) error {
 
 	// Progress callback
 	progressCb := func(progress int32, message string) {
-		_, _ = e.jobRepo.UpdateStatus(e.ctx, job.ID, deploymentjob.StatusJOB_STATUS_PROCESSING, message, progress)
+		if _, err := e.jobRepo.UpdateStatus(e.ctx, job.ID, deploymentjob.StatusJOB_STATUS_PROCESSING, message, progress); err != nil {
+			e.log.Warnf("Failed to update job %s progress: %v", job.ID, err)
+		}
 	}
 
 	// Execute deployment
@@ -292,8 +294,10 @@ func (e *JobExecutor) processJob(job *ent.DeploymentJob) error {
 		historyMessage = result.Message
 	}
 
-	_, _ = e.historyRepo.Create(e.ctx, job.ID, deploymenthistory.ActionACTION_DEPLOY,
-		historyResult, historyMessage, time.Since(startTime).Milliseconds(), nil)
+	if _, err := e.historyRepo.Create(e.ctx, job.ID, deploymenthistory.ActionACTION_DEPLOY,
+		historyResult, historyMessage, time.Since(startTime).Milliseconds(), nil); err != nil {
+		e.log.Warnf("Failed to create deployment history for job %s: %v", job.ID, err)
+	}
 
 	// Handle result
 	if err != nil || !result.Success {
@@ -316,7 +320,9 @@ func (e *JobExecutor) processJob(job *ent.DeploymentJob) error {
 	}
 
 	// Update configuration last deployment
-	_ = e.configRepo.UpdateLastDeployment(e.ctx, config.ID)
+	if err := e.configRepo.UpdateLastDeployment(e.ctx, config.ID); err != nil {
+		e.log.Warnf("Failed to update last deployment for config %s: %v", config.ID, err)
+	}
 
 	// Update parent job status if this is a child job
 	if job.ParentJobID != nil && *job.ParentJobID != "" {

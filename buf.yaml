@@ -24,3 +24,4 @@ deps:
   - 'buf.build/bufbuild/protovalidate'
   - 'buf.build/kratos/apis'
   - 'buf.build/gnostic/gnostic'
+  - 'buf.build/menta2k-org/redact'

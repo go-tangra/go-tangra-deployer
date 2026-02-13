@@ -119,12 +119,12 @@ func NewGRPCServer(
 	// Create the gRPC server
 	srv := grpc.NewServer(opts...)
 
-	// Register services
-	deployerV1.RegisterDeploymentTargetServiceServer(srv, targetSvc)
-	deployerV1.RegisterTargetConfigurationServiceServer(srv, configSvc)
-	deployerV1.RegisterDeploymentJobServiceServer(srv, jobSvc)
-	deployerV1.RegisterDeploymentServiceServer(srv, deploymentSvc)
-	deployerV1.RegisterDeployerStatisticsServiceServer(srv, statisticsSvc)
+	// Register services with redacted wrappers to prevent sensitive data in logs
+	deployerV1.RegisterRedactedDeploymentTargetServiceServer(srv, targetSvc, nil)
+	deployerV1.RegisterRedactedTargetConfigurationServiceServer(srv, configSvc, nil)
+	deployerV1.RegisterRedactedDeploymentJobServiceServer(srv, jobSvc, nil)
+	deployerV1.RegisterRedactedDeploymentServiceServer(srv, deploymentSvc, nil)
+	deployerV1.RegisterRedactedDeployerStatisticsServiceServer(srv, statisticsSvc, nil)
 
 	l.Info("gRPC server configured with all Deployer services")
 

@@ -354,7 +354,9 @@ func (s *DeploymentJobService) RetryJob(ctx context.Context, req *deployerV1.Ret
 		}
 		for _, child := range childJobs {
 			if child.Status == deploymentjob.StatusJOB_STATUS_FAILED {
-				_, _ = s.jobRepo.UpdateStatus(ctx, child.ID, deploymentjob.StatusJOB_STATUS_PENDING, "Retry requested", 0)
+				if _, err := s.jobRepo.UpdateStatus(ctx, child.ID, deploymentjob.StatusJOB_STATUS_PENDING, "Retry requested", 0); err != nil {
+				s.log.Warnf("Failed to reset child job %s for retry: %v", child.ID, err)
+			}
 			}
 		}
 		// Reset parent status to processing

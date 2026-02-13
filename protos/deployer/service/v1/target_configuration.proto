@@ -8,6 +8,7 @@ import "google/api/field_behavior.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/struct.proto";
+import "redact/v3/redact.proto";
 
 // Configuration status
 enum ConfigurationStatus {
@@ -70,7 +71,8 @@ message CreateConfigurationRequest {
   ];
   google.protobuf.Struct credentials = 5 [
     json_name = "credentials",
-    (google.api.field_behavior) = REQUIRED
+    (google.api.field_behavior) = REQUIRED,
+    (redact.v3.value).message.empty = true
   ];
   optional google.protobuf.Struct config = 6 [json_name = "config"];
 }
@@ -122,7 +124,10 @@ message UpdateConfigurationRequest {
     json_name = "description",
     (buf.validate.field).string = {max_len: 512}
   ];
-  optional google.protobuf.Struct credentials = 4 [json_name = "credentials"];
+  optional google.protobuf.Struct credentials = 4 [
+    json_name = "credentials",
+    (redact.v3.value).message.empty = true
+  ];
   optional google.protobuf.Struct config = 5 [json_name = "config"];
   optional ConfigurationStatus status = 6 [json_name = "status"];
 }
@@ -147,7 +152,8 @@ message ValidateConfigurationCredentialsRequest {
   ];
   google.protobuf.Struct credentials = 2 [
     json_name = "credentials",
-    (google.api.field_behavior) = REQUIRED
+    (google.api.field_behavior) = REQUIRED,
+    (redact.v3.value).message.empty = true
   ];
   // Optional config for context-aware validation (e.g., zone_id for Cloudflare)
   google.protobuf.Struct config = 3 [json_name = "config"];

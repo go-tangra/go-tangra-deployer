@@ -262,7 +262,10 @@ func (p *Provider) Rollback(ctx context.Context, cert *registry.CertificateData,
 	// Delete SSL profile first if it exists
 	if sslProfileName, ok := config["ssl_profile"].(string); ok && sslProfileName != "" {
 		profileFullName := fmt.Sprintf("/%s/%s", partition, sslProfileName)
-		_ = p.deleteResource(ctx, client, host, username, password, "ltm/profile/client-ssl", profileFullName)
+		if err := p.deleteResource(ctx, client, host, username, password, "ltm/profile/client-ssl", profileFullName); err != nil {
+			// SSL profile deletion is best-effort; continue with cert cleanup
+			_ = err
+		}
 	}
 
 	// Delete the certificate and key
@@ -278,8 +281,10 @@ func (p *Provider) Rollback(ctx context.Context, cert *registry.CertificateData,
 	if err := p.deleteResource(ctx, client, host, username, password, "sys/crypto/key", keyFullName); err != nil {
 		errors = append(errors, fmt.Sprintf("key: %v", err))
 	}
-	// Try to delete chain (may not exist)
-	_ = p.deleteResource(ctx, client, host, username, password, "sys/crypto/cert", chainFullName)
+	// Chain cert may not exist if the original deployment didn't include one
+	if err := p.deleteResource(ctx, client, host, username, password, "sys/crypto/cert", chainFullName); err != nil {
+		_ = err // intentionally ignored: chain cert is optional
+	}
 
 	if len(errors) > 0 {
 		return &registry.DeploymentResult{
