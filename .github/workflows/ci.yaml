@@ -159,17 +159,9 @@ jobs:
     permissions:
       packages: write
     steps:
-      - name: Delete untagged versions
-        uses: actions/delete-package-versions@v5
+      - name: Cleanup GHCR images
+        uses: dataaxiom/ghcr-cleanup-action@v1
         with:
-          package-name: ${{ github.event.repository.name }}
-          package-type: container
-          delete-only-untagged-versions: true
-          min-versions-to-keep: 0
-
-      - name: Keep only latest 10 tagged versions
-        uses: actions/delete-package-versions@v5
-        with:
-          package-name: ${{ github.event.repository.name }}
-          package-type: container
-          min-versions-to-keep: 10
+          delete-untagged: true
+          keep-n-tagged: 3
+          token: ${{ secrets.GITHUB_TOKEN }}
