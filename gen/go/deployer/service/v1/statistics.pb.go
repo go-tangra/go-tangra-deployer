@@ -851,10 +851,10 @@ const file_deployer_service_v1_statistics_proto_rawDesc = "" +
 	"\ttenant_id\x18\x01 \x01(\rR\btenantId\x126\n" +
 	"\x04jobs\x18\x02 \x01(\v2\".deployer.service.v1.JobStatisticsR\x04jobs\x12?\n" +
 	"\atargets\x18\x03 \x01(\v2%.deployer.service.v1.TargetStatisticsR\atargets\x12T\n" +
-	"\x0econfigurations\x18\x04 \x01(\v2,.deployer.service.v1.ConfigurationStatisticsR\x0econfigurations2\xd1\x02\n" +
-	"\x19DeployerStatisticsService\x12\x8b\x01\n" +
-	"\rGetStatistics\x12).deployer.service.v1.GetStatisticsRequest\x1a*.deployer.service.v1.GetStatisticsResponse\"#\x82\xd3\xe4\x93\x02\x1d\x12\x1b/api/v1/deployer/statistics\x12\xa5\x01\n" +
-	"\x13GetTenantStatistics\x12/.deployer.service.v1.GetTenantStatisticsRequest\x1a%.deployer.service.v1.TenantStatistics\"6\x82\xd3\xe4\x93\x020\x12./api/v1/deployer/statistics/tenant/{tenant_id}B\xe6\x01\n" +
+	"\x0econfigurations\x18\x04 \x01(\v2,.deployer.service.v1.ConfigurationStatisticsR\x0econfigurations2\xb6\x02\n" +
+	"\x19DeployerStatisticsService\x12~\n" +
+	"\rGetStatistics\x12).deployer.service.v1.GetStatisticsRequest\x1a*.deployer.service.v1.GetStatisticsResponse\"\x16\x82\xd3\xe4\x93\x02\x10\x12\x0e/v1/statistics\x12\x98\x01\n" +
+	"\x13GetTenantStatistics\x12/.deployer.service.v1.GetTenantStatisticsRequest\x1a%.deployer.service.v1.TenantStatistics\")\x82\xd3\xe4\x93\x02#\x12!/v1/statistics/tenant/{tenant_id}B\xe6\x01\n" +
 	"\x17com.deployer.service.v1B\x0fStatisticsProtoP\x01ZLgithub.com/go-tangra/go-tangra-deployer/gen/go/deployer/service/v1;servicev1\xa2\x02\x03DSX\xaa\x02\x13Deployer.Service.V1\xca\x02\x13Deployer\\Service\\V1\xe2\x02\x1fDeployer\\Service\\V1\\GPBMetadata\xea\x02\x15Deployer::Service::V1b\x06proto3"
 
 var (

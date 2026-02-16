@@ -55,6 +55,114 @@ menus:
       - platform:admin
       - tenant:manager
 
+dashboard_widgets:
+  - id: deployer.targets_total
+    name: Deployment Targets
+    description: Active and total deployment target counts
+    icon: lucide:target
+    widget_type: stat_card
+    data_source:
+      endpoint: /admin/v1/modules/deployer/v1/statistics
+      method: GET
+    data_mapping:
+      value_path: targets.activeCount
+      total_path: targets.totalCount
+      label: Targets
+    default_size:
+      width: 3
+      height: 1
+    tags: [deployer, overview]
+    authority: [platform:admin, tenant:manager]
+
+  - id: deployer.job_trends_line
+    name: Job Trends
+    description: Line chart of deployment job trends over time
+    icon: lucide:trending-up
+    widget_type: line_chart
+    data_source:
+      endpoint: /admin/v1/modules/deployer/v1/statistics
+      method: GET
+    data_mapping:
+      categories_path: jobs.dailyStats
+      category_field: date
+      series_fields: succeededCount,failedCount
+      series_labels: Succeeded,Failed
+    default_size:
+      width: 4
+      height: 2
+    tags: [deployer, chart]
+    authority: [platform:admin, tenant:manager]
+
+  - id: deployer.success_gauge
+    name: Deployment Success Rate
+    description: Gauge showing deployment success rate
+    icon: lucide:gauge
+    widget_type: gauge
+    data_source:
+      endpoint: /admin/v1/modules/deployer/v1/statistics
+      method: GET
+    data_mapping:
+      value_path: jobs.successRate
+      label: Success Rate
+    default_size:
+      width: 4
+      height: 2
+    tags: [deployer, chart]
+    authority: [platform:admin, tenant:manager]
+
+  - id: deployer.job_status_pie
+    name: Job Status Distribution
+    description: Pie chart of deployment job statuses
+    icon: lucide:pie-chart
+    widget_type: pie_chart
+    data_source:
+      endpoint: /admin/v1/modules/deployer/v1/statistics
+      method: GET
+    data_mapping:
+      series_path: jobs
+      series_fields: completedCount,failedCount,pendingCount,processingCount,cancelledCount,retryingCount
+      series_labels: Completed,Failed,Pending,Processing,Cancelled,Retrying
+    default_size:
+      width: 4
+      height: 2
+    tags: [deployer, chart]
+    authority: [platform:admin, tenant:manager]
+
+  - id: deployer.config_by_provider
+    name: Configs by Provider
+    description: Deployment configurations grouped by provider type
+    icon: lucide:cloud
+    widget_type: pie_chart
+    data_source:
+      endpoint: /admin/v1/modules/deployer/v1/statistics
+      method: GET
+    data_mapping:
+      data_path: configurations.byProviderType
+      label: Provider Type
+    default_size:
+      width: 4
+      height: 2
+    tags: [deployer, chart]
+    authority: [platform:admin, tenant:manager]
+
+  - id: deployer.auto_deploy_stat
+    name: Auto-Deploy Targets
+    description: Targets with auto-deploy enabled
+    icon: lucide:zap
+    widget_type: stat_card
+    data_source:
+      endpoint: /admin/v1/modules/deployer/v1/statistics
+      method: GET
+    data_mapping:
+      value_path: targets.autoDeployEnabledCount
+      total_path: targets.totalCount
+      label: Auto-Deploy
+    default_size:
+      width: 3
+      height: 1
+    tags: [deployer, overview]
+    authority: [platform:admin, tenant:manager]
+
 permission_groups:
   - name: Deployer
     module: deployer

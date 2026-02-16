@@ -31,8 +31,8 @@ type DeployerStatisticsServiceHTTPServer interface {
 
 func RegisterDeployerStatisticsServiceHTTPServer(s *http.Server, srv DeployerStatisticsServiceHTTPServer) {
 	r := s.Route("/")
-	r.GET("/api/v1/deployer/statistics", _DeployerStatisticsService_GetStatistics0_HTTP_Handler(srv))
-	r.GET("/api/v1/deployer/statistics/tenant/{tenant_id}", _DeployerStatisticsService_GetTenantStatistics0_HTTP_Handler(srv))
+	r.GET("/v1/statistics", _DeployerStatisticsService_GetStatistics0_HTTP_Handler(srv))
+	r.GET("/v1/statistics/tenant/{tenant_id}", _DeployerStatisticsService_GetTenantStatistics0_HTTP_Handler(srv))
 }
 
 func _DeployerStatisticsService_GetStatistics0_HTTP_Handler(srv DeployerStatisticsServiceHTTPServer) func(ctx http.Context) error {
@@ -94,7 +94,7 @@ func NewDeployerStatisticsServiceHTTPClient(client *http.Client) DeployerStatist
 // GetStatistics GetStatistics returns comprehensive statistics about the Deployer system
 func (c *DeployerStatisticsServiceHTTPClientImpl) GetStatistics(ctx context.Context, in *GetStatisticsRequest, opts ...http.CallOption) (*GetStatisticsResponse, error) {
 	var out GetStatisticsResponse
-	pattern := "/api/v1/deployer/statistics"
+	pattern := "/v1/statistics"
 	path := binding.EncodeURL(pattern, in, true)
 	opts = append(opts, http.Operation(OperationDeployerStatisticsServiceGetStatistics))
 	opts = append(opts, http.PathTemplate(pattern))
@@ -108,7 +108,7 @@ func (c *DeployerStatisticsServiceHTTPClientImpl) GetStatistics(ctx context.Cont
 // GetTenantStatistics GetTenantStatistics returns statistics for a specific tenant
 func (c *DeployerStatisticsServiceHTTPClientImpl) GetTenantStatistics(ctx context.Context, in *GetTenantStatisticsRequest, opts ...http.CallOption) (*TenantStatistics, error) {
 	var out TenantStatistics
-	pattern := "/api/v1/deployer/statistics/tenant/{tenant_id}"
+	pattern := "/v1/statistics/tenant/{tenant_id}"
 	path := binding.EncodeURL(pattern, in, true)
 	opts = append(opts, http.Operation(OperationDeployerStatisticsServiceGetTenantStatistics))
 	opts = append(opts, http.PathTemplate(pattern))
