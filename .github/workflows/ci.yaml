@@ -164,4 +164,4 @@ jobs:
         with:
           delete-untagged: true
           keep-n-tagged: 3
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GHCR_CLEANUP_TOKEN }}
