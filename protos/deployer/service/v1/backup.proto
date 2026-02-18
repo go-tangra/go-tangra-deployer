@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package deployer.service.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+enum RestoreMode {
+  RESTORE_MODE_SKIP = 0;
+  RESTORE_MODE_OVERWRITE = 1;
+}
+
+message ExportBackupRequest {
+  optional uint32 tenant_id = 1 [json_name = "tenantId"];
+}
+
+message ExportBackupResponse {
+  bytes data = 1 [json_name = "data"];
+  string module = 2 [json_name = "module"];
+  string version = 3 [json_name = "version"];
+  google.protobuf.Timestamp exported_at = 4 [json_name = "exportedAt"];
+  uint32 tenant_id = 5 [json_name = "tenantId"];
+  map<string, int64> entity_counts = 6 [json_name = "entityCounts"];
+}
+
+message ImportBackupRequest {
+  bytes data = 1 [json_name = "data"];
+  RestoreMode mode = 2 [json_name = "mode"];
+}
+
+message ImportBackupResponse {
+  bool success = 1 [json_name = "success"];
+  repeated EntityImportResult results = 2 [json_name = "results"];
+  repeated string warnings = 3 [json_name = "warnings"];
+}
+
+message EntityImportResult {
+  string entity_type = 1 [json_name = "entityType"];
+  int64 total = 2 [json_name = "total"];
+  int64 created = 3 [json_name = "created"];
+  int64 updated = 4 [json_name = "updated"];
+  int64 skipped = 5 [json_name = "skipped"];
+  int64 failed = 6 [json_name = "failed"];
+}
+
+service BackupService {
+  rpc ExportBackup(ExportBackupRequest) returns (ExportBackupResponse) {
+    option (google.api.http) = { get: "/v1/backup/export" };
+  }
+  rpc ImportBackup(ImportBackupRequest) returns (ImportBackupResponse) {
+    option (google.api.http) = { post: "/v1/backup/import" body: "*" };
+  }
+}

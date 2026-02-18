@@ -14,7 +14,9 @@ import (
 	"github.com/go-tangra/go-tangra-deployer/internal/server"
 	"github.com/go-tangra/go-tangra-deployer/internal/service"
 	"github.com/tx7do/kratos-bootstrap/bootstrap"
+)
 
+import (
 	_ "github.com/go-tangra/go-tangra-deployer/pkg/deploy/providers"
 )
 
@@ -49,7 +51,8 @@ func initApp(context *bootstrap.Context) (*kratos.App, func(), error) {
 	deploymentService := service.NewDeploymentService(context, deploymentJobRepo, deploymentTargetRepo, targetConfigurationRepo, deploymentHistoryRepo, targetConfigurationService)
 	statisticsRepo := data.NewStatisticsRepo(context, entClient)
 	statisticsService := service.NewStatisticsService(context, statisticsRepo)
-	grpcServer := server.NewGRPCServer(context, certManager, auditLogRepo, deploymentTargetService, targetConfigurationService, deploymentJobService, deploymentService, statisticsService)
+	backupService := service.NewBackupService(context, entClient)
+	grpcServer := server.NewGRPCServer(context, certManager, auditLogRepo, deploymentTargetService, targetConfigurationService, deploymentJobService, deploymentService, statisticsService, backupService)
 	client, cleanup2, err := data.NewRedisClient(context)
 	if err != nil {
 		cleanup()

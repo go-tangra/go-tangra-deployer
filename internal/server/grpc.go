@@ -63,6 +63,8 @@ func newGrpcMiddleware(
 			audit.WithWriteAuditLogFunc(audit.NewDatabaseWriter(auditLogRepo)),
 			audit.WithSkipOperations(
 				"/deployer.service.v1.DeployerStatisticsService/HealthCheck",
+				"/deployer.service.v1.BackupService/ExportBackup",
+				"/deployer.service.v1.BackupService/ImportBackup",
 			),
 		))
 	}
@@ -82,6 +84,7 @@ func NewGRPCServer(
 	jobSvc *service.DeploymentJobService,
 	deploymentSvc *service.DeploymentService,
 	statisticsSvc *service.StatisticsService,
+	backupSvc *service.BackupService,
 ) *grpc.Server {
 	cfg := ctx.GetConfig()
 	logger := ctx.GetLogger()
@@ -125,6 +128,7 @@ func NewGRPCServer(
 	deployerV1.RegisterRedactedDeploymentJobServiceServer(srv, jobSvc, nil)
 	deployerV1.RegisterRedactedDeploymentServiceServer(srv, deploymentSvc, nil)
 	deployerV1.RegisterRedactedDeployerStatisticsServiceServer(srv, statisticsSvc, nil)
+	deployerV1.RegisterRedactedBackupServiceServer(srv, backupSvc, nil)
 
 	l.Info("gRPC server configured with all Deployer services")
 
