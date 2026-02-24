@@ -2,6 +2,11 @@ module github.com/go-tangra/go-tangra-deployer
 
 go 1.25.4
 
+replace (
+	github.com/go-tangra/go-tangra-common => ../go-tangra-common
+	github.com/go-tangra/go-tangra-lcm => ../go-tangra-lcm
+)
+
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20251209175733-2a1774d88802.1
 	entgo.io/ent v0.14.5

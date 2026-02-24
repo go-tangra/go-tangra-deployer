@@ -67,7 +67,8 @@ func initApp(context *bootstrap.Context) (*kratos.App, func(), error) {
 		return nil, nil, err
 	}
 	jobExecutor := service.NewJobExecutor(context, deploymentJobRepo, targetConfigurationRepo, deploymentHistoryRepo, targetConfigurationService, lcmClient)
-	app := newApp(context, grpcServer, subscriber, jobExecutor)
+	httpServer := server.NewHTTPServer(context)
+	app := newApp(context, grpcServer, httpServer, subscriber, jobExecutor)
 	return app, func() {
 		cleanup3()
 		cleanup2()

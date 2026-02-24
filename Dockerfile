@@ -1,4 +1,18 @@
 ##################################
+# Stage 0: Build frontend module
+##################################
+
+FROM node:20-alpine AS frontend-builder
+
+RUN npm install -g pnpm@9
+
+WORKDIR /frontend
+COPY go-tangra-deployer/frontend/package.json go-tangra-deployer/frontend/pnpm-lock.yaml* ./
+RUN pnpm install --frozen-lockfile || pnpm install
+COPY go-tangra-deployer/frontend/ .
+RUN pnpm build
+
+##################################
 # Stage 1: Build Go executable
 ##################################
 
@@ -20,11 +34,16 @@ RUN curl -sSL "https://github.com/bufbuild/buf/releases/latest/download/buf-$(un
 WORKDIR /src
 
 # Copy go mod files first for better caching
-COPY go.mod go.sum ./
+COPY go-tangra-deployer/go.mod go-tangra-deployer/go.sum ./
+
+# Copy go-tangra-common and go-tangra-lcm for replace directives
+COPY go-tangra-common/ /go-tangra-common/
+COPY go-tangra-lcm/ /go-tangra-lcm/
+
 RUN go mod download
 
 # Copy the entire source code
-COPY . .
+COPY go-tangra-deployer/ .
 
 # Regenerate proto descriptor (ensures embedded descriptor.bin is always up to date)
 RUN buf build -o cmd/server/assets/descriptor.bin
@@ -60,6 +79,9 @@ COPY --from=builder /src/bin/deployer-server /app/bin/deployer-server
 # Copy configuration files
 COPY --from=builder /src/configs/ /app/configs/
 
+# Copy frontend assets from frontend builder
+COPY --from=frontend-builder /frontend/dist /app/frontend-dist
+
 # Create non-root user
 RUN addgroup -g 1000 deployer && \
     adduser -D -u 1000 -G deployer deployer && \
@@ -68,8 +90,8 @@ RUN addgroup -g 1000 deployer && \
 # Switch to non-root user
 USER deployer:deployer
 
-# Expose gRPC port
-EXPOSE 9200
+# Expose gRPC and HTTP ports
+EXPOSE 9200 9201
 
 # Set default command
 CMD ["/app/bin/deployer-server", "-c", "/app/configs"]

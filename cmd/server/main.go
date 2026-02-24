@@ -7,6 +7,7 @@ import (
 	"github.com/go-kratos/kratos/v2"
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/go-kratos/kratos/v2/transport/grpc"
+	kratosHttp "github.com/go-kratos/kratos/v2/transport/http"
 
 	conf "github.com/tx7do/kratos-bootstrap/api/gen/go/conf/v1"
 	"github.com/tx7do/kratos-bootstrap/bootstrap"
@@ -38,6 +39,7 @@ var globalRegHelper *registration.RegistrationHelper
 func newApp(
 	ctx *bootstrap.Context,
 	gs *grpc.Server,
+	hs *kratosHttp.Server,
 	eventSubscriber *event.Subscriber,
 	jobExecutor *service.JobExecutor,
 ) *kratos.App {
@@ -67,12 +69,14 @@ func newApp(
 		OpenapiSpec:       assets.OpenApiData,
 		ProtoDescriptor:   assets.DescriptorData,
 		MenusYaml:         assets.MenusData,
+		FrontendEntryUrl:  registration.GetEnvOrDefault("FRONTEND_ENTRY_URL", ""),
+		HttpEndpoint:      registration.GetEnvOrDefault("HTTP_ADVERTISE_ADDR", ""),
 		HeartbeatInterval: 30 * time.Second,
 		RetryInterval:     5 * time.Second,
 		MaxRetries:        60,
 	})
 
-	return bootstrap.NewApp(ctx, gs)
+	return bootstrap.NewApp(ctx, gs, hs)
 }
 
 // stopServices stops background services (called from wire cleanup)

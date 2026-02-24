@@ -1,0 +1,304 @@
+{
+  "menu": {
+    "moduleName": "Certificate Deployment",
+    "target": "Deployment Targets",
+    "configuration": "Target Configurations",
+    "job": "Deployment Jobs"
+  },
+  "page": {
+    "target": {
+      "moduleName": "Deployment Target",
+      "id": "Target ID",
+      "name": "Name",
+      "description": "Description",
+      "configurationCount": "Configurations",
+      "autoDeployOnRenewal": "Auto Deploy",
+      "configurations": "Linked Configurations",
+      "addConfiguration": "Add Configuration",
+      "removeConfiguration": "Remove Configuration",
+      "selectConfigurations": "Select Configurations",
+      "noConfigurations": "No configurations linked",
+      "autoDeployOnRenewalHint": "Automatically deploy certificates when renewed",
+      "certificateFilters": "Certificate Filters",
+      "certificateFiltersHint": "Define filters to automatically match certificates for deployment. All fields within a filter use AND logic. If any filter matches, the certificate will be deployed.",
+      "addFilter": "Add Filter",
+      "lastDeploymentAt": "Last Deployment",
+      "config": "Configuration",
+      "credentials": "Credentials",
+      "tenant": "Tenant",
+      "createTime": "Created At",
+      "updateTime": "Updated At",
+      "details": "Target Details",
+      "create": "Create Target",
+      "edit": "Edit Target",
+      "delete": "Delete Target",
+      "confirmDelete": "Are you sure you want to delete this target?",
+      "createSuccess": "Target created successfully",
+      "updateSuccess": "Target updated successfully",
+      "deleteSuccess": "Target deleted successfully",
+      "validateCredentials": "Validate Credentials",
+      "validateSuccess": "Credentials validated successfully",
+      "validateFailed": "Credentials validation failed",
+      "filter": {
+        "title": "Filter #{index}",
+        "issuerName": "Issuer Name",
+        "issuerNamePlaceholder": "e.g., Let's Encrypt Authority X3",
+        "commonNamePattern": "Common Name Pattern",
+        "commonNamePatternPlaceholder": "Regex pattern, e.g., .*\\.example\\.com",
+        "sanPattern": "SAN Pattern",
+        "sanPatternPlaceholder": "Regex pattern, e.g., .*\\.example\\.com",
+        "subjectOrganization": "Subject Organization",
+        "subjectOrganizationPlaceholder": "e.g., My Company Inc.",
+        "subjectOrgUnit": "Subject Org Unit",
+        "subjectOrgUnitPlaceholder": "e.g., IT Department",
+        "subjectCountry": "Subject Country",
+        "subjectCountryPlaceholder": "e.g., US",
+        "domainPattern": "Domain Pattern (Deprecated)",
+        "labels": "Labels"
+      },
+      "error": {
+        "nameRequired": "Name is required",
+        "providerRequired": "Provider type is required",
+        "credentialsRequired": "Credentials are required"
+      }
+    },
+    "configuration": {
+      "moduleName": "Target Configuration",
+      "id": "Configuration ID",
+      "name": "Name",
+      "description": "Description",
+      "providerType": "Provider Type",
+      "status": "Status",
+      "statusMessage": "Status Message",
+      "lastDeploymentAt": "Last Deployment",
+      "config": "Configuration",
+      "credentials": "Credentials",
+      "tenant": "Tenant",
+      "basicInfo": "Basic Information",
+      "createTime": "Created At",
+      "updateTime": "Updated At",
+      "details": "Configuration Details",
+      "create": "Create Configuration",
+      "edit": "Edit Configuration",
+      "delete": "Delete Configuration",
+      "confirmDelete": "Are you sure you want to delete this configuration?",
+      "createSuccess": "Configuration created successfully",
+      "updateSuccess": "Configuration updated successfully",
+      "deleteSuccess": "Configuration deleted successfully",
+      "validateCredentials": "Validate Credentials",
+      "validateSuccess": "Credentials validated successfully",
+      "validateFailed": "Credentials validation failed",
+      "error": {
+        "nameRequired": "Name is required",
+        "providerRequired": "Provider type is required",
+        "credentialsRequired": "Credentials are required"
+      }
+    },
+    "job": {
+      "moduleName": "Deployment Job",
+      "id": "Job ID",
+      "targetId": "Target ID",
+      "targetName": "Target Name",
+      "certificateId": "Certificate ID",
+      "certificateSerial": "Certificate Serial",
+      "status": "Status",
+      "statusMessage": "Status Message",
+      "progress": "Progress",
+      "retryCount": "Retry Count",
+      "maxRetries": "Max Retries",
+      "triggeredBy": "Triggered By",
+      "result": "Result",
+      "startedAt": "Started At",
+      "completedAt": "Completed At",
+      "nextRetryAt": "Next Retry At",
+      "tenant": "Tenant",
+      "createTime": "Created At",
+      "updateTime": "Updated At",
+      "history": "History",
+      "details": "Job Details",
+      "create": "Create Job",
+      "cancel": "Cancel Job",
+      "retry": "Retry Job",
+      "confirmCancel": "Are you sure you want to cancel this job?",
+      "confirmRetry": "Are you sure you want to retry this job?",
+      "createSuccess": "Job created successfully",
+      "cancelSuccess": "Job cancelled successfully",
+      "retrySuccess": "Job retry initiated successfully",
+      "historyEntry": {
+        "action": "Action",
+        "result": "Result",
+        "message": "Message",
+        "durationMs": "Duration (ms)",
+        "details": "Details",
+        "createTime": "Time"
+      },
+      "deploy": {
+        "title": "Deploy Certificate",
+        "targetId": "Target",
+        "certificateId": "Certificate ID",
+        "waitForCompletion": "Wait for Completion",
+        "timeoutSeconds": "Timeout (seconds)",
+        "submit": "Deploy",
+        "success": "Deployment initiated successfully"
+      },
+      "deployToTargets": {
+        "title": "Deploy to Multiple Targets",
+        "targetIds": "Targets",
+        "certificateId": "Certificate ID",
+        "submit": "Deploy",
+        "success": "Deployment to targets initiated successfully"
+      },
+      "verify": {
+        "title": "Verify Deployment",
+        "submit": "Verify",
+        "success": "Verification completed"
+      },
+      "rollback": {
+        "title": "Rollback Deployment",
+        "previousCertificateId": "Previous Certificate ID",
+        "submit": "Rollback",
+        "success": "Rollback initiated successfully"
+      },
+      "error": {
+        "targetRequired": "Target is required",
+        "certificateRequired": "Certificate ID is required"
+      }
+    },
+    "provider": {
+      "moduleName": "Provider",
+      "type": "Type",
+      "displayName": "Display Name",
+      "description": "Description",
+      "supportsVerification": "Supports Verification",
+      "supportsRollback": "Supports Rollback",
+      "requiredConfigFields": "Required Config Fields",
+      "requiredCredentialFields": "Required Credential Fields"
+    }
+  },
+  "providers": {
+    "cloudflare": {
+      "name": "Cloudflare",
+      "description": "Deploy certificates to Cloudflare Custom SSL",
+      "fields": {
+        "api_token": "API Token",
+        "api_token_placeholder": "Cloudflare API token with Zone:SSL permissions",
+        "zone_id": "Zone ID",
+        "zone_id_placeholder": "Cloudflare Zone ID"
+      }
+    },
+    "bigip": {
+      "name": "F5 BIG-IP",
+      "description": "Deploy certificates to F5 BIG-IP load balancers",
+      "fields": {
+        "host": "BIG-IP Host",
+        "host_placeholder": "e.g., bigip.example.com or 192.168.1.100",
+        "username": "Username",
+        "username_placeholder": "BIG-IP admin username",
+        "password": "Password",
+        "password_placeholder": "BIG-IP admin password",
+        "partition": "Partition",
+        "partition_placeholder": "e.g., Common",
+        "ssl_profile": "SSL Profile (Optional)",
+        "ssl_profile_placeholder": "e.g., my-ssl-profile"
+      }
+    },
+    "aws_acm": {
+      "name": "AWS ACM",
+      "description": "Deploy certificates to AWS Certificate Manager",
+      "fields": {
+        "access_key_id": "Access Key ID",
+        "access_key_id_placeholder": "AWS Access Key ID",
+        "secret_access_key": "Secret Access Key",
+        "secret_access_key_placeholder": "AWS Secret Access Key",
+        "region": "Region",
+        "region_placeholder": "e.g., us-east-1"
+      }
+    },
+    "dummy": {
+      "name": "Dummy (Testing)",
+      "description": "Dummy provider for testing purposes",
+      "fields": {}
+    },
+    "fortigate": {
+      "name": "FortiGate",
+      "description": "Deploy certificates to FortiGate firewalls",
+      "fields": {
+        "host": "FortiGate Host",
+        "host_placeholder": "e.g., fortigate.example.com or 192.168.1.1",
+        "api_token": "API Token",
+        "api_token_placeholder": "FortiGate REST API token",
+        "vdom": "VDOM",
+        "vdom_placeholder": "e.g., root"
+      }
+    },
+    "webhook": {
+      "name": "Webhook",
+      "description": "Deploy certificates via HTTP webhook",
+      "fields": {
+        "url": "Webhook URL",
+        "url_placeholder": "https://your-server.com/api/deploy-certificate",
+        "authorization": "Authorization Header",
+        "authorization_placeholder": "Bearer your-token or Basic base64-credentials",
+        "api_key": "API Key (Optional)",
+        "api_key_placeholder": "Sent as X-API-Key header",
+        "secret": "Webhook Secret (Optional)",
+        "secret_placeholder": "Sent as X-Webhook-Secret header",
+        "token": "Bearer Token (Optional)",
+        "token_placeholder": "Token for Bearer authentication",
+        "verify_url": "Verify URL (Optional)",
+        "verify_url_placeholder": "URL for verification requests (defaults to main URL)",
+        "rollback_url": "Rollback URL (Optional)",
+        "rollback_url_placeholder": "URL for rollback requests (defaults to main URL)",
+        "skip_tls_verify": "Skip TLS Verification",
+        "skip_tls_verify_placeholder": "true or false",
+        "timeout_seconds": "Timeout (seconds)",
+        "timeout_seconds_placeholder": "Request timeout in seconds (default: 60)"
+      }
+    }
+  },
+  "enum": {
+    "targetStatus": {
+      "unspecified": "Unspecified",
+      "active": "Active",
+      "inactive": "Inactive",
+      "error": "Error"
+    },
+    "configStatus": {
+      "unspecified": "Unspecified",
+      "active": "Active",
+      "inactive": "Inactive",
+      "error": "Error"
+    },
+    "jobType": {
+      "unspecified": "Unspecified",
+      "parent": "Parent",
+      "child": "Child",
+      "direct": "Direct"
+    },
+    "jobStatus": {
+      "unspecified": "Unspecified",
+      "pending": "Pending",
+      "processing": "Processing",
+      "completed": "Completed",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "retrying": "Retrying"
+    },
+    "triggerType": {
+      "unspecified": "Unspecified",
+      "manual": "Manual",
+      "event": "Event",
+      "autoRenewal": "Auto Renewal"
+    },
+    "historyAction": {
+      "deploy": "Deploy",
+      "rollback": "Rollback",
+      "verify": "Verify"
+    },
+    "historyResult": {
+      "success": "Success",
+      "failure": "Failure",
+      "partial": "Partial"
+    }
+  }
+}
