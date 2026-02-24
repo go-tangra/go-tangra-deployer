@@ -1,6 +1,9 @@
 package assets
 
-import _ "embed"
+import (
+	"embed"
+	_ "embed"
+)
 
 //go:embed openapi.yaml
 var OpenApiData []byte
@@ -10,3 +13,6 @@ var MenusData []byte
 
 //go:embed descriptor.bin
 var DescriptorData []byte
+
+//go:embed all:frontend-dist
+var FrontendDist embed.FS

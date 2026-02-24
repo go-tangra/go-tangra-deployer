@@ -43,6 +43,9 @@ COPY . .
 # Regenerate proto descriptor (ensures embedded descriptor.bin is always up to date)
 RUN buf build -o cmd/server/assets/descriptor.bin
 
+# Copy frontend dist into assets for go:embed
+COPY --from=frontend-builder /frontend/dist cmd/server/assets/frontend-dist/
+
 # Build the server
 RUN CGO_ENABLED=0 \
     GOOS=linux \
@@ -73,9 +76,6 @@ COPY --from=builder /src/bin/deployer-server /app/bin/deployer-server
 
 # Copy configuration files
 COPY --from=builder /src/configs/ /app/configs/
-
-# Copy frontend assets from frontend builder
-COPY --from=frontend-builder /frontend/dist /app/frontend-dist
 
 # Create non-root user
 RUN addgroup -g 1000 deployer && \
