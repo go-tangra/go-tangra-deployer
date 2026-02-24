@@ -32,6 +32,12 @@ declare module 'shell/vben/layouts' {
   export const BasicLayout: Component;
 }
 
+declare module 'shell/app-layout' {
+  import type { Component } from 'vue';
+  const component: Component;
+  export default component;
+}
+
 declare module 'shell/adapter/vxe-table' {
   export function useVbenVxeGrid(options: any): any;
   export type VxeGridProps = any;
