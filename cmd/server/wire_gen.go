@@ -57,7 +57,7 @@ func initApp(context *bootstrap.Context) (*kratos.App, func(), error) {
 	statisticsRepo := data.NewStatisticsRepo(context, entClient)
 	statisticsService := service.NewStatisticsService(context, statisticsRepo)
 	backupService := service.NewBackupService(context, entClient)
-	grpcServer := server.NewGRPCServer(context, v, auditLogRepo, deploymentTargetService, targetConfigurationService, deploymentJobService, deploymentService, statisticsService, backupService)
+	grpcServer := server.NewGRPCServer(context, v, collector, auditLogRepo, deploymentTargetService, targetConfigurationService, deploymentJobService, deploymentService, statisticsService, backupService)
 	httpServer := server.NewHTTPServer(context)
 	client, cleanup2, err := data.NewRedisClient(context)
 	if err != nil {

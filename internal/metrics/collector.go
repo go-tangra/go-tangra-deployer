@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/go-kratos/kratos/v2/log"
+	"github.com/go-kratos/kratos/v2/middleware"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tx7do/kratos-bootstrap/bootstrap"
 
@@ -29,6 +30,10 @@ type Collector struct {
 
 	// Configuration metrics
 	ConfigurationsByStatus *prometheus.GaugeVec
+
+	// gRPC request metrics
+	RequestDuration *prometheus.HistogramVec
+	RequestsTotal   *prometheus.CounterVec
 }
 
 // NewCollector creates and registers all deployer Prometheus metrics.
@@ -70,6 +75,21 @@ func NewCollector(ctx *bootstrap.Context) *Collector {
 			Name:      "configurations_by_status",
 			Help:      "Number of target configurations by status.",
 		}, []string{"status"}),
+
+		RequestDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "grpc_request_duration_seconds",
+			Help:      "Histogram of gRPC request durations in seconds.",
+			Buckets:   prometheus.DefBuckets,
+		}, []string{"method"}),
+
+		RequestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "grpc_requests_total",
+			Help:      "Total number of gRPC requests by method and status.",
+		}, []string{"method", "status"}),
 	}
 
 	prometheus.MustRegister(
@@ -78,6 +98,8 @@ func NewCollector(ctx *bootstrap.Context) *Collector {
 		c.TargetsTotal,
 		c.TargetsAutoDeployEnabled,
 		c.ConfigurationsByStatus,
+		c.RequestDuration,
+		c.RequestsTotal,
 	)
 
 	addr := os.Getenv("METRICS_ADDR")
@@ -100,6 +122,11 @@ func (c *Collector) Stop(ctx context.Context) {
 	if c.server != nil {
 		c.server.Stop(ctx)
 	}
+}
+
+// Middleware returns a Kratos middleware that records gRPC request metrics.
+func (c *Collector) Middleware() middleware.Middleware {
+	return commonMetrics.NewServerMiddleware(c.RequestDuration, c.RequestsTotal)
 }
 
 // --- Job helpers ---

@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-tangra/go-tangra-deployer/internal/cert"
 	"github.com/go-tangra/go-tangra-deployer/internal/data"
+	"github.com/go-tangra/go-tangra-deployer/internal/metrics"
 	"github.com/go-tangra/go-tangra-deployer/internal/service"
 	deployerV1 "github.com/go-tangra/go-tangra-deployer/gen/go/deployer/service/v1"
 
@@ -41,11 +42,13 @@ func systemViewerMiddleware() middleware.Middleware {
 // newGrpcMiddleware creates gRPC middleware stack with mTLS and audit logging
 func newGrpcMiddleware(
 	logger log.Logger,
+	collector *metrics.Collector,
 	auditLogRepo *data.AuditLogRepo,
 ) []middleware.Middleware {
 	var ms []middleware.Middleware
 
 	ms = append(ms, recovery.Recovery())
+	ms = append(ms, collector.Middleware())
 	ms = append(ms, systemViewerMiddleware()) // Inject system viewer for ENT privacy
 
 	// Add mTLS middleware for client certificate authentication
@@ -78,6 +81,7 @@ func newGrpcMiddleware(
 func NewGRPCServer(
 	ctx *bootstrap.Context,
 	certManager *cert.CertManager,
+	collector *metrics.Collector,
 	auditLogRepo *data.AuditLogRepo,
 	targetSvc *service.DeploymentTargetService,
 	configSvc *service.TargetConfigurationService,
@@ -93,7 +97,7 @@ func NewGRPCServer(
 
 	// Create gRPC server options
 	opts := []grpc.ServerOption{
-		grpc.Middleware(newGrpcMiddleware(logger, auditLogRepo)...),
+		grpc.Middleware(newGrpcMiddleware(logger, collector, auditLogRepo)...),
 	}
 
 	// Add TLS configuration if certificate manager is available
