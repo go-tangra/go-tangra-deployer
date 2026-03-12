@@ -11,11 +11,13 @@ import (
 	"github.com/google/wire"
 
 	"github.com/go-tangra/go-tangra-deployer/internal/event"
+	"github.com/go-tangra/go-tangra-deployer/internal/metrics"
 	"github.com/go-tangra/go-tangra-deployer/internal/service"
 )
 
 // ProviderSet is the Wire provider set for service layer.
 var ProviderSet = wire.NewSet(
+	metrics.NewCollector,
 	service.NewTargetConfigurationService,
 	service.NewDeploymentTargetService,
 	service.NewDeploymentJobService,

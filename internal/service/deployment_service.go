@@ -11,6 +11,7 @@ import (
 	"github.com/go-tangra/go-tangra-deployer/internal/data"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenthistory"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
+	"github.com/go-tangra/go-tangra-deployer/internal/metrics"
 	"github.com/go-tangra/go-tangra-deployer/pkg/deploy/registry"
 	deployerV1 "github.com/go-tangra/go-tangra-deployer/gen/go/deployer/service/v1"
 )
@@ -26,6 +27,7 @@ type DeploymentService struct {
 	configRepo    *data.TargetConfigurationRepo
 	historyRepo   *data.DeploymentHistoryRepo
 	configService *TargetConfigurationService
+	collector     *metrics.Collector
 }
 
 // NewDeploymentService creates a new DeploymentService
@@ -36,6 +38,7 @@ func NewDeploymentService(
 	configRepo *data.TargetConfigurationRepo,
 	historyRepo *data.DeploymentHistoryRepo,
 	configService *TargetConfigurationService,
+	collector *metrics.Collector,
 ) *DeploymentService {
 	return &DeploymentService{
 		log:           ctx.NewLoggerHelper("deployer/service/deployment"),
@@ -44,6 +47,7 @@ func NewDeploymentService(
 		configRepo:    configRepo,
 		historyRepo:   historyRepo,
 		configService: configService,
+		collector:     collector,
 	}
 }
 
@@ -76,6 +80,7 @@ func (s *DeploymentService) Deploy(ctx context.Context, req *deployerV1.DeployRe
 	if err != nil {
 		return nil, err
 	}
+	s.collector.JobCreated("pending", string(deploymentjob.TriggeredByTRIGGER_TYPE_MANUAL))
 
 	// If not waiting, return immediately
 	if !req.GetWaitForCompletion() {
@@ -168,6 +173,7 @@ func (s *DeploymentService) DeployToTargets(ctx context.Context, req *deployerV1
 			results = append(results, result)
 			continue
 		}
+		s.collector.JobCreated("pending", string(triggeredBy))
 
 		result.Job = s.jobRepo.ToProto(job)
 		succeeded++
@@ -223,6 +229,7 @@ func (s *DeploymentService) DeployToTarget(ctx context.Context, req *deployerV1.
 	if err != nil {
 		return nil, err
 	}
+	s.collector.JobCreated("pending", string(triggeredBy))
 
 	// Create child jobs for each configuration
 	for _, config := range configs {
@@ -230,6 +237,8 @@ func (s *DeploymentService) DeployToTarget(ctx context.Context, req *deployerV1.
 			req.GetCertificateId(), "", triggeredBy, 3)
 		if err != nil {
 			s.log.Errorf("Failed to create child job for configuration %s: %v", config.ID, err)
+		} else {
+			s.collector.JobCreated("pending", string(triggeredBy))
 		}
 	}
 
@@ -301,6 +310,7 @@ func (s *DeploymentService) DeployToConfigurations(ctx context.Context, req *dep
 			results = append(results, result)
 			continue
 		}
+		s.collector.JobCreated("pending", string(triggeredBy))
 
 		result.Job = s.jobRepo.ToProto(job)
 		succeeded++
@@ -408,6 +418,7 @@ func (s *DeploymentService) Rollback(ctx context.Context, req *deployerV1.Rollba
 	if err != nil {
 		return nil, err
 	}
+	s.collector.JobCreated("pending", string(deploymentjob.TriggeredByTRIGGER_TYPE_MANUAL))
 
 	// Get credentials
 	credentials, err := s.configService.GetDecryptedCredentials(ctx, config.ID)
@@ -427,11 +438,14 @@ func (s *DeploymentService) Rollback(ctx context.Context, req *deployerV1.Rollba
 	if err != nil {
 		return nil, err
 	}
+	s.collector.JobStatusChanged("pending", "processing")
 
 	result, err := provider.Rollback(ctx, certData, config.Config, credentials)
 	if err != nil {
 		if _, statusErr := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, err.Error(), 0); statusErr != nil {
 			s.log.Warnf("Failed to update job %s status after rollback error: %v", job.ID, statusErr)
+		} else {
+			s.collector.JobStatusChanged("processing", "failed")
 		}
 		return nil, err
 	}
@@ -450,10 +464,14 @@ func (s *DeploymentService) Rollback(ctx context.Context, req *deployerV1.Rollba
 	if result.Success {
 		if _, err := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_COMPLETED, "Rollback complete", 100); err != nil {
 			s.log.Warnf("Failed to update job %s status after rollback: %v", job.ID, err)
+		} else {
+			s.collector.JobStatusChanged("processing", "completed")
 		}
 	} else {
 		if _, err := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, result.Message, 0); err != nil {
 			s.log.Warnf("Failed to update job %s status after rollback failure: %v", job.ID, err)
+		} else {
+			s.collector.JobStatusChanged("processing", "failed")
 		}
 	}
 
@@ -478,12 +496,15 @@ func (s *DeploymentService) executeDeployment(ctx context.Context, job *data.Dep
 	if err != nil {
 		return nil, err
 	}
+	s.collector.JobStatusChanged("pending", "processing")
 
 	// Get provider
 	provider, err := registry.Get(config.ProviderType)
 	if err != nil {
 		if _, statusErr := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, "Provider not found", 0); statusErr != nil {
 			s.log.Warnf("Failed to update job %s status: %v", job.ID, statusErr)
+		} else {
+			s.collector.JobStatusChanged("processing", "failed")
 		}
 		return nil, err
 	}
@@ -493,6 +514,8 @@ func (s *DeploymentService) executeDeployment(ctx context.Context, job *data.Dep
 	if err != nil {
 		if _, statusErr := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, "Failed to get credentials", 0); statusErr != nil {
 			s.log.Warnf("Failed to update job %s status: %v", job.ID, statusErr)
+		} else {
+			s.collector.JobStatusChanged("processing", "failed")
 		}
 		return nil, err
 	}
@@ -515,6 +538,8 @@ func (s *DeploymentService) executeDeployment(ctx context.Context, job *data.Dep
 	if err != nil {
 		if _, statusErr := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, err.Error(), 0); statusErr != nil {
 			s.log.Warnf("Failed to update job %s status after deploy error: %v", job.ID, statusErr)
+		} else {
+			s.collector.JobStatusChanged("processing", "failed")
 		}
 		if _, histErr := s.historyRepo.Create(ctx, job.ID, deploymenthistory.ActionACTION_DEPLOY,
 			deploymenthistory.ResultRESULT_FAILURE, err.Error(), time.Since(startTime).Milliseconds(), nil); histErr != nil {
@@ -537,6 +562,8 @@ func (s *DeploymentService) executeDeployment(ctx context.Context, job *data.Dep
 	if result.Success {
 		if _, err := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_COMPLETED, "Deployment complete", 100); err != nil {
 			s.log.Warnf("Failed to update job %s status after deployment: %v", job.ID, err)
+		} else {
+			s.collector.JobStatusChanged("processing", "completed")
 		}
 		if err := s.configRepo.UpdateLastDeployment(ctx, config.ID); err != nil {
 			s.log.Warnf("Failed to update last deployment for config %s: %v", config.ID, err)
@@ -544,6 +571,8 @@ func (s *DeploymentService) executeDeployment(ctx context.Context, job *data.Dep
 	} else {
 		if _, err := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, result.Message, 0); err != nil {
 			s.log.Warnf("Failed to update job %s status after deployment failure: %v", job.ID, err)
+		} else {
+			s.collector.JobStatusChanged("processing", "failed")
 		}
 	}
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-tangra/go-tangra-deployer/internal/data"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/schema"
+	"github.com/go-tangra/go-tangra-deployer/internal/metrics"
 	deployerV1 "github.com/go-tangra/go-tangra-deployer/gen/go/deployer/service/v1"
 )
 
@@ -20,6 +21,7 @@ type DeploymentTargetService struct {
 	log        *log.Helper
 	targetRepo *data.DeploymentTargetRepo
 	configRepo *data.TargetConfigurationRepo
+	collector  *metrics.Collector
 }
 
 // NewDeploymentTargetService creates a new DeploymentTargetService
@@ -27,11 +29,13 @@ func NewDeploymentTargetService(
 	ctx *bootstrap.Context,
 	targetRepo *data.DeploymentTargetRepo,
 	configRepo *data.TargetConfigurationRepo,
+	collector *metrics.Collector,
 ) *DeploymentTargetService {
 	return &DeploymentTargetService{
 		log:        ctx.NewLoggerHelper("deployer/service/target"),
 		targetRepo: targetRepo,
 		configRepo: configRepo,
+		collector:  collector,
 	}
 }
 
@@ -91,6 +95,8 @@ func (s *DeploymentTargetService) CreateTarget(ctx context.Context, req *deploye
 	if err != nil {
 		return nil, err
 	}
+
+	s.collector.TargetCreated(autoDeployOnRenewal)
 
 	// Fetch with configurations for response
 	entity, err = s.targetRepo.GetByIDWithConfigurations(ctx, entity.ID)
@@ -195,6 +201,15 @@ func (s *DeploymentTargetService) UpdateTarget(ctx context.Context, req *deploye
 		return nil, err
 	}
 
+	// Update auto-deploy metric if it changed
+	if req.AutoDeployOnRenewal != nil && *req.AutoDeployOnRenewal != existing.AutoDeployOnRenewal {
+		if *req.AutoDeployOnRenewal {
+			s.collector.TargetsAutoDeployEnabled.Inc()
+		} else {
+			s.collector.TargetsAutoDeployEnabled.Dec()
+		}
+	}
+
 	// Fetch with configurations for response
 	entity, err = s.targetRepo.GetByIDWithConfigurations(ctx, entity.ID)
 	if err != nil {
@@ -210,9 +225,20 @@ func (s *DeploymentTargetService) UpdateTarget(ctx context.Context, req *deploye
 func (s *DeploymentTargetService) DeleteTarget(ctx context.Context, req *deployerV1.DeleteTargetRequest) (*emptypb.Empty, error) {
 	s.log.Infof("DeleteTarget: id=%s", req.GetId())
 
+	// Get target before deletion for metrics
+	existing, err := s.targetRepo.GetByID(ctx, req.GetId())
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, deployerV1.ErrorTargetNotFound("deployment target not found")
+	}
+	autoDeploy := existing.AutoDeployOnRenewal
+
 	if err := s.targetRepo.Delete(ctx, req.GetId()); err != nil {
 		return nil, err
 	}
+	s.collector.TargetDeleted(autoDeploy)
 
 	return &emptypb.Empty{}, nil
 }

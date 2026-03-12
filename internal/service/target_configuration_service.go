@@ -16,6 +16,7 @@ import (
 	"github.com/go-tangra/go-tangra-deployer/internal/conf"
 	"github.com/go-tangra/go-tangra-deployer/internal/data"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/targetconfiguration"
+	"github.com/go-tangra/go-tangra-deployer/internal/metrics"
 	"github.com/go-tangra/go-tangra-deployer/pkg/deploy/registry"
 	deployerV1 "github.com/go-tangra/go-tangra-deployer/gen/go/deployer/service/v1"
 )
@@ -27,12 +28,14 @@ type TargetConfigurationService struct {
 	log           *log.Helper
 	configRepo    *data.TargetConfigurationRepo
 	encryptionKey []byte
+	collector     *metrics.Collector
 }
 
 // NewTargetConfigurationService creates a new TargetConfigurationService
 func NewTargetConfigurationService(
 	ctx *bootstrap.Context,
 	configRepo *data.TargetConfigurationRepo,
+	collector *metrics.Collector,
 ) *TargetConfigurationService {
 	// Get encryption key from config
 	var encryptionKey []byte
@@ -55,6 +58,7 @@ func NewTargetConfigurationService(
 		log:           ctx.NewLoggerHelper("deployer/service/target-configuration"),
 		configRepo:    configRepo,
 		encryptionKey: encryptionKey,
+		collector:     collector,
 	}
 }
 
@@ -105,6 +109,7 @@ func (s *TargetConfigurationService) CreateConfiguration(ctx context.Context, re
 	if err != nil {
 		return nil, err
 	}
+	s.collector.ConfigCreated(string(entity.Status))
 
 	return &deployerV1.CreateConfigurationResponse{
 		Configuration: s.configRepo.ToProto(entity),
@@ -231,6 +236,11 @@ func (s *TargetConfigurationService) UpdateConfiguration(ctx context.Context, re
 		return nil, err
 	}
 
+	// Update metrics if status changed
+	if status != nil && *status != existing.Status {
+		s.collector.ConfigStatusChanged(string(existing.Status), string(*status))
+	}
+
 	return &deployerV1.UpdateConfigurationResponse{
 		Configuration: s.configRepo.ToProto(entity),
 	}, nil
@@ -240,9 +250,20 @@ func (s *TargetConfigurationService) UpdateConfiguration(ctx context.Context, re
 func (s *TargetConfigurationService) DeleteConfiguration(ctx context.Context, req *deployerV1.DeleteConfigurationRequest) (*emptypb.Empty, error) {
 	s.log.Infof("DeleteConfiguration: id=%s", req.GetId())
 
+	// Get configuration before deletion for metrics
+	existing, err := s.configRepo.GetByID(ctx, req.GetId())
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, deployerV1.ErrorConfigurationNotFound("target configuration not found")
+	}
+	oldStatus := string(existing.Status)
+
 	if err := s.configRepo.Delete(ctx, req.GetId()); err != nil {
 		return nil, err
 	}
+	s.collector.ConfigDeleted(oldStatus)
 
 	return &emptypb.Empty{}, nil
 }

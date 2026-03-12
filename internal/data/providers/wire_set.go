@@ -17,6 +17,8 @@ import (
 var ProviderSet = wire.NewSet(
 	data.NewRedisClient,
 	data.NewEntClient,
+	data.NewRegistrationClient,
+	data.NewModuleDialer,
 	data.NewTargetConfigurationRepo,
 	data.NewDeploymentTargetRepo,
 	data.NewDeploymentJobRepo,

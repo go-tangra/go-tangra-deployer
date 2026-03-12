@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-tangra/go-tangra-deployer/internal/data"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
+	"github.com/go-tangra/go-tangra-deployer/internal/metrics"
 	deployerV1 "github.com/go-tangra/go-tangra-deployer/gen/go/deployer/service/v1"
 )
 
@@ -22,6 +23,7 @@ type DeploymentJobService struct {
 	targetRepo  *data.DeploymentTargetRepo
 	configRepo  *data.TargetConfigurationRepo
 	historyRepo *data.DeploymentHistoryRepo
+	collector   *metrics.Collector
 }
 
 // NewDeploymentJobService creates a new DeploymentJobService
@@ -31,6 +33,7 @@ func NewDeploymentJobService(
 	targetRepo *data.DeploymentTargetRepo,
 	configRepo *data.TargetConfigurationRepo,
 	historyRepo *data.DeploymentHistoryRepo,
+	collector *metrics.Collector,
 ) *DeploymentJobService {
 	return &DeploymentJobService{
 		log:         ctx.NewLoggerHelper("deployer/service/job"),
@@ -38,6 +41,7 @@ func NewDeploymentJobService(
 		targetRepo:  targetRepo,
 		configRepo:  configRepo,
 		historyRepo: historyRepo,
+		collector:   collector,
 	}
 }
 
@@ -109,6 +113,7 @@ func (s *DeploymentJobService) createTargetGroupJob(ctx context.Context, targetI
 	if err != nil {
 		return nil, err
 	}
+	s.collector.JobCreated("pending", string(triggerType))
 
 	// Create child jobs for each configuration
 	for _, config := range configs {
@@ -116,6 +121,8 @@ func (s *DeploymentJobService) createTargetGroupJob(ctx context.Context, targetI
 		if err != nil {
 			s.log.Errorf("Failed to create child job for configuration %s: %v", config.ID, err)
 			// Continue creating other child jobs
+		} else {
+			s.collector.JobCreated("pending", string(triggerType))
 		}
 	}
 
@@ -159,6 +166,7 @@ func (s *DeploymentJobService) createDirectJob(ctx context.Context, configID, ce
 	if err != nil {
 		return nil, err
 	}
+	s.collector.JobCreated("pending", string(triggerType))
 
 	return &deployerV1.CreateJobResponse{
 		Job: s.jobRepo.ToProto(job),
@@ -310,10 +318,21 @@ func (s *DeploymentJobService) ListJobs(ctx context.Context, req *deployerV1.Lis
 func (s *DeploymentJobService) CancelJob(ctx context.Context, req *deployerV1.CancelJobRequest) (*deployerV1.CancelJobResponse, error) {
 	s.log.Infof("CancelJob: id=%s, cascade=%v", req.GetId(), req.GetCancelChildJobs())
 
+	// Get current job to know old status
+	currentJob, err := s.jobRepo.GetByID(ctx, req.GetId())
+	if err != nil {
+		return nil, err
+	}
+	if currentJob == nil {
+		return nil, deployerV1.ErrorJobNotFound("deployment job not found")
+	}
+	oldStatus := string(currentJob.Status)
+
 	job, err := s.jobRepo.Cancel(ctx, req.GetId(), req.GetCancelChildJobs())
 	if err != nil {
 		return nil, err
 	}
+	s.collector.JobStatusChanged(oldStatus, "cancelled")
 
 	// Fetch with child jobs if this is a parent job
 	if job.DeploymentTargetID != nil && *job.DeploymentTargetID != "" {
@@ -346,6 +365,8 @@ func (s *DeploymentJobService) RetryJob(ctx context.Context, req *deployerV1.Ret
 		return nil, deployerV1.ErrorConflict("only failed or partial jobs can be retried")
 	}
 
+	oldStatus := string(job.Status)
+
 	// For parent jobs, retry failed child jobs if requested
 	if job.DeploymentTargetID != nil && *job.DeploymentTargetID != "" && req.GetRetryFailedChildrenOnly() {
 		childJobs, err := s.jobRepo.ListChildJobs(ctx, job.ID)
@@ -356,14 +377,22 @@ func (s *DeploymentJobService) RetryJob(ctx context.Context, req *deployerV1.Ret
 			if child.Status == deploymentjob.StatusJOB_STATUS_FAILED {
 				if _, err := s.jobRepo.UpdateStatus(ctx, child.ID, deploymentjob.StatusJOB_STATUS_PENDING, "Retry requested", 0); err != nil {
 				s.log.Warnf("Failed to reset child job %s for retry: %v", child.ID, err)
+			} else {
+				s.collector.JobStatusChanged("failed", "pending")
 			}
 			}
 		}
 		// Reset parent status to processing
 		job, err = s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_PROCESSING, "Retrying failed deployments", 0)
+		if err == nil {
+			s.collector.JobStatusChanged(oldStatus, "processing")
+		}
 	} else {
 		// Reset status to pending for direct/child job
 		job, err = s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_PENDING, "Retry requested", 0)
+		if err == nil {
+			s.collector.JobStatusChanged(oldStatus, "pending")
+		}
 	}
 	if err != nil {
 		return nil, err

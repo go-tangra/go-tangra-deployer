@@ -7,10 +7,14 @@
 package main
 
 import (
+	gocontext "context"
+
 	"github.com/go-kratos/kratos/v2"
+	"github.com/go-tangra/go-tangra-common/viewer"
 	"github.com/go-tangra/go-tangra-deployer/internal/cert"
 	"github.com/go-tangra/go-tangra-deployer/internal/data"
 	"github.com/go-tangra/go-tangra-deployer/internal/event"
+	"github.com/go-tangra/go-tangra-deployer/internal/metrics"
 	"github.com/go-tangra/go-tangra-deployer/internal/server"
 	"github.com/go-tangra/go-tangra-deployer/internal/service"
 	"github.com/tx7do/kratos-bootstrap/bootstrap"
@@ -32,7 +36,7 @@ import (
 //   - func(): cleanup function to run on shutdown
 //   - error: possible construction error
 func initApp(context *bootstrap.Context) (*kratos.App, func(), error) {
-	certManager, err := cert.NewCertManager(context)
+	v, err := cert.NewCertManager(context)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -43,16 +47,18 @@ func initApp(context *bootstrap.Context) (*kratos.App, func(), error) {
 	auditLogRepo := data.NewAuditLogRepo(context, entClient)
 	deploymentTargetRepo := data.NewDeploymentTargetRepo(context, entClient)
 	targetConfigurationRepo := data.NewTargetConfigurationRepo(context, entClient)
-	deploymentTargetService := service.NewDeploymentTargetService(context, deploymentTargetRepo, targetConfigurationRepo)
-	targetConfigurationService := service.NewTargetConfigurationService(context, targetConfigurationRepo)
+	collector := metrics.NewCollector(context)
+	deploymentTargetService := service.NewDeploymentTargetService(context, deploymentTargetRepo, targetConfigurationRepo, collector)
+	targetConfigurationService := service.NewTargetConfigurationService(context, targetConfigurationRepo, collector)
 	deploymentJobRepo := data.NewDeploymentJobRepo(context, entClient)
 	deploymentHistoryRepo := data.NewDeploymentHistoryRepo(context, entClient)
-	deploymentJobService := service.NewDeploymentJobService(context, deploymentJobRepo, deploymentTargetRepo, targetConfigurationRepo, deploymentHistoryRepo)
-	deploymentService := service.NewDeploymentService(context, deploymentJobRepo, deploymentTargetRepo, targetConfigurationRepo, deploymentHistoryRepo, targetConfigurationService)
+	deploymentJobService := service.NewDeploymentJobService(context, deploymentJobRepo, deploymentTargetRepo, targetConfigurationRepo, deploymentHistoryRepo, collector)
+	deploymentService := service.NewDeploymentService(context, deploymentJobRepo, deploymentTargetRepo, targetConfigurationRepo, deploymentHistoryRepo, targetConfigurationService, collector)
 	statisticsRepo := data.NewStatisticsRepo(context, entClient)
 	statisticsService := service.NewStatisticsService(context, statisticsRepo)
 	backupService := service.NewBackupService(context, entClient)
-	grpcServer := server.NewGRPCServer(context, certManager, auditLogRepo, deploymentTargetService, targetConfigurationService, deploymentJobService, deploymentService, statisticsService, backupService)
+	grpcServer := server.NewGRPCServer(context, v, auditLogRepo, deploymentTargetService, targetConfigurationService, deploymentJobService, deploymentService, statisticsService, backupService)
+	httpServer := server.NewHTTPServer(context)
 	client, cleanup2, err := data.NewRedisClient(context)
 	if err != nil {
 		cleanup()
@@ -60,16 +66,28 @@ func initApp(context *bootstrap.Context) (*kratos.App, func(), error) {
 	}
 	handler := event.NewHandler(context, deploymentTargetRepo, deploymentJobRepo)
 	subscriber := event.NewSubscriber(context, client, handler)
-	lcmClient, cleanup3, err := data.NewLcmClient(context)
+	registrationClient, err := data.NewRegistrationClient(context)
 	if err != nil {
 		cleanup2()
 		cleanup()
 		return nil, nil, err
 	}
-	jobExecutor := service.NewJobExecutor(context, deploymentJobRepo, targetConfigurationRepo, deploymentHistoryRepo, targetConfigurationService, lcmClient)
-	httpServer := server.NewHTTPServer(context)
-	app := newApp(context, grpcServer, httpServer, subscriber, jobExecutor)
+	moduleDialer := data.NewModuleDialer(context, registrationClient)
+	lcmClient, cleanup3, err := data.NewLcmClient(context, moduleDialer)
+	if err != nil {
+		cleanup2()
+		cleanup()
+		return nil, nil, err
+	}
+	jobExecutor := service.NewJobExecutor(context, deploymentJobRepo, targetConfigurationRepo, deploymentHistoryRepo, targetConfigurationService, lcmClient, collector)
+
+	// Seed Prometheus metrics from database
+	seedCtx := viewer.NewSystemViewerContext(gocontext.Background())
+	collector.Seed(seedCtx, statisticsRepo)
+
+	app := newApp(context, grpcServer, httpServer, subscriber, jobExecutor, registrationClient)
 	return app, func() {
+		collector.Stop(gocontext.Background())
 		cleanup3()
 		cleanup2()
 		cleanup()

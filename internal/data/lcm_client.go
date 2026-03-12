@@ -2,111 +2,69 @@ package data
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"os"
+	"sync"
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/tx7do/kratos-bootstrap/bootstrap"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/backoff"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/keepalive"
+
+	"github.com/go-tangra/go-tangra-common/grpcx"
 
 	lcmV1 "github.com/go-tangra/go-tangra-lcm/gen/go/lcm/service/v1"
 )
 
-// LcmClient holds the LCM service gRPC client for the deployer
+// LcmClient holds the LCM service gRPC client for the deployer.
+// It resolves the LCM endpoint lazily via ModuleDialer on first use.
 type LcmClient struct {
-	conn *grpc.ClientConn
-	log  *log.Helper
+	dialer *grpcx.ModuleDialer
+	log    *log.Helper
 
+	once                  sync.Once
+	conn                  *grpc.ClientConn
 	CertificateJobService lcmV1.LcmCertificateJobServiceClient
+	initErr               error
 }
 
-// NewLcmClient creates a new LcmClient instance for the deployer service
-func NewLcmClient(ctx *bootstrap.Context) (*LcmClient, func(), error) {
+// NewLcmClient creates a new LcmClient that resolves via ModuleDialer.
+func NewLcmClient(ctx *bootstrap.Context, dialer *grpcx.ModuleDialer) (*LcmClient, func(), error) {
 	l := ctx.NewLoggerHelper("deployer/lcm-client")
 
-	// Get LCM endpoint from environment variable, fallback to default
-	endpoint := os.Getenv("LCM_GRPC_ENDPOINT")
-	if endpoint == "" {
-		endpoint = "localhost:9100" // Default LCM gRPC endpoint
-	}
-
-	l.Infof("Connecting to LCM service at: %s", endpoint)
-
-	// Load TLS credentials for mTLS connection to LCM service
-	creds, err := loadDeployerTLSCredentials(l)
-	if err != nil {
-		l.Warnf("Failed to load TLS credentials, LCM service will not be available: %v", err)
-		return nil, func() {}, nil // Return nil clients, service will be unavailable
-	}
-
-	// Configure connection parameters for automatic reconnection
-	connectParams := grpc.ConnectParams{
-		Backoff: backoff.Config{
-			BaseDelay:  1 * time.Second,
-			Multiplier: 1.5,
-			Jitter:     0.2,
-			MaxDelay:   30 * time.Second,
-		},
-		MinConnectTimeout: 5 * time.Second,
-	}
-
-	// Configure keepalive to detect dead connections
-	// Note: gRPC servers enforce a minimum ping interval (default 5 minutes)
-	// Setting Time too low causes ENHANCE_YOUR_CALM errors
-	keepaliveParams := keepalive.ClientParameters{
-		Time:                5 * time.Minute,  // Send pings every 5 minutes if no activity
-		Timeout:             20 * time.Second, // Wait 20 seconds for ping ack before considering connection dead
-		PermitWithoutStream: false,            // Don't send pings without active streams (reduces unnecessary traffic)
-	}
-
-	// Create gRPC connection with TLS and reconnection settings
-	conn, err := grpc.NewClient(
-		endpoint,
-		grpc.WithTransportCredentials(creds),
-		grpc.WithConnectParams(connectParams),
-		grpc.WithKeepaliveParams(keepaliveParams),
-		grpc.WithDefaultServiceConfig(`{
-			"loadBalancingConfig": [{"round_robin":{}}],
-			"methodConfig": [{
-				"name": [{"service": ""}],
-				"waitForReady": true,
-				"retryPolicy": {
-					"MaxAttempts": 3,
-					"InitialBackoff": "0.5s",
-					"MaxBackoff": "5s",
-					"BackoffMultiplier": 2,
-					"RetryableStatusCodes": ["UNAVAILABLE", "RESOURCE_EXHAUSTED"]
-				}
-			}]
-		}`),
-	)
-	if err != nil {
-		l.Errorf("Failed to connect to LCM service: %v", err)
-		return nil, func() {}, err
-	}
-
 	client := &LcmClient{
-		conn:                  conn,
-		log:                   l,
-		CertificateJobService: lcmV1.NewLcmCertificateJobServiceClient(conn),
+		dialer: dialer,
+		log:    l,
 	}
 
 	cleanup := func() {
-		if err := conn.Close(); err != nil {
-			l.Errorf("Failed to close LCM connection: %v", err)
+		if client.conn != nil {
+			if err := client.conn.Close(); err != nil {
+				l.Errorf("Failed to close LCM connection: %v", err)
+			}
 		}
 	}
 
-	l.Info("LCM client initialized successfully")
-
+	l.Info("LCM client created (will resolve endpoint on first use)")
 	return client, cleanup, nil
+}
+
+// resolve lazily connects to the LCM service via ModuleDialer.
+func (c *LcmClient) resolve() error {
+	c.once.Do(func() {
+		c.log.Info("Resolving lcm module endpoint...")
+		conn, err := c.dialer.DialModule(context.Background(), "lcm", 30, 5*time.Second)
+		if err != nil {
+			c.initErr = fmt.Errorf("resolve lcm: %w", err)
+			c.log.Errorf("Failed to resolve lcm: %v", err)
+			return
+		}
+		c.conn = conn
+		c.CertificateJobService = lcmV1.NewLcmCertificateJobServiceClient(conn)
+		c.log.Info("LCM client connected via ModuleDialer")
+	})
+	return c.initErr
 }
 
 // IsConnected checks if the LCM client is connected
@@ -131,8 +89,12 @@ type CertificateData struct {
 
 // GetCertificateByJobID fetches a certificate from LCM by its job ID
 func (c *LcmClient) GetCertificateByJobID(ctx context.Context, jobID string, includePrivateKey bool) (*CertificateData, error) {
-	if c == nil || c.CertificateJobService == nil {
+	if c == nil {
 		return nil, fmt.Errorf("LCM client not available")
+	}
+
+	if err := c.resolve(); err != nil {
+		return nil, err
 	}
 
 	resp, err := c.CertificateJobService.GetJobResult(ctx, &lcmV1.GetJobResultRequest{
@@ -190,52 +152,4 @@ func (cd *CertificateData) parseCertificatePEM() error {
 	}
 
 	return nil
-}
-
-// loadDeployerTLSCredentials loads TLS credentials for connecting to LCM service
-func loadDeployerTLSCredentials(l *log.Helper) (credentials.TransportCredentials, error) {
-	// Get certificate paths from environment or use defaults
-	caCertPath := os.Getenv("LCM_CA_CERT_PATH")
-	if caCertPath == "" {
-		caCertPath = "./data/ca/ca.crt"
-	}
-	clientCertPath := os.Getenv("LCM_CLIENT_CERT_PATH")
-	if clientCertPath == "" {
-		clientCertPath = "./data/deployer/deployer.crt"
-	}
-	clientKeyPath := os.Getenv("LCM_CLIENT_KEY_PATH")
-	if clientKeyPath == "" {
-		clientKeyPath = "./data/deployer/deployer.key"
-	}
-
-	// Load CA certificate
-	caCert, err := os.ReadFile(caCertPath)
-	if err != nil {
-		l.Errorf("Failed to read CA cert from %s: %v", caCertPath, err)
-		return nil, err
-	}
-	caCertPool := x509.NewCertPool()
-	if !caCertPool.AppendCertsFromPEM(caCert) {
-		l.Errorf("Failed to parse CA cert from %s", caCertPath)
-		return nil, fmt.Errorf("failed to parse CA certificate")
-	}
-
-	// Load client certificate and key
-	clientCert, err := tls.LoadX509KeyPair(clientCertPath, clientKeyPath)
-	if err != nil {
-		l.Errorf("Failed to load client cert/key from %s, %s: %v", clientCertPath, clientKeyPath, err)
-		return nil, err
-	}
-
-	// Create TLS config
-	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{clientCert},
-		RootCAs:      caCertPool,
-		ServerName:   "localhost", // Must match a SAN in the server certificate
-		MinVersion:   tls.VersionTLS12,
-	}
-
-	l.Infof("Loaded TLS credentials: CA=%s, Cert=%s", caCertPath, clientCertPath)
-
-	return credentials.NewTLS(tlsConfig), nil
 }

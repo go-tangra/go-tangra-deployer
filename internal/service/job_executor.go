@@ -13,6 +13,7 @@ import (
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenthistory"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
+	"github.com/go-tangra/go-tangra-deployer/internal/metrics"
 	"github.com/go-tangra/go-tangra-deployer/pkg/deploy/registry"
 
 	appViewer "github.com/go-tangra/go-tangra-common/viewer"
@@ -29,6 +30,7 @@ type JobExecutor struct {
 	configService *TargetConfigurationService
 	lcmClient     *data.LcmClient
 	config        *conf.JobConfig
+	collector     *metrics.Collector
 
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -45,6 +47,7 @@ func NewJobExecutor(
 	historyRepo *data.DeploymentHistoryRepo,
 	configService *TargetConfigurationService,
 	lcmClient *data.LcmClient,
+	collector *metrics.Collector,
 ) *JobExecutor {
 	// Get config
 	var jobCfg *conf.JobConfig
@@ -74,6 +77,7 @@ func NewJobExecutor(
 		configService: configService,
 		lcmClient:     lcmClient,
 		config:        jobCfg,
+		collector:     collector,
 	}
 }
 
@@ -168,6 +172,7 @@ func (e *JobExecutor) processJobs() {
 			// Job was already claimed by another worker, skip it
 			continue
 		}
+		e.collector.JobStatusChanged("pending", "processing")
 
 		if err := e.processJob(job); err != nil {
 			e.log.Errorf("Failed to process job %s: %v", job.ID, err)
@@ -192,6 +197,7 @@ func (e *JobExecutor) processJobs() {
 			// Job was already claimed by another worker, skip it
 			continue
 		}
+		e.collector.JobStatusChanged("retrying", "processing")
 
 		if err := e.processJob(job); err != nil {
 			e.log.Errorf("Failed to process retry job %s: %v", job.ID, err)
@@ -318,6 +324,7 @@ func (e *JobExecutor) processJob(job *ent.DeploymentJob) error {
 	if err != nil {
 		return err
 	}
+	e.collector.JobStatusChanged("processing", "completed")
 
 	// Update configuration last deployment
 	if err := e.configRepo.UpdateLastDeployment(e.ctx, config.ID); err != nil {
@@ -337,6 +344,9 @@ func (e *JobExecutor) processJob(job *ent.DeploymentJob) error {
 func (e *JobExecutor) failJob(job *ent.DeploymentJob, message string) error {
 	e.log.Warnf("Job %s failed: %s", job.ID, message)
 	_, err := e.jobRepo.UpdateStatus(e.ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, message, 0)
+	if err == nil {
+		e.collector.JobStatusChanged("processing", "failed")
+	}
 	return err
 }
 
@@ -344,6 +354,9 @@ func (e *JobExecutor) failJob(job *ent.DeploymentJob, message string) error {
 func (e *JobExecutor) failJobAndUpdateParent(job *ent.DeploymentJob, message string) error {
 	e.log.Warnf("Job %s failed: %s", job.ID, message)
 	_, err := e.jobRepo.UpdateStatus(e.ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, message, 0)
+	if err == nil {
+		e.collector.JobStatusChanged("processing", "failed")
+	}
 	if err != nil {
 		return err
 	}
@@ -358,6 +371,14 @@ func (e *JobExecutor) failJobAndUpdateParent(job *ent.DeploymentJob, message str
 
 // updateParentJobStatus updates the parent job status based on child job results
 func (e *JobExecutor) updateParentJobStatus(parentJobID string) {
+	// Get current parent job to know old status
+	parentJob, err := e.jobRepo.GetByID(e.ctx, parentJobID)
+	if err != nil {
+		e.log.Errorf("Failed to get parent job %s: %v", parentJobID, err)
+		return
+	}
+	oldStatus := string(parentJob.Status)
+
 	// Get child job counts
 	completed, failed, total, err := e.jobRepo.GetChildJobCounts(e.ctx, parentJobID)
 	if err != nil {
@@ -397,6 +418,8 @@ func (e *JobExecutor) updateParentJobStatus(parentJobID string) {
 	_, err = e.jobRepo.UpdateStatus(e.ctx, parentJobID, status, message, progress)
 	if err != nil {
 		e.log.Errorf("Failed to update parent job %s status: %v", parentJobID, err)
+	} else if oldStatus != string(status) {
+		e.collector.JobStatusChanged(oldStatus, string(status))
 	}
 }
 
@@ -419,6 +442,9 @@ func (e *JobExecutor) scheduleRetry(job *ent.DeploymentJob, message string) erro
 		job.ID, nextRetry, job.RetryCount+1, job.MaxRetries)
 
 	_, err := e.jobRepo.MarkForRetry(e.ctx, job.ID, nextRetry)
+	if err == nil {
+		e.collector.JobStatusChanged("processing", "retrying")
+	}
 	return err
 }
 
