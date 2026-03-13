@@ -40,7 +40,14 @@ async function request<T>(
   });
 
   if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
+    let message = `HTTP error! status: ${response.status}`;
+    try {
+      const errorBody = await response.json();
+      if (errorBody?.message) {
+        message = errorBody.message;
+      }
+    } catch { /* response body not JSON, use default message */ }
+    throw new Error(message);
   }
 
   return response.json();
