@@ -70,10 +70,11 @@ func (RestoreMode) EnumDescriptor() ([]byte, []int) {
 }
 
 type ExportBackupRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TenantId      *uint32                `protobuf:"varint,1,opt,name=tenant_id,json=tenantId,proto3,oneof" json:"tenant_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	TenantId       *uint32                `protobuf:"varint,1,opt,name=tenant_id,json=tenantId,proto3,oneof" json:"tenant_id,omitempty"`
+	IncludeSecrets bool                   `protobuf:"varint,2,opt,name=include_secrets,json=includeSecrets,proto3" json:"include_secrets,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ExportBackupRequest) Reset() {
@@ -113,6 +114,13 @@ func (x *ExportBackupRequest) GetTenantId() uint32 {
 	return 0
 }
 
+func (x *ExportBackupRequest) GetIncludeSecrets() bool {
+	if x != nil {
+		return x.IncludeSecrets
+	}
+	return false
+}
+
 type ExportBackupResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
@@ -121,6 +129,7 @@ type ExportBackupResponse struct {
 	ExportedAt    *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=exported_at,json=exportedAt,proto3" json:"exported_at,omitempty"`
 	TenantId      uint32                 `protobuf:"varint,5,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
 	EntityCounts  map[string]int64       `protobuf:"bytes,6,rep,name=entity_counts,json=entityCounts,proto3" json:"entity_counts,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	SchemaVersion int32                  `protobuf:"varint,7,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -197,6 +206,13 @@ func (x *ExportBackupResponse) GetEntityCounts() map[string]int64 {
 	return nil
 }
 
+func (x *ExportBackupResponse) GetSchemaVersion() int32 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
 type ImportBackupRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
@@ -250,12 +266,15 @@ func (x *ImportBackupRequest) GetMode() RestoreMode {
 }
 
 type ImportBackupResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	Results       []*EntityImportResult  `protobuf:"bytes,2,rep,name=results,proto3" json:"results,omitempty"`
-	Warnings      []string               `protobuf:"bytes,3,rep,name=warnings,proto3" json:"warnings,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Success           bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Results           []*EntityImportResult  `protobuf:"bytes,2,rep,name=results,proto3" json:"results,omitempty"`
+	Warnings          []string               `protobuf:"bytes,3,rep,name=warnings,proto3" json:"warnings,omitempty"`
+	SourceVersion     int32                  `protobuf:"varint,4,opt,name=source_version,json=sourceVersion,proto3" json:"source_version,omitempty"`
+	TargetVersion     int32                  `protobuf:"varint,5,opt,name=target_version,json=targetVersion,proto3" json:"target_version,omitempty"`
+	MigrationsApplied int32                  `protobuf:"varint,6,opt,name=migrations_applied,json=migrationsApplied,proto3" json:"migrations_applied,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ImportBackupResponse) Reset() {
@@ -307,6 +326,27 @@ func (x *ImportBackupResponse) GetWarnings() []string {
 		return x.Warnings
 	}
 	return nil
+}
+
+func (x *ImportBackupResponse) GetSourceVersion() int32 {
+	if x != nil {
+		return x.SourceVersion
+	}
+	return 0
+}
+
+func (x *ImportBackupResponse) GetTargetVersion() int32 {
+	if x != nil {
+		return x.TargetVersion
+	}
+	return 0
+}
+
+func (x *ImportBackupResponse) GetMigrationsApplied() int32 {
+	if x != nil {
+		return x.MigrationsApplied
+	}
+	return 0
 }
 
 type EntityImportResult struct {
@@ -397,11 +437,12 @@ var File_deployer_service_v1_backup_proto protoreflect.FileDescriptor
 
 const file_deployer_service_v1_backup_proto_rawDesc = "" +
 	"\n" +
-	" deployer/service/v1/backup.proto\x12\x13deployer.service.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"E\n" +
+	" deployer/service/v1/backup.proto\x12\x13deployer.service.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"n\n" +
 	"\x13ExportBackupRequest\x12 \n" +
-	"\ttenant_id\x18\x01 \x01(\rH\x00R\btenantId\x88\x01\x01B\f\n" +
+	"\ttenant_id\x18\x01 \x01(\rH\x00R\btenantId\x88\x01\x01\x12'\n" +
+	"\x0finclude_secrets\x18\x02 \x01(\bR\x0eincludeSecretsB\f\n" +
 	"\n" +
-	"_tenant_id\"\xd9\x02\n" +
+	"_tenant_id\"\x80\x03\n" +
 	"\x14ExportBackupResponse\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12\x16\n" +
 	"\x06module\x18\x02 \x01(\tR\x06module\x12\x18\n" +
@@ -409,17 +450,21 @@ const file_deployer_service_v1_backup_proto_rawDesc = "" +
 	"\vexported_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"exportedAt\x12\x1b\n" +
 	"\ttenant_id\x18\x05 \x01(\rR\btenantId\x12`\n" +
-	"\rentity_counts\x18\x06 \x03(\v2;.deployer.service.v1.ExportBackupResponse.EntityCountsEntryR\fentityCounts\x1a?\n" +
+	"\rentity_counts\x18\x06 \x03(\v2;.deployer.service.v1.ExportBackupResponse.EntityCountsEntryR\fentityCounts\x12%\n" +
+	"\x0eschema_version\x18\a \x01(\x05R\rschemaVersion\x1a?\n" +
 	"\x11EntityCountsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"_\n" +
 	"\x13ImportBackupRequest\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x124\n" +
-	"\x04mode\x18\x02 \x01(\x0e2 .deployer.service.v1.RestoreModeR\x04mode\"\x8f\x01\n" +
+	"\x04mode\x18\x02 \x01(\x0e2 .deployer.service.v1.RestoreModeR\x04mode\"\x8c\x02\n" +
 	"\x14ImportBackupResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12A\n" +
 	"\aresults\x18\x02 \x03(\v2'.deployer.service.v1.EntityImportResultR\aresults\x12\x1a\n" +
-	"\bwarnings\x18\x03 \x03(\tR\bwarnings\"\xb1\x01\n" +
+	"\bwarnings\x18\x03 \x03(\tR\bwarnings\x12%\n" +
+	"\x0esource_version\x18\x04 \x01(\x05R\rsourceVersion\x12%\n" +
+	"\x0etarget_version\x18\x05 \x01(\x05R\rtargetVersion\x12-\n" +
+	"\x12migrations_applied\x18\x06 \x01(\x05R\x11migrationsApplied\"\xb1\x01\n" +
 	"\x12EntityImportResult\x12\x1f\n" +
 	"\ventity_type\x18\x01 \x01(\tR\n" +
 	"entityType\x12\x14\n" +

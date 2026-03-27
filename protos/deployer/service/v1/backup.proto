@@ -12,6 +12,7 @@ enum RestoreMode {
 
 message ExportBackupRequest {
   optional uint32 tenant_id = 1 [json_name = "tenantId"];
+  bool include_secrets = 2 [json_name = "includeSecrets"];
 }
 
 message ExportBackupResponse {
@@ -21,6 +22,7 @@ message ExportBackupResponse {
   google.protobuf.Timestamp exported_at = 4 [json_name = "exportedAt"];
   uint32 tenant_id = 5 [json_name = "tenantId"];
   map<string, int64> entity_counts = 6 [json_name = "entityCounts"];
+  int32 schema_version = 7 [json_name = "schemaVersion"];
 }
 
 message ImportBackupRequest {
@@ -32,6 +34,9 @@ message ImportBackupResponse {
   bool success = 1 [json_name = "success"];
   repeated EntityImportResult results = 2 [json_name = "results"];
   repeated string warnings = 3 [json_name = "warnings"];
+  int32 source_version = 4 [json_name = "sourceVersion"];
+  int32 target_version = 5 [json_name = "targetVersion"];
+  int32 migrations_applied = 6 [json_name = "migrationsApplied"];
 }
 
 message EntityImportResult {
