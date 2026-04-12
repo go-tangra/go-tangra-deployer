@@ -27,6 +27,20 @@ func NewHTTPServer(ctx *bootstrap.Context) *kratosHttp.Server {
 		return ctx.JSON(http.StatusOK, map[string]string{"status": "ok"})
 	})
 
+	route.GET("/openapi.yaml", func(ctx kratosHttp.Context) error {
+		ctx.Response().Header().Set("Content-Type", "application/yaml")
+		_, err := ctx.Response().Write(assets.OpenApiData)
+		return err
+	})
+
+	route.GET("/proto-descriptor", func(ctx kratosHttp.Context) error {
+		ctx.Response().Header().Set("Content-Type", "application/octet-stream")
+		ctx.Response().Header().Set("Content-Disposition", "attachment; filename=descriptor.bin")
+		_, err := ctx.Response().Write(assets.DescriptorData)
+		return err
+	})
+
+
 	fsys, err := fs.Sub(assets.FrontendDist, "frontend-dist")
 	if err == nil {
 		fileServer := http.FileServer(http.FS(fsys))
