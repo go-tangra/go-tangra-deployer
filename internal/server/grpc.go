@@ -44,6 +44,7 @@ func newGrpcMiddleware(
 	logger log.Logger,
 	collector *metrics.Collector,
 	auditLogRepo *data.AuditLogRepo,
+	tlsEnabled bool,
 ) []middleware.Middleware {
 	var ms []middleware.Middleware
 
@@ -53,9 +54,12 @@ func newGrpcMiddleware(
 
 	// Add mTLS middleware for client certificate authentication
 	// This must run before audit logging to populate client context
-	ms = append(ms, mtls.MTLSMiddleware(logger,
-		mtls.WithPublicEndpoints(publicEndpoints...),
-	))
+	// Add mTLS middleware only when TLS is enabled
+	if tlsEnabled {
+		ms = append(ms, mtls.MTLSMiddleware(logger,
+			mtls.WithPublicEndpoints(publicEndpoints...),
+		))
+	}
 
 	ms = append(ms, logging.Server(logger))
 
@@ -95,13 +99,15 @@ func NewGRPCServer(
 
 	l := log.NewHelper(log.With(logger, "module", "server/grpc"))
 
+	tlsEnabled := certManager != nil && certManager.IsTLSEnabled()
+
 	// Create gRPC server options
 	opts := []grpc.ServerOption{
-		grpc.Middleware(newGrpcMiddleware(logger, collector, auditLogRepo)...),
+		grpc.Middleware(newGrpcMiddleware(logger, collector, auditLogRepo, tlsEnabled)...),
 	}
 
 	// Add TLS configuration if certificate manager is available
-	if certManager != nil && certManager.IsTLSEnabled() {
+	if tlsEnabled {
 		tlsConfig, err := certManager.GetServerTLSConfig()
 		if err != nil {
 			l.Warnf("Failed to get TLS config, running without mTLS: %v", err)
