@@ -23,10 +23,11 @@ type LcmClient struct {
 	dialer *grpcx.ModuleDialer
 	log    *log.Helper
 
-	once                  sync.Once
-	conn                  *grpc.ClientConn
-	CertificateJobService lcmV1.LcmCertificateJobServiceClient
-	initErr               error
+	once                     sync.Once
+	conn                     *grpc.ClientConn
+	CertificateJobService    lcmV1.LcmCertificateJobServiceClient
+	IssuedCertificateService lcmV1.LcmIssuedCertificateServiceClient
+	initErr                  error
 }
 
 // NewLcmClient creates a new LcmClient that resolves via ModuleDialer.
@@ -62,6 +63,7 @@ func (c *LcmClient) resolve() error {
 		}
 		c.conn = conn
 		c.CertificateJobService = lcmV1.NewLcmCertificateJobServiceClient(conn)
+		c.IssuedCertificateService = lcmV1.NewLcmIssuedCertificateServiceClient(conn)
 		c.log.Info("LCM client connected via ModuleDialer")
 	})
 	return c.initErr
@@ -87,8 +89,10 @@ type CertificateData struct {
 	ExpiresAt        int64
 }
 
-// GetCertificateByJobID fetches a certificate from LCM by its job ID
-func (c *LcmClient) GetCertificateByJobID(ctx context.Context, jobID string, includePrivateKey bool) (*CertificateData, error) {
+// GetCertificateByJobID fetches a certificate from LCM.
+// It first tries the IssuedCertificateService (for issued certificate IDs),
+// then falls back to the CertificateJobService (for job IDs).
+func (c *LcmClient) GetCertificateByJobID(ctx context.Context, certOrJobID string, includePrivateKey bool) (*CertificateData, error) {
 	if c == nil {
 		return nil, fmt.Errorf("LCM client not available")
 	}
@@ -97,15 +101,65 @@ func (c *LcmClient) GetCertificateByJobID(ctx context.Context, jobID string, inc
 		return nil, err
 	}
 
+	// Try IssuedCertificateService first (handles issued certificate IDs)
+	certData, err := c.getByIssuedCertID(ctx, certOrJobID, includePrivateKey)
+	if err == nil {
+		return certData, nil
+	}
+	c.log.Infof("IssuedCertificate lookup failed for %s: %v, trying CertificateJobService", certOrJobID, err)
+
+	// Fall back to CertificateJobService (handles job IDs)
+	return c.getByJobID(ctx, certOrJobID, includePrivateKey)
+}
+
+// getByIssuedCertID fetches certificate data via the IssuedCertificateService.
+func (c *LcmClient) getByIssuedCertID(ctx context.Context, certID string, includePrivateKey bool) (*CertificateData, error) {
+	resp, err := c.IssuedCertificateService.GetIssuedCertificate(ctx, &lcmV1.GetIssuedCertificateRequest{
+		Id:                certID,
+		IncludePrivateKey: &includePrivateKey,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get issued certificate: %w", err)
+	}
+
+	cert := resp.GetCertificate()
+	if cert == nil {
+		return nil, fmt.Errorf("issued certificate not found")
+	}
+
+	certData := &CertificateData{
+		JobID:            cert.GetId(),
+		CertificatePEM:   resp.GetCertificatePem(),
+		CACertificatePEM: resp.GetCaCertificatePem(),
+		PrivateKeyPEM:    resp.GetPrivateKeyPem(),
+		CommonName:       cert.GetCommonName(),
+		SANs:             cert.GetDomains(),
+	}
+
+	if cert.GetExpiresAt() != nil {
+		certData.ExpiresAt = cert.GetExpiresAt().AsTime().Unix()
+	}
+
+	// Parse cert PEM for serial number if available
+	if certData.CertificatePEM != "" {
+		if parseErr := certData.parseCertificatePEM(); parseErr != nil {
+			c.log.Warnf("Failed to parse certificate PEM: %v", parseErr)
+		}
+	}
+
+	return certData, nil
+}
+
+// getByJobID fetches certificate data via the CertificateJobService (legacy path).
+func (c *LcmClient) getByJobID(ctx context.Context, jobID string, includePrivateKey bool) (*CertificateData, error) {
 	resp, err := c.CertificateJobService.GetJobResult(ctx, &lcmV1.GetJobResultRequest{
 		JobId:             jobID,
 		IncludePrivateKey: &includePrivateKey,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get certificate from LCM: %w", err)
+		return nil, fmt.Errorf("get job result: %w", err)
 	}
 
-	// Check if job is completed
 	if resp.GetStatus() != lcmV1.CertificateJobStatus_CERTIFICATE_JOB_STATUS_COMPLETED {
 		return nil, fmt.Errorf("certificate job is not completed, status: %s", resp.GetStatus().String())
 	}
@@ -118,14 +172,12 @@ func (c *LcmClient) GetCertificateByJobID(ctx context.Context, jobID string, inc
 		SerialNumber:     resp.GetSerialNumber(),
 	}
 
-	// Parse the certificate PEM to extract CommonName and SANs
 	if certData.CertificatePEM != "" {
-		if err := certData.parseCertificatePEM(); err != nil {
-			c.log.Warnf("Failed to parse certificate PEM: %v", err)
+		if parseErr := certData.parseCertificatePEM(); parseErr != nil {
+			c.log.Warnf("Failed to parse certificate PEM: %v", parseErr)
 		}
 	}
 
-	// Get expiration from response if available
 	if resp.GetExpiresAt() != nil {
 		certData.ExpiresAt = resp.GetExpiresAt().AsTime().Unix()
 	}
