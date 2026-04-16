@@ -145,6 +145,16 @@ const optionalCredentialFieldsForProvider = computed(() => {
   return optionalCredentialFields[formState.value.providerType] ?? [];
 });
 
+// Fields that should be masked as password inputs
+const secretFieldNames = new Set([
+  'password', 'secret', 'token', 'api_key', 'apikey',
+  'hmac_key', 'private_key', 'authorization', 'eab_hmac_key',
+]);
+
+function isSecretField(field: string): boolean {
+  return secretFieldNames.has(field.toLowerCase());
+}
+
 // Get translated field label for a provider field
 function getFieldLabel(field: string): string {
   const providerType = formState.value.providerType;
@@ -406,6 +416,13 @@ const isEditMode = computed(() => data.value?.mode === 'edit');
             :rules="[{ required: true }]"
           >
             <Input.Password
+              v-if="isSecretField(field)"
+              :value="formState.credentials[field]"
+              :placeholder="getFieldPlaceholder(field)"
+              @update:value="(v: string) => (formState.credentials[field] = v)"
+            />
+            <Input
+              v-else
               :value="formState.credentials[field]"
               :placeholder="getFieldPlaceholder(field)"
               @update:value="(v: string) => (formState.credentials[field] = v)"
@@ -418,6 +435,13 @@ const isEditMode = computed(() => data.value?.mode === 'edit');
             :label="getFieldLabel(field)"
           >
             <Input.Password
+              v-if="isSecretField(field)"
+              :value="formState.credentials[field]"
+              :placeholder="getFieldPlaceholder(field)"
+              @update:value="(v: string) => (formState.credentials[field] = v)"
+            />
+            <Input
+              v-else
               :value="formState.credentials[field]"
               :placeholder="getFieldPlaceholder(field)"
               @update:value="(v: string) => (formState.credentials[field] = v)"
