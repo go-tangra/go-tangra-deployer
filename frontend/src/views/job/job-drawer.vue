@@ -79,12 +79,15 @@ function triggerToName(trigger: string | undefined) {
 }
 
 function resultToColor(result: string | undefined) {
-  switch (result) {
-    case 'RESULT_SUCCESS':
+  switch (result?.toLowerCase()) {
+    case 'success':
+    case 'result_success':
       return '#52C41A';
-    case 'RESULT_FAILURE':
+    case 'failure':
+    case 'result_failure':
       return '#FF4D4F';
-    case 'RESULT_PARTIAL':
+    case 'partial':
+    case 'result_partial':
       return '#FAAD14';
     default:
       return '#C9CDD4';
@@ -92,12 +95,15 @@ function resultToColor(result: string | undefined) {
 }
 
 function resultToName(result: string | undefined) {
-  switch (result) {
-    case 'RESULT_SUCCESS':
+  switch (result?.toLowerCase()) {
+    case 'success':
+    case 'result_success':
       return $t('deployer.enum.historyResult.success');
-    case 'RESULT_FAILURE':
+    case 'failure':
+    case 'result_failure':
       return $t('deployer.enum.historyResult.failure');
-    case 'RESULT_PARTIAL':
+    case 'partial':
+    case 'result_partial':
       return $t('deployer.enum.historyResult.partial');
     default:
       return result ?? '';
@@ -105,12 +111,15 @@ function resultToName(result: string | undefined) {
 }
 
 function actionToName(action: string | undefined) {
-  switch (action) {
-    case 'ACTION_DEPLOY':
+  switch (action?.toLowerCase()) {
+    case 'deploy':
+    case 'action_deploy':
       return $t('deployer.enum.historyAction.deploy');
-    case 'ACTION_ROLLBACK':
+    case 'rollback':
+    case 'action_rollback':
       return $t('deployer.enum.historyAction.rollback');
-    case 'ACTION_VERIFY':
+    case 'verify':
+    case 'action_verify':
       return $t('deployer.enum.historyAction.verify');
     default:
       return action ?? '';
