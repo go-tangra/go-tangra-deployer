@@ -142,7 +142,7 @@ func (p *Provider) Deploy(ctx context.Context, cert *registry.CertificateData, c
 	// Step 3: Upload CA chain if provided
 	if cert.CertificateChain != "" {
 		progressCb(55, "Uploading certificate chain to BIG-IP")
-		chainFullName := fmt.Sprintf("/%s/%s-chain.crt", partition, certName)
+		chainFullName := fmt.Sprintf("/%s/%s_chain.crt", partition, certName)
 		if err := p.uploadCertificate(ctx, client, host, username, password, chainFullName, cert.CertificateChain); err != nil {
 			// Non-fatal: log but continue
 			progressCb(60, "Warning: failed to upload certificate chain")
@@ -271,7 +271,7 @@ func (p *Provider) Rollback(ctx context.Context, cert *registry.CertificateData,
 	// Delete the certificate and key
 	certFullName := fmt.Sprintf("/%s/%s.crt", partition, certName)
 	keyFullName := fmt.Sprintf("/%s/%s.key", partition, certName)
-	chainFullName := fmt.Sprintf("/%s/%s-chain.crt", partition, certName)
+	chainFullName := fmt.Sprintf("/%s/%s_chain.crt", partition, certName)
 
 	var errors []string
 
@@ -656,15 +656,32 @@ func (p *Provider) deleteResource(ctx context.Context, client *http.Client, host
 	return nil
 }
 
-// sanitizeName converts a common name to a valid BIG-IP resource name
+// sanitizeName converts a domain/common name to a valid BIG-IP resource name.
+// Rules:
+//   - Wildcard "*" is replaced with "star"
+//   - Dots "." are replaced with underscores "_"
+//   - All other non-alphanumeric characters are replaced with underscores
+//   - Examples: "www.example.com" → "www_example_com"
+//     "*.example.com" → "star_example_com"
 func sanitizeName(name string) string {
-	// Replace invalid characters with underscores
-	result := strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.' {
+	// Replace wildcard with "star"
+	result := strings.Replace(name, "*", "star", 1)
+
+	// Replace dots with underscores
+	result = strings.ReplaceAll(result, ".", "_")
+
+	// Replace any remaining invalid characters with underscores
+	result = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
 			return r
 		}
 		return '_'
-	}, name)
+	}, result)
+
+	// Collapse multiple underscores
+	for strings.Contains(result, "__") {
+		result = strings.ReplaceAll(result, "__", "_")
+	}
 
 	// Remove leading/trailing underscores
 	result = strings.Trim(result, "_")
