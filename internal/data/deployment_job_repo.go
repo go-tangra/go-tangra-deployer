@@ -320,6 +320,19 @@ func (r *DeploymentJobRepo) GetChildJobCounts(ctx context.Context, parentJobID s
 	return total, completed, failed, nil
 }
 
+// UpdateCertificateSerial updates the certificate serial number on a job
+func (r *DeploymentJobRepo) UpdateCertificateSerial(ctx context.Context, id string, serial string) (*ent.DeploymentJob, error) {
+	entity, err := r.entClient.Client().DeploymentJob.UpdateOneID(id).
+		SetCertificateSerial(serial).
+		SetUpdateTime(time.Now()).
+		Save(ctx)
+	if err != nil {
+		r.log.Errorf("update job certificate serial failed: %s", err.Error())
+		return nil, deployerV1.ErrorInternalServerError("update job certificate serial failed")
+	}
+	return entity, nil
+}
+
 // UpdateStatus updates the status of a deployment job
 func (r *DeploymentJobRepo) UpdateStatus(ctx context.Context, id string, status deploymentjob.Status, message string, progress int32) (*ent.DeploymentJob, error) {
 	builder := r.entClient.Client().DeploymentJob.UpdateOneID(id).

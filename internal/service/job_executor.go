@@ -260,6 +260,13 @@ func (e *JobExecutor) processJob(job *ent.DeploymentJob) error {
 				ExpiresAt:        lcmCert.ExpiresAt,
 			}
 			e.log.Infof("Fetched certificate from LCM: serial=%s, cn=%s, sans=%v", lcmCert.SerialNumber, lcmCert.CommonName, lcmCert.SANs)
+
+			// Update the job with the certificate serial from LCM
+			if lcmCert.SerialNumber != "" && job.CertificateSerial == "" {
+				if _, err := e.jobRepo.UpdateCertificateSerial(e.ctx, job.ID, lcmCert.SerialNumber); err != nil {
+					e.log.Warnf("Failed to update certificate serial for job %s: %v", job.ID, err)
+				}
+			}
 		}
 	} else {
 		e.log.Warn("LCM client not available, using placeholder certificate data")

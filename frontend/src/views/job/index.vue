@@ -182,7 +182,12 @@ const gridOptions: VxeGridProps<DeploymentJob> = {
 
   columns: [
     { title: $t('ui.table.seq'), type: 'seq', width: 50 },
-    { title: $t('deployer.page.job.targetName'), field: 'targetName', minWidth: 150 },
+    {
+      title: $t('deployer.page.job.targetName'),
+      field: 'deploymentTargetName',
+      minWidth: 150,
+      slots: { default: 'targetName' },
+    },
     {
       title: $t('deployer.page.job.certificateSerial'),
       field: 'certificateSerial',
@@ -283,6 +288,9 @@ function canRetry(status: string | undefined) {
 <template>
   <Page auto-content-height>
     <Grid :table-title="$t('deployer.menu.job')">
+      <template #targetName="{ row }">
+        {{ row.deploymentTargetName || row.targetConfigurationName || '-' }}
+      </template>
       <template #status="{ row }">
         <a-tag :color="statusToColor(row.status)">
           {{ statusToName(row.status) }}
