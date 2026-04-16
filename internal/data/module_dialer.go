@@ -32,7 +32,8 @@ func NewModuleDialer(ctx *bootstrap.Context, regClient *registration.Client) *gr
 	if regClient == nil {
 		return nil
 	}
-	return grpcx.NewModuleDialer(ctx.GetLogger(), "deployer", regClient.AdminConn(), "")
+	certsDir := os.Getenv("CERTS_DIR")
+	return grpcx.NewModuleDialer(ctx.GetLogger(), "deployer", regClient.AdminConn(), certsDir)
 }
 
 // RegistrationClientCleanup returns a cleanup function for the registration client.
