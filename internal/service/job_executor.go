@@ -379,8 +379,8 @@ func (e *JobExecutor) updateParentJobStatus(parentJobID string) {
 	}
 	oldStatus := string(parentJob.Status)
 
-	// Get child job counts
-	completed, failed, total, err := e.jobRepo.GetChildJobCounts(e.ctx, parentJobID)
+	// Get child job counts (returns: total, completed, failed)
+	total, completed, failed, err := e.jobRepo.GetChildJobCounts(e.ctx, parentJobID)
 	if err != nil {
 		e.log.Errorf("Failed to get child job counts for parent %s: %v", parentJobID, err)
 		return
