@@ -388,30 +388,54 @@ func (p *Provider) deleteCertificate(ctx context.Context, client *http.Client, h
 	return nil
 }
 
-// sanitizeName converts a common name to a valid FortiGate resource name
+// sanitizeName converts a common name to a valid FortiGate resource name.
+// Uses the same rules as the BIG-IP provider so the same certificate ends up
+// with a consistent identifier across devices:
+//   - Wildcard "*" is replaced with "star"
+//   - Dots "." are replaced with underscores "_"
+//   - All other non-alphanumeric characters are replaced with underscores
+//   - Multiple underscores are collapsed
+//   - Leading/trailing underscores are trimmed
+//   - A leading digit is prefixed with "cert_"
+//   - The result is truncated to FortiGate's 35-character limit (with a
+//     trailing-underscore trim afterwards so we don't leave a dangling "_")
+//
+// Examples:
+//
+//	"www.example.com"  → "www_example_com"
+//	"*.example.com"    → "star_example_com"
+//	"123.example.com"  → "cert_123_example_com"
 func sanitizeName(name string) string {
-	// Replace invalid characters with underscores
-	result := strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.' {
+	// Replace wildcard with "star" (first occurrence only; mirrors bigip).
+	result := strings.Replace(name, "*", "star", 1)
+
+	// Replace dots with underscores.
+	result = strings.ReplaceAll(result, ".", "_")
+
+	// Replace any remaining invalid characters with underscores.
+	result = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
 			return r
 		}
 		return '_'
-	}, name)
+	}, result)
 
-	// Remove leading/trailing underscores
-	result = strings.Trim(result, "_")
-
-	// FortiGate has a 35 character limit for certificate names
-	if len(result) > 35 {
-		result = result[:35]
+	// Collapse multiple underscores.
+	for strings.Contains(result, "__") {
+		result = strings.ReplaceAll(result, "__", "_")
 	}
 
-	// Ensure it doesn't start with a number
+	// Remove leading/trailing underscores.
+	result = strings.Trim(result, "_")
+
+	// Ensure it doesn't start with a number.
 	if len(result) > 0 && result[0] >= '0' && result[0] <= '9' {
 		result = "cert_" + result
-		if len(result) > 35 {
-			result = result[:35]
-		}
+	}
+
+	// FortiGate-specific constraint: 35-character limit.
+	if len(result) > 35 {
+		result = strings.TrimRight(result[:35], "_")
 	}
 
 	return result
