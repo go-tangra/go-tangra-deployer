@@ -16,6 +16,7 @@ import (
 	pkgService "github.com/go-tangra/go-tangra-common/service"
 	"github.com/go-tangra/go-tangra-deployer/cmd/server/assets"
 	deployerCnf "github.com/go-tangra/go-tangra-deployer/internal/conf"
+	"github.com/go-tangra/go-tangra-deployer/internal/data"
 	"github.com/go-tangra/go-tangra-deployer/internal/event"
 	"github.com/go-tangra/go-tangra-deployer/internal/service"
 
@@ -43,6 +44,7 @@ func newApp(
 	eventSubscriber *event.Subscriber,
 	jobExecutor *service.JobExecutor,
 	regClient *registration.Client,
+	_ *data.TangraClientPusher, // forces Wire to construct it so SetPusher() runs at startup
 ) *kratos.App {
 	// Start the event subscriber and store reference for cleanup
 	globalEventSubscriber = eventSubscriber

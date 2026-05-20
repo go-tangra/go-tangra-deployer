@@ -80,12 +80,13 @@ func initApp(context *bootstrap.Context) (*kratos.App, func(), error) {
 		return nil, nil, err
 	}
 	jobExecutor := service.NewJobExecutor(context, deploymentJobRepo, targetConfigurationRepo, deploymentHistoryRepo, targetConfigurationService, lcmClient, collector)
+	tangraClientPusher := data.NewTangraClientPusher(context, client, lcmClient)
 
 	// Seed Prometheus metrics from database
 	seedCtx := viewer.NewSystemViewerContext(gocontext.Background())
 	collector.Seed(seedCtx, statisticsRepo)
 
-	app := newApp(context, grpcServer, httpServer, subscriber, jobExecutor, registrationClient)
+	app := newApp(context, grpcServer, httpServer, subscriber, jobExecutor, registrationClient, tangraClientPusher)
 	return app, func() {
 		collector.Stop(gocontext.Background())
 		cleanup3()

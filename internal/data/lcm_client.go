@@ -27,6 +27,7 @@ type LcmClient struct {
 	conn                     *grpc.ClientConn
 	CertificateJobService    lcmV1.LcmCertificateJobServiceClient
 	IssuedCertificateService lcmV1.LcmIssuedCertificateServiceClient
+	ClientService            lcmV1.LcmClientServiceClient
 	initErr                  error
 }
 
@@ -64,6 +65,7 @@ func (c *LcmClient) resolve() error {
 		c.conn = conn
 		c.CertificateJobService = lcmV1.NewLcmCertificateJobServiceClient(conn)
 		c.IssuedCertificateService = lcmV1.NewLcmIssuedCertificateServiceClient(conn)
+		c.ClientService = lcmV1.NewLcmClientServiceClient(conn)
 		c.log.Info("LCM client connected via ModuleDialer")
 	})
 	return c.initErr

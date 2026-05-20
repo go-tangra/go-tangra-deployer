@@ -9,5 +9,6 @@ import (
 	_ "github.com/go-tangra/go-tangra-deployer/pkg/deploy/providers/cloudflare"
 	_ "github.com/go-tangra/go-tangra-deployer/pkg/deploy/providers/dummy"
 	_ "github.com/go-tangra/go-tangra-deployer/pkg/deploy/providers/fortigate"
+	_ "github.com/go-tangra/go-tangra-deployer/pkg/deploy/providers/tangra_client"
 	_ "github.com/go-tangra/go-tangra-deployer/pkg/deploy/providers/webhook"
 )

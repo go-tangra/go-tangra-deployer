@@ -26,4 +26,5 @@ var ProviderSet = wire.NewSet(
 	data.NewLcmClient,
 	data.NewStatisticsRepo,
 	data.NewAuditLogRepo,
+	data.NewTangraClientPusher,
 )
