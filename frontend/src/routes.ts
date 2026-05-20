@@ -5,7 +5,7 @@ const routes: RouteRecordRaw[] = [
     path: '/deployer',
     name: 'Deployer',
     component: () => import('shell/app-layout'),
-    redirect: '/deployer/target',
+    redirect: '/deployer/dashboard',
     meta: {
       order: 2007,
       icon: 'lucide:rocket',
@@ -14,6 +14,16 @@ const routes: RouteRecordRaw[] = [
       authority: ['platform:admin', 'tenant:manager'],
     },
     children: [
+      {
+        path: 'dashboard',
+        name: 'DeployerDashboard',
+        meta: {
+          icon: 'lucide:layout-dashboard',
+          title: 'deployer.menu.dashboard',
+          authority: ['platform:admin', 'tenant:manager'],
+        },
+        component: () => import('./views/dashboard/index.vue'),
+      },
       {
         path: 'target',
         name: 'DeploymentTargetManagement',

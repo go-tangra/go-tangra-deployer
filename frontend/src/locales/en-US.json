@@ -1,11 +1,33 @@
 {
   "menu": {
     "moduleName": "Certificate Deployment",
+    "dashboard": "Dashboard",
     "target": "Deployment Targets",
     "configuration": "Target Configurations",
     "job": "Deployment Jobs"
   },
   "page": {
+    "dashboard": {
+      "title": "Deployer Dashboard",
+      "description": "Live deployment job, target, and configuration statistics for the deployer module.",
+      "lastUpdated": "Last updated",
+      "empty": "Statistics unavailable. Try refreshing.",
+      "targetsTotal": "Targets",
+      "autoDeployEnabled": "Auto-deploy",
+      "configurationsTotal": "Configurations",
+      "configurationsActive": "Active",
+      "jobsTotal": "Jobs",
+      "inFlight": "In flight",
+      "successRate24h": "Success rate (24h)",
+      "last7d": "Last 7d",
+      "jobsByStatus": "Jobs by status",
+      "jobsByTrigger": "Jobs by trigger",
+      "configsByProvider": "Configurations by provider",
+      "recentErrors": "Recent failures",
+      "noJobs": "No deployment jobs yet.",
+      "noConfigs": "No target configurations yet.",
+      "noErrors": "No recent failures."
+    },
     "target": {
       "moduleName": "Deployment Target",
       "id": "Target ID",

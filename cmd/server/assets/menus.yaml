@@ -19,6 +19,18 @@ menus:
       - platform:admin
       - tenant:manager
 
+  - id: deployer-dashboard
+    parent_id: deployer
+    type: MENU
+    name: Dashboard
+    path: dashboard
+    component: app/deployer/dashboard/index.vue
+    icon: lucide:layout-dashboard
+    order: 0
+    authority:
+      - platform:admin
+      - tenant:manager
+
   - id: deployer-jobs
     parent_id: deployer
     type: MENU
