@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"regexp"
+	"strings"
 
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/tx7do/kratos-bootstrap/bootstrap"
@@ -214,24 +215,26 @@ func (h *Handler) matchesFilter(filter schema.CertificateFilter, event *Certific
 	return true
 }
 
-// matchesPattern checks if a value matches a regex pattern
+// matchesPattern checks if a value matches a regex (or glob-style) pattern.
+// See compilePattern for the fallback ladder applied when the input doesn't
+// parse as a valid Go regex.
 func (h *Handler) matchesPattern(pattern, value string) (bool, error) {
 	if value == "" {
 		return false, nil
 	}
-	re, err := regexp.Compile(pattern)
+	re, err := compilePattern(pattern)
 	if err != nil {
 		return false, err
 	}
 	return re.MatchString(value), nil
 }
 
-// matchesAnyPattern checks if any value in the slice matches a regex pattern
+// matchesAnyPattern checks if any value in the slice matches the pattern.
 func (h *Handler) matchesAnyPattern(pattern string, values []string) (bool, error) {
 	if len(values) == 0 {
 		return false, nil
 	}
-	re, err := regexp.Compile(pattern)
+	re, err := compilePattern(pattern)
 	if err != nil {
 		return false, err
 	}
@@ -243,9 +246,73 @@ func (h *Handler) matchesAnyPattern(pattern string, values []string) (bool, erro
 	return false, nil
 }
 
+// compilePattern accepts user-supplied filter patterns in either of two
+// flavours and returns a compiled *regexp.Regexp. The fallback ladder:
+//
+//  1. Treat the input as a Go regular expression. If it compiles, use it
+//     as-is — preserves backward compatibility with operators who
+//     deliberately wrote regex (e.g. ".*\\.example\\.com").
+//  2. If regex compilation fails, attempt a leading-"*" fixup: a literal
+//     "*" at the start is an invalid quantifier in regex, but a very
+//     common typo for ".*" (operators expecting glob semantics). Prepend
+//     "." to make it ".*" and retry. Handles patterns like
+//     "*\\.example\\.com" — the user mixed glob-style * with regex-style
+//     \. escapes, which we can recover from cheaply.
+//  3. If THAT still fails, fall back to a full glob → regex translation:
+//     escape every regex metacharacter, then expand * to .* and ? to .
+//     The result is anchored with ^…$ so glob semantics match the
+//     operator's intuition (e.g. "*.example.com" matches "foo.example.com"
+//     but not "xfoo-example.com").
+//  4. Surface the original regex error so logs are actionable.
+//
+// Documented in the UI placeholder so operators know both forms work.
+func compilePattern(pattern string) (*regexp.Regexp, error) {
+	re, regexErr := regexp.Compile(pattern)
+	if regexErr == nil {
+		return re, nil
+	}
+	if strings.HasPrefix(pattern, "*") {
+		if fixed, err := regexp.Compile("." + pattern); err == nil {
+			return fixed, nil
+		}
+	}
+	if globRe, err := regexp.Compile("^" + globToRegex(pattern) + "$"); err == nil {
+		return globRe, nil
+	}
+	return nil, regexErr
+}
+
+// globToRegex translates an unrooted glob expression to a Go regex
+// fragment (no anchors — caller wraps with ^…$ as needed). Only the two
+// canonical glob wildcards are recognised: * → .*  and  ? → .  Every
+// other byte is regex-escaped so the resulting pattern matches literally.
+// Backslashes in the input are escaped as literal characters — they are
+// NOT treated as regex escape introducers, which means a pattern that
+// mixes glob wildcards with regex-style \\. escapes will not round-trip
+// cleanly. Those inputs should be normalised to either valid regex
+// (matched at step 1) or pure glob (matched here at step 3).
+func globToRegex(g string) string {
+	var b strings.Builder
+	b.Grow(len(g) * 2)
+	for _, r := range g {
+		switch r {
+		case '*':
+			b.WriteString(".*")
+		case '?':
+			b.WriteString(".")
+		case '.', '+', '(', ')', '[', ']', '{', '}', '|', '^', '$', '\\':
+			b.WriteRune('\\')
+			b.WriteRune(r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // matchesDomainPattern checks if any domain matches the pattern (legacy, deprecated)
 func (h *Handler) matchesDomainPattern(pattern, commonName string, sans []string) (bool, error) {
-	re, err := regexp.Compile(pattern)
+	re, err := compilePattern(pattern)
 	if err != nil {
 		return false, err
 	}
