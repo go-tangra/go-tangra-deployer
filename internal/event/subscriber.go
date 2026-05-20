@@ -215,6 +215,17 @@ func (s *Subscriber) handleMessage(msg *redis.Message) {
 		return
 	}
 
+	// Skip events the deployer itself published. The tangra-client provider
+	// publishes its own certificate.issued envelopes on the same Redis
+	// channel so the LCM streamer can forward the payload to agents. Those
+	// envelopes use a different data schema (no job_id, no tenant_id,
+	// timestamps as Unix seconds, etc.) so convertToCertificateEvent below
+	// throws "Time.UnmarshalJSON: input is not a JSON string". The events
+	// are not meant for this subscriber — bail out silently.
+	if lcmEvent.Source == "deployer-service" {
+		return
+	}
+
 	// Extract event type from channel name
 	prefix := s.config.TopicPrefix
 	if prefix == "" {

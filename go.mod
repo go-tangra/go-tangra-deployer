@@ -7,7 +7,7 @@ require (
 	entgo.io/ent v0.14.5
 	github.com/go-kratos/kratos/v2 v2.9.2
 	github.com/go-sql-driver/mysql v1.9.3
-	github.com/go-tangra/go-tangra-common v1.17.1
+	github.com/go-tangra/go-tangra-common v1.18.0
 	github.com/go-tangra/go-tangra-lcm v1.5.1-0.20260520080815-79a8b5d92fbd
 	github.com/google/gnostic v0.7.1
 	github.com/google/uuid v1.6.0
