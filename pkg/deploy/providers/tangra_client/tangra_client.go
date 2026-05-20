@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"strings"
@@ -374,8 +375,11 @@ func parseConfig(raw map[string]any) (*Config, error) {
 	if v, ok := raw["cert_name"].(string); ok {
 		cfg.CertName = v
 	}
-	if v, ok := raw["require_all_success"].(bool); ok {
+	switch v := raw["require_all_success"].(type) {
+	case bool:
 		cfg.RequireAllSuccess = v
+	case string:
+		cfg.RequireAllSuccess = strings.EqualFold(v, "true") || v == "1"
 	}
 
 	return cfg, nil
@@ -397,25 +401,55 @@ func toStringSlice(v any) ([]string, error) {
 			}
 		}
 		return out, nil
+	case string:
+		// UI forms only render single-line inputs, so client_ids arrives
+		// as a comma/whitespace-separated string. Trim and drop empties
+		// so trailing commas or stray whitespace don't produce blank
+		// entries that the LCM rejects.
+		parts := strings.FieldsFunc(x, func(r rune) bool {
+			return r == ',' || r == ' ' || r == '\t' || r == '\n'
+		})
+		out := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if p != "" {
+				out = append(out, p)
+			}
+		}
+		return out, nil
 	default:
-		return nil, fmt.Errorf("expected array, got %T", v)
+		return nil, fmt.Errorf("expected array or comma-separated string, got %T", v)
 	}
 }
 
 func toStringMap(v any) (map[string]string, error) {
-	m, ok := v.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("expected object, got %T", v)
-	}
-	out := make(map[string]string, len(m))
-	for k, val := range m {
-		s, ok := val.(string)
-		if !ok {
-			return nil, fmt.Errorf("value for %q is not a string", k)
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]string, len(x))
+		for k, val := range x {
+			s, ok := val.(string)
+			if !ok {
+				return nil, fmt.Errorf("value for %q is not a string", k)
+			}
+			out[k] = s
 		}
-		out[k] = s
+		return out, nil
+	case string:
+		// UI form sends labels as a JSON object literal in a text input
+		// (e.g. {"env":"prod","region":"eu"}). Tolerate an empty string
+		// for the case where the user creates the config without
+		// labels — parseConfig caller decides whether that's allowed.
+		trimmed := strings.TrimSpace(x)
+		if trimmed == "" {
+			return nil, nil
+		}
+		var parsed map[string]string
+		if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
+			return nil, fmt.Errorf("labels JSON: %w", err)
+		}
+		return parsed, nil
+	default:
+		return nil, fmt.Errorf("expected object or JSON string, got %T", v)
 	}
-	return out, nil
 }
 
 func progress(cb registry.ProgressCallback, pct int32, msg string) {

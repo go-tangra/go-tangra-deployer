@@ -130,6 +130,12 @@ const selectedProviderInfo = computed(() => {
 const optionalConfigFields: Record<string, string[]> = {
   bigip: ['ssl_profile'],
   webhook: ['verify_url', 'rollback_url', 'skip_tls_verify', 'timeout_seconds'],
+  // tangra-client: client_ids is a comma-separated list, labels is a
+  // JSON object literal (e.g. {"env":"prod"}). Backend parseConfig
+  // coerces both shapes from a plain string input. The user must
+  // populate at least one of client_ids/labels — ValidateCredentials
+  // enforces it server-side.
+  'tangra-client': ['client_ids', 'labels', 'cert_name', 'require_all_success'],
 };
 
 // Optional credential fields by provider type

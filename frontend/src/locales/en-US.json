@@ -254,6 +254,20 @@
         "timeout_seconds": "Timeout (seconds)",
         "timeout_seconds_placeholder": "Request timeout in seconds (default: 60)"
       }
+    },
+    "tangra-client": {
+      "name": "Tangra Client",
+      "description": "Deploy certificates to registered go-tangra-client agents via the LCM streaming channel",
+      "fields": {
+        "client_ids": "Client IDs",
+        "client_ids_placeholder": "Comma-separated client IDs, e.g. ml02,ml03,edge-01",
+        "labels": "Labels (JSON)",
+        "labels_placeholder": "JSON object matched against client metadata, e.g. {\"env\":\"prod\"}",
+        "cert_name": "Certificate Name (Optional)",
+        "cert_name_placeholder": "Overrides the cert CN as the directory name under live/. Defaults to CN.",
+        "require_all_success": "Require All Success",
+        "require_all_success_placeholder": "true to fail the deploy if any single client push fails (default: partial success is reported as success)"
+      }
     }
   },
   "enum": {
