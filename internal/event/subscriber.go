@@ -45,7 +45,11 @@ type CertificateIssuedData struct {
 	SubjectCountry      string `json:"subject_country,omitempty"`
 }
 
-// RenewalCompletedData represents the data field for renewal.completed events
+// RenewalCompletedData represents the data field for renewal.completed events.
+// CommonName / DNSNames / IssuerName were added in go-tangra-lcm v3.1.6 so
+// auto-deploy targets can match the renewed cert against certificate_filters
+// without making a follow-up LCM lookup. Older LCM versions left these empty;
+// the handler still works in that case but won't match CN/SAN patterns.
 type RenewalCompletedData struct {
 	RenewalID       int       `json:"renewal_id"`
 	CertificateID   string    `json:"certificate_id"`
@@ -54,6 +58,10 @@ type RenewalCompletedData struct {
 	NewSerialNumber string    `json:"new_serial_number"`
 	NewExpiresAt    time.Time `json:"new_expires_at"`
 	AttemptNumber   int32     `json:"attempt_number"`
+	CommonName      string    `json:"common_name,omitempty"`
+	DNSNames        []string  `json:"dns_names,omitempty"`
+	IssuerName      string    `json:"issuer_name,omitempty"`
+	IssuerType      string    `json:"issuer_type,omitempty"`
 }
 
 // CertificateEvent represents the normalized certificate event for handler
@@ -278,14 +286,23 @@ func (s *Subscriber) convertToCertificateEvent(eventType string, lcmEvent *LCMEv
 		if err := json.Unmarshal(lcmEvent.Data, &data); err != nil {
 			return nil, fmt.Errorf("failed to parse renewal.completed data: %w", err)
 		}
+		// CertificateID is the canonical issued-cert UUID — keep it the same
+		// across renewals so deploy jobs can be traced back to the original
+		// cert row. The previous code put NewSerialNumber here, but a) the
+		// scheduler often doesn't populate that field (depends on a cert
+		// edge that can be nil), and b) every downstream lookup expects a
+		// UUID, not a hex serial.
 		return &CertificateEvent{
-			EventType:      eventType,
-			TenantID:       data.TenantID,
-			CertificateID:  data.NewSerialNumber,
-			SerialNumber:   data.NewSerialNumber,
-			NotAfter:       data.NewExpiresAt.Unix(),
-			IsRenewal:      true,
-			PreviousCertID: data.CertificateID,
+			EventType:           eventType,
+			TenantID:            data.TenantID,
+			CertificateID:       data.CertificateID,
+			SerialNumber:        data.NewSerialNumber,
+			CommonName:          data.CommonName,
+			SANs:                data.DNSNames,
+			IssuerName:          data.IssuerName,
+			NotAfter:            data.NewExpiresAt.Unix(),
+			IsRenewal:           true,
+			PreviousCertID:      data.CertificateID,
 		}, nil
 
 	default:
