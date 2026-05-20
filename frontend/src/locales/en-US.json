@@ -262,7 +262,7 @@
         "client_ids": "Client IDs",
         "client_ids_placeholder": "Comma-separated client IDs, e.g. ml02,ml03,edge-01",
         "labels": "Labels (JSON)",
-        "labels_placeholder": "JSON object matched against client metadata, e.g. {\"env\":\"prod\"}",
+        "labels_placeholder": "JSON object matched against client metadata; AND-semantics. Leave empty to target by Client IDs instead.",
         "cert_name": "Certificate Name (Optional)",
         "cert_name_placeholder": "Overrides the cert CN as the directory name under live/. Defaults to CN.",
         "require_all_success": "Require All Success",
