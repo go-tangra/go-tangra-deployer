@@ -273,17 +273,15 @@ export const DeployerStatisticsService = {
     params?: operations['DeployerStatisticsService_GetStatistics']['parameters']['query'],
     options?: RequestOptions
   ): Promise<GetStatisticsResponse> => {
-    // Note: This endpoint uses /api/v1/deployer path prefix
-    return deployerApi.get<GetStatisticsResponse>(`/api/v1/deployer/statistics${buildQuery(params || {})}`, options);
+    return deployerApi.get<GetStatisticsResponse>(`/statistics${buildQuery(params || {})}`, options);
   },
 
   getTenantStatistics: async (
     tenantId: number,
     options?: RequestOptions
   ): Promise<TenantStatistics> => {
-    // Note: This endpoint uses /api/v1/deployer path prefix
     return deployerApi.get<TenantStatistics>(
-      `/api/v1/deployer/statistics/tenant/${tenantId}`,
+      `/statistics/tenant/${tenantId}`,
       options
     );
   },
