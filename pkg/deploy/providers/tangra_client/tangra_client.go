@@ -73,17 +73,18 @@ func (p *Provider) GetCapabilities() *registry.ProviderCapabilities {
 	}
 }
 
-// ValidateCredentials validates the SHAPE of any fields present in the
-// supplied configuration. It deliberately tolerates an empty config: the UI
-// creates the target configuration first (name + provider) and the user
-// fills in client_ids / labels in a follow-up Edit step. The "at least one
-// target must be resolvable" requirement is enforced at Deploy and Verify
-// time via Pusher.ResolveClients, which is when an empty target list is
-// actually a problem. Credentials are unused — the Pusher uses ambient mTLS
-// established by the deployer.
+// ValidateCredentials validates that the supplied configuration has at least
+// one resolvable target (explicit IDs or labels). Credentials are unused —
+// the underlying Pusher uses ambient mTLS established by the deployer.
 func (p *Provider) ValidateCredentials(ctx context.Context, credentials, config map[string]any) error {
-	_, err := parseConfig(config)
-	return err
+	cfg, err := parseConfig(config)
+	if err != nil {
+		return err
+	}
+	if len(cfg.ClientIDs) == 0 && len(cfg.Labels) == 0 {
+		return fmt.Errorf("tangra-client config requires either 'client_ids' or 'labels'")
+	}
+	return nil
 }
 
 // Deploy resolves the target client list and pushes the certificate to each.
