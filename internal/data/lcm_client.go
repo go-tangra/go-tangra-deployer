@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -219,6 +220,15 @@ func (cd *CertificateData) parseCertificatePEM() error {
 	}
 	if len(cd.SANs) == 0 {
 		cd.SANs = cert.DNSNames
+	}
+	if cd.SerialNumber == "" && cert.SerialNumber != nil {
+		// Uppercase hex to match the format LCM uses on its own
+		// IssuedCertificate.serial_number column and what
+		// formatSerialNumber emits elsewhere in the codebase. The
+		// X.509 serial is a positive arbitrary-precision integer;
+		// big.Int.Text(16) gives a canonical hex string without a
+		// "0x" prefix, which we upper-case for consistency.
+		cd.SerialNumber = strings.ToUpper(cert.SerialNumber.Text(16))
 	}
 	if cd.ExpiresAt == 0 {
 		cd.ExpiresAt = cert.NotAfter.Unix()
