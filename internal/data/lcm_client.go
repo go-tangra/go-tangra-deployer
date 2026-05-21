@@ -187,7 +187,22 @@ func (c *LcmClient) getByJobID(ctx context.Context, jobID string, includePrivate
 	return certData, nil
 }
 
-// parseCertificatePEM parses the certificate PEM and extracts CommonName and SANs
+// parseCertificatePEM parses the certificate PEM and back-fills any cert
+// metadata the LCM RPC response did not already provide.
+//
+// IMPORTANT: do NOT clobber CommonName or SANs that came from the LCM
+// IssuedCertificate row. Public CAs (Let's Encrypt in particular)
+// rewrite the requested Subject CN on wildcard certs: a request for
+// CN=*.factory.bg comes back with CN=factory.bg in the X.509 and the
+// wildcard only in dNSName SANs. Overwriting our stored CommonName
+// with the cert's subject would silently rename the cert from
+// "*.factory.bg" to "factory.bg" on every renewal, which then
+// cascades into the tangra-client storing the renewed cert at a
+// different filesystem path (live/factory.bg vs live/star.factory.bg)
+// and the install-report table accumulating duplicate rows under
+// divergent names.
+//
+// Only fill in fields that are empty.
 func (cd *CertificateData) parseCertificatePEM() error {
 	block, _ := pem.Decode([]byte(cd.CertificatePEM))
 	if block == nil {
@@ -199,8 +214,12 @@ func (cd *CertificateData) parseCertificatePEM() error {
 		return fmt.Errorf("failed to parse certificate: %w", err)
 	}
 
-	cd.CommonName = cert.Subject.CommonName
-	cd.SANs = cert.DNSNames
+	if cd.CommonName == "" {
+		cd.CommonName = cert.Subject.CommonName
+	}
+	if len(cd.SANs) == 0 {
+		cd.SANs = cert.DNSNames
+	}
 	if cd.ExpiresAt == 0 {
 		cd.ExpiresAt = cert.NotAfter.Unix()
 	}
