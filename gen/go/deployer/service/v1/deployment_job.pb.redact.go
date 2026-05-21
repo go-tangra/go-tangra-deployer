@@ -351,6 +351,8 @@ func (x *RetryJobRequest) Redact() string {
 	// Safe field: Id
 
 	// Safe field: RetryFailedChildrenOnly
+
+	// Safe field: Force
 	return x.String()
 }
 

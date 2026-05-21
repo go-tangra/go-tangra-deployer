@@ -264,11 +264,11 @@ async function handleCancel(row: DeploymentJob) {
 }
 
 /* Retry job */
-async function handleRetry(row: DeploymentJob) {
+async function handleRetry(row: DeploymentJob, force = false) {
   if (!row.id) return;
 
   try {
-    await jobStore.retryJob(row.id);
+    await jobStore.retryJob(row.id, force);
     notification.success({ message: $t('deployer.page.job.retrySuccess') });
     await gridApi.query();
   } catch {
@@ -281,7 +281,15 @@ function canCancel(status: string | undefined) {
 }
 
 function canRetry(status: string | undefined) {
-  return status === 'JOB_STATUS_FAILED';
+  return status === 'JOB_STATUS_FAILED' || status === 'JOB_STATUS_PARTIAL';
+}
+
+// Force retry is only meaningful on terminal-but-not-failed states.
+// Failed/Partial already have the normal Retry button; in-flight
+// states (Pending/Processing/Retrying) would race the executor and
+// are rejected by the backend regardless.
+function canForceRetry(status: string | undefined) {
+  return status === 'JOB_STATUS_COMPLETED' || status === 'JOB_STATUS_CANCELLED';
 }
 </script>
 
@@ -346,6 +354,20 @@ function canRetry(status: string | undefined) {
             type="link"
             :icon="h(LucideRefreshCw)"
             :title="$t('deployer.page.job.retry')"
+          />
+        </a-popconfirm>
+        <a-popconfirm
+          v-if="canForceRetry(row.status)"
+          :cancel-text="$t('ui.button.cancel')"
+          :ok-text="$t('ui.button.ok')"
+          :title="$t('deployer.page.job.confirmForceRetry')"
+          @confirm="handleRetry(row, true)"
+        >
+          <a-button
+            type="link"
+            danger
+            :icon="h(LucideRefreshCw)"
+            :title="$t('deployer.page.job.forceRetry')"
           />
         </a-popconfirm>
       </template>

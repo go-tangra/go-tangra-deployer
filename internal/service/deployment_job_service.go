@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -360,9 +361,28 @@ func (s *DeploymentJobService) RetryJob(ctx context.Context, req *deployerV1.Ret
 		return nil, deployerV1.ErrorJobNotFound("deployment job not found")
 	}
 
-	// Check if job can be retried (failed or partial)
-	if job.Status != deploymentjob.StatusJOB_STATUS_FAILED && job.Status != deploymentjob.StatusJOB_STATUS_PARTIAL {
-		return nil, deployerV1.ErrorConflict("only failed or partial jobs can be retried")
+	// Status gate. Default path accepts Failed/Partial only. With force,
+	// also accept terminal-but-finished statuses (Completed/Cancelled) so
+	// an operator can re-push from the UI when a cert has gone missing
+	// on the target without LCM having triggered a renewal.
+	//
+	// We never let force bypass the in-flight statuses
+	// (Pending/Processing/Retrying) — those would race the running
+	// executor and produce a duplicate worker claiming the same job row.
+	switch job.Status {
+	case deploymentjob.StatusJOB_STATUS_FAILED,
+		deploymentjob.StatusJOB_STATUS_PARTIAL:
+		// always retriable
+	case deploymentjob.StatusJOB_STATUS_COMPLETED,
+		deploymentjob.StatusJOB_STATUS_CANCELLED:
+		if !req.GetForce() {
+			return nil, deployerV1.ErrorConflict("only failed or partial jobs can be retried; pass force=true to re-run a completed or cancelled job")
+		}
+	default:
+		// Pending / Processing / Retrying: never. Force does not help
+		// here because there is (or will shortly be) an executor
+		// already working this row.
+		return nil, deployerV1.ErrorConflict(fmt.Sprintf("cannot retry job in status %s — wait for the in-flight run to terminate first", job.Status))
 	}
 
 	oldStatus := string(job.Status)

@@ -200,6 +200,13 @@ message RetryJobRequest {
   ];
   // For parent jobs: retry only failed child jobs
   optional bool retry_failed_children_only = 2 [json_name = "retryFailedChildrenOnly"];
+  // Force re-running the job even when its status is not Failed or
+  // Partial — accepts Completed/Cancelled in addition to the default
+  // Failed/Partial set. Never bypasses the in-flight guard
+  // (Pending/Processing/Retrying) since those would race the running
+  // executor. Operator-only escape hatch for "the cert is gone from
+  // the target, re-deliver it" scenarios.
+  optional bool force = 3 [json_name = "force"];
 }
 
 message RetryJobResponse {

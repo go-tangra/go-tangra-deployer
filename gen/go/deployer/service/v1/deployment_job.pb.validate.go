@@ -2009,6 +2009,10 @@ func (m *RetryJobRequest) validate(all bool) error {
 		// no validation rules for RetryFailedChildrenOnly
 	}
 
+	if m.Force != nil {
+		// no validation rules for Force
+	}
+
 	if len(errors) > 0 {
 		return RetryJobRequestMultiError(errors)
 	}

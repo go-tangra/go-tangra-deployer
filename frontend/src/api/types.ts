@@ -854,6 +854,8 @@ export interface operations {
             query?: {
                 /** @description For parent jobs: retry only failed child jobs */
                 retryFailedChildrenOnly?: boolean;
+                /** @description Re-run a Completed or Cancelled job (in-flight statuses still rejected). */
+                force?: boolean;
             };
             header?: never;
             path: {

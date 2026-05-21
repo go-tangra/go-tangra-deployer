@@ -77,10 +77,12 @@ export const useDeployerJobStore = defineStore('deployer-job', () => {
   }
 
   /**
-   * Retry a failed job
+   * Retry a failed or partial job. Pass force=true to also accept
+   * Completed and Cancelled jobs (in-flight statuses are always
+   * rejected by the backend).
    */
-  async function retryJob(id: string): Promise<RetryJobResponse> {
-    return await DeploymentJobService.retry(id);
+  async function retryJob(id: string, force = false): Promise<RetryJobResponse> {
+    return await DeploymentJobService.retry(id, force ? { force: true } : undefined);
   }
 
   function $reset() {}

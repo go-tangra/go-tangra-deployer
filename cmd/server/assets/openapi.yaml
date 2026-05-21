@@ -234,6 +234,11 @@ paths:
                   description: 'For parent jobs: retry only failed child jobs'
                   schema:
                     type: boolean
+                - name: force
+                  in: query
+                  description: Re-run a Completed or Cancelled job (in-flight statuses still rejected).
+                  schema:
+                    type: boolean
             responses:
                 "200":
                     description: OK

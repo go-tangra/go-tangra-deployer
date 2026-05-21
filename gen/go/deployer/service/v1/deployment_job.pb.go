@@ -1193,8 +1193,15 @@ type RetryJobRequest struct {
 	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// For parent jobs: retry only failed child jobs
 	RetryFailedChildrenOnly *bool `protobuf:"varint,2,opt,name=retry_failed_children_only,json=retryFailedChildrenOnly,proto3,oneof" json:"retry_failed_children_only,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// Force re-running the job even when its status is not Failed or
+	// Partial — accepts Completed/Cancelled in addition to the default
+	// Failed/Partial set. Never bypasses the in-flight guard
+	// (Pending/Processing/Retrying) since those would race the running
+	// executor. Operator-only escape hatch for "the cert is gone from
+	// the target, re-deliver it" scenarios.
+	Force         *bool `protobuf:"varint,3,opt,name=force,proto3,oneof" json:"force,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RetryJobRequest) Reset() {
@@ -1237,6 +1244,13 @@ func (x *RetryJobRequest) GetId() string {
 func (x *RetryJobRequest) GetRetryFailedChildrenOnly() bool {
 	if x != nil && x.RetryFailedChildrenOnly != nil {
 		return *x.RetryFailedChildrenOnly
+	}
+	return false
+}
+
+func (x *RetryJobRequest) GetForce() bool {
+	if x != nil && x.Force != nil {
+		return *x.Force
 	}
 	return false
 }
@@ -1440,11 +1454,13 @@ const file_deployer_service_v1_deployment_job_proto_rawDesc = "" +
 	"\x11cancel_child_jobs\x18\x02 \x01(\bH\x00R\x0fcancelChildJobs\x88\x01\x01B\x14\n" +
 	"\x12_cancel_child_jobs\"I\n" +
 	"\x11CancelJobResponse\x124\n" +
-	"\x03job\x18\x01 \x01(\v2\".deployer.service.v1.DeploymentJobR\x03job\"\x87\x01\n" +
+	"\x03job\x18\x01 \x01(\v2\".deployer.service.v1.DeploymentJobR\x03job\"\xac\x01\n" +
 	"\x0fRetryJobRequest\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tB\x03\xe0A\x02R\x02id\x12@\n" +
-	"\x1aretry_failed_children_only\x18\x02 \x01(\bH\x00R\x17retryFailedChildrenOnly\x88\x01\x01B\x1d\n" +
-	"\x1b_retry_failed_children_only\"H\n" +
+	"\x1aretry_failed_children_only\x18\x02 \x01(\bH\x00R\x17retryFailedChildrenOnly\x88\x01\x01\x12\x19\n" +
+	"\x05force\x18\x03 \x01(\bH\x01R\x05force\x88\x01\x01B\x1d\n" +
+	"\x1b_retry_failed_children_onlyB\b\n" +
+	"\x06_force\"H\n" +
 	"\x10RetryJobResponse\x124\n" +
 	"\x03job\x18\x01 \x01(\v2\".deployer.service.v1.DeploymentJobR\x03job*\xd6\x01\n" +
 	"\tJobStatus\x12\x1a\n" +
