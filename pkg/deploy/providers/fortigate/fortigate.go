@@ -104,18 +104,18 @@ func (p *Provider) Deploy(ctx context.Context, cert *registry.CertificateData, c
 	if base == "" {
 		base = "cert_" + safeIDPrefix(cert.ID)
 	}
-	fullCert := cert.CertificatePEM
-	if cert.CertificateChain != "" {
-		fullCert = fullCert + "\n" + cert.CertificateChain
-	}
+	// FortiOS local (server) cert import expects a single leaf certificate.
+	// Sending the chain (leaf + intermediates) is rejected with error -145
+	// "the imported local certificate is invalid".
+	leafCert := leafCertPEM(cert.CertificatePEM)
 
 	switch cfg.strategy {
 	case "delete":
-		return p.deployDelete(ctx, c, cfg, base, fullCert, cert.PrivateKeyPEM, host, start, progressCb)
+		return p.deployDelete(ctx, c, cfg, base, leafCert, cert.PrivateKeyPEM, host, start, progressCb)
 	case "rebind":
-		return p.deployRebind(ctx, c, cfg, base, fullCert, cert.PrivateKeyPEM, host, start, progressCb)
+		return p.deployRebind(ctx, c, cfg, base, leafCert, cert.PrivateKeyPEM, host, start, progressCb)
 	default: // "ssl_profile" — production-safe default
-		return p.deploySSLProfile(ctx, c, cfg, base, fullCert, cert.PrivateKeyPEM, host, start, progressCb)
+		return p.deploySSLProfile(ctx, c, cfg, base, leafCert, cert.PrivateKeyPEM, host, start, progressCb)
 	}
 }
 

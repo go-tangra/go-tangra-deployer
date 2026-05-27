@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"regexp"
 	"strings"
@@ -148,6 +149,27 @@ func sanitizeName(name string) string {
 	}
 
 	return result
+}
+
+// leafCertPEM returns only the first CERTIFICATE block from a PEM bundle.
+// FortiOS's local (server) certificate import (type=regular) expects a single
+// leaf certificate paired with the key; passing the full chain (leaf +
+// intermediates) makes it reject the import with error -145 "the imported
+// local certificate is invalid". Intermediates are not part of the local cert
+// object on FortiGate.
+func leafCertPEM(pemData string) string {
+	rest := []byte(pemData)
+	for {
+		block, remainder := pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type == "CERTIFICATE" {
+			return string(pem.EncodeToMemory(block))
+		}
+		rest = remainder
+	}
+	return pemData // no PEM block found; return as-is
 }
 
 // versionedName builds a unique, dated certificate name for a renewal, e.g.

@@ -1,6 +1,9 @@
 package fortigate
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestVersionedName(t *testing.T) {
 	tests := []struct {
@@ -99,6 +102,28 @@ func TestReplaceInList_NoChange(t *testing.T) {
 		t.Error("expected changed=false when nothing in family except the target")
 	}
 }
+
+func TestLeafCertPEM(t *testing.T) {
+	leaf := "-----BEGIN CERTIFICATE-----\nLEAFLEAFLEAF\n-----END CERTIFICATE-----\n"
+	inter := "-----BEGIN CERTIFICATE-----\nINTERINTER\n-----END CERTIFICATE-----\n"
+	root := "-----BEGIN CERTIFICATE-----\nROOTROOT\n-----END CERTIFICATE-----\n"
+
+	// A multi-cert bundle must collapse to just the first (leaf) block.
+	got := leafCertPEM(leaf + inter + root)
+	if c := countBlocks(got); c != 1 {
+		t.Fatalf("expected 1 cert block, got %d: %q", c, got)
+	}
+	if !strings.Contains(got, "LEAFLEAFLEAF") || strings.Contains(got, "INTERINTER") {
+		t.Errorf("leaf extraction wrong: %q", got)
+	}
+
+	// A single leaf is returned unchanged (one block).
+	if c := countBlocks(leafCertPEM(leaf)); c != 1 {
+		t.Errorf("single leaf should stay 1 block, got %d", c)
+	}
+}
+
+func countBlocks(s string) int { return strings.Count(s, "BEGIN CERTIFICATE") }
 
 func TestCfgBool(t *testing.T) {
 	m := map[string]any{"a": true, "b": "false", "c": "yes", "d": "garbage"}
