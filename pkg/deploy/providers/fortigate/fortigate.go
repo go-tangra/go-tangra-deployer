@@ -1,23 +1,16 @@
 package fortigate
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/go-tangra/go-tangra-deployer/pkg/deploy/registry"
 )
 
-const (
-	ProviderType = "fortigate"
-)
+const ProviderType = "fortigate"
 
 func init() {
 	registry.Register(ProviderType, func() registry.Provider {
@@ -26,20 +19,14 @@ func init() {
 		Type:        ProviderType,
 		DisplayName: "FortiGate",
 		Description: "Deploy SSL/TLS certificates to FortiGate firewalls via REST API",
-		Caps: &registry.ProviderCapabilities{
-			SupportsVerification: true,
-			SupportsRollback:     true,
-			RequiredConfigFields: []string{"vdom"},
-			RequiredCredFields:   []string{"host", "api_token"},
-		},
+		Caps:        capabilities(),
 	})
 }
 
-// Provider implements the FortiGate deployment provider
+// Provider implements the FortiGate deployment provider.
 type Provider struct{}
 
-// GetCapabilities returns the provider's capabilities
-func (p *Provider) GetCapabilities() *registry.ProviderCapabilities {
+func capabilities() *registry.ProviderCapabilities {
 	return &registry.ProviderCapabilities{
 		SupportsVerification: true,
 		SupportsRollback:     true,
@@ -48,395 +35,342 @@ func (p *Provider) GetCapabilities() *registry.ProviderCapabilities {
 	}
 }
 
-// ValidateCredentials validates FortiGate credentials by checking connectivity
+func (p *Provider) GetCapabilities() *registry.ProviderCapabilities { return capabilities() }
+
+// deployConfig holds the resolved provider configuration for one deployment.
+type deployConfig struct {
+	vdom          string
+	importScope   string // "global" | "vdom"
+	strategy      string // "ssl_profile" (default) | "rebind" | "delete"
+	profileSuffix string // suffix for the owned profile in ssl_profile mode
+	rebindRefs    bool   // rebind strategy only
+	pruneOld      bool   // rebind strategy only
+}
+
+func parseConfig(config map[string]any) deployConfig {
+	return deployConfig{
+		vdom:          cfgString(config, "vdom", "root"),
+		importScope:   cfgString(config, "import_scope", "global"),
+		strategy:      cfgString(config, "replace_strategy", "ssl_profile"),
+		profileSuffix: cfgString(config, "profile_suffix", defaultProfileSuffix),
+		rebindRefs:    cfgBool(config, "rebind_references", true),
+		pruneOld:      cfgBool(config, "prune_old", true),
+	}
+}
+
+// ValidateCredentials validates FortiGate credentials by checking connectivity.
 func (p *Provider) ValidateCredentials(ctx context.Context, credentials, config map[string]any) error {
 	host, ok := credentials["host"].(string)
 	if !ok || host == "" {
 		return fmt.Errorf("host is required")
 	}
-
 	apiToken, ok := credentials["api_token"].(string)
 	if !ok || apiToken == "" {
 		return fmt.Errorf("api_token is required")
 	}
 
-	vdom := "root"
-	if v, ok := config["vdom"].(string); ok && v != "" {
-		vdom = v
-	}
-
-	client := p.createHTTPClient()
-
-	// Test connectivity by getting system status
-	url := fmt.Sprintf("https://%s/api/v2/cmdb/system/global?vdom=%s", host, vdom)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+apiToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
+	c := newClient(host, apiToken, cfgString(config, "vdom", "root"))
+	r, err := c.cmdbGet(ctx, "system/global")
 	if err != nil {
 		return fmt.Errorf("failed to connect to FortiGate: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == 401 || resp.StatusCode == 403 {
-		return fmt.Errorf("authentication failed: invalid API token")
+	if r.StatusCode == 401 || r.StatusCode == 403 {
+		return fmt.Errorf("authentication failed: invalid or unauthorized API token (HTTP %d)", r.StatusCode)
 	}
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("FortiGate API error (HTTP %d): %s", resp.StatusCode, string(body))
+	if !r.ok() {
+		return apiError("connectivity check", r)
 	}
-
 	return nil
 }
 
-// Deploy deploys a certificate to FortiGate
+// Deploy deploys a certificate to FortiGate.
 func (p *Provider) Deploy(ctx context.Context, cert *registry.CertificateData, config, credentials map[string]any, progressCb registry.ProgressCallback) (*registry.DeploymentResult, error) {
-	startTime := time.Now()
+	start := time.Now()
 
-	// Validate credentials
 	if err := p.ValidateCredentials(ctx, credentials, config); err != nil {
 		return nil, err
 	}
-
 	host := credentials["host"].(string)
-	apiToken := credentials["api_token"].(string)
-
-	vdom := "root"
-	if v, ok := config["vdom"].(string); ok && v != "" {
-		vdom = v
-	}
-
-	// Generate certificate name from common name
-	certName := sanitizeName(cert.CommonName)
-	if certName == "" {
-		certName = fmt.Sprintf("cert-%s", cert.ID[:8])
-	}
+	token := credentials["api_token"].(string)
+	cfg := parseConfig(config)
+	c := newClient(host, token, cfg.vdom)
 
 	progressCb(10, "Validating certificate data")
-
 	if cert.CertificatePEM == "" || cert.PrivateKeyPEM == "" {
 		return nil, fmt.Errorf("certificate and private key are required")
 	}
 
-	client := p.createHTTPClient()
-
-	// Check if certificate already exists
-	progressCb(20, "Checking for existing certificate")
-	exists, err := p.certExists(ctx, client, host, apiToken, vdom, certName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check existing certificate: %w", err)
+	base := sanitizeName(cert.CommonName)
+	if base == "" {
+		base = "cert_" + safeIDPrefix(cert.ID)
 	}
-
-	// Prepare full certificate chain
 	fullCert := cert.CertificatePEM
 	if cert.CertificateChain != "" {
 		fullCert = fullCert + "\n" + cert.CertificateChain
 	}
 
-	if exists {
-		// Update existing certificate
-		progressCb(50, "Updating existing certificate")
-		if err := p.updateCertificate(ctx, client, host, apiToken, vdom, certName, fullCert, cert.PrivateKeyPEM); err != nil {
-			return nil, fmt.Errorf("failed to update certificate: %w", err)
-		}
-	} else {
-		// Upload new certificate
-		progressCb(50, "Uploading new certificate")
-		if err := p.uploadCertificate(ctx, client, host, apiToken, vdom, certName, fullCert, cert.PrivateKeyPEM); err != nil {
-			return nil, fmt.Errorf("failed to upload certificate: %w", err)
-		}
+	switch cfg.strategy {
+	case "delete":
+		return p.deployDelete(ctx, c, cfg, base, fullCert, cert.PrivateKeyPEM, host, start, progressCb)
+	case "rebind":
+		return p.deployRebind(ctx, c, cfg, base, fullCert, cert.PrivateKeyPEM, host, start, progressCb)
+	default: // "ssl_profile" — production-safe default
+		return p.deploySSLProfile(ctx, c, cfg, base, fullCert, cert.PrivateKeyPEM, host, start, progressCb)
+	}
+}
+
+// deployRebind imports the renewed certificate under a unique dated name,
+// repoints existing references to it, then prunes superseded family members.
+// This avoids FortiOS rejecting the replacement of a referenced certificate.
+func (p *Provider) deployRebind(ctx context.Context, c *fgClient, cfg deployConfig, base, fullCert, keyPEM, host string, start time.Time, progressCb registry.ProgressCallback) (*registry.DeploymentResult, error) {
+	date := time.Now().UTC().Format("20060102")
+	newName := versionedName(base, date)
+
+	progressCb(20, "Checking for existing certificate")
+	exists, err := c.certExists(ctx, newName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check existing certificate: %w", err)
 	}
 
-	progressCb(90, "Verifying deployment")
+	imported := false
+	if !exists {
+		progressCb(40, "Importing certificate "+newName)
+		if err := c.importCert(ctx, newName, fullCert, keyPEM, cfg.importScope); err != nil {
+			return nil, fmt.Errorf("failed to import certificate: %w", err)
+		}
+		ok, verr := c.certExists(ctx, newName)
+		if verr != nil || !ok {
+			return nil, fmt.Errorf("verification failed: certificate %s not found after import (%v)", newName, verr)
+		}
+		imported = true
+	}
 
-	// Verify the certificate was uploaded
-	exists, err = p.certExists(ctx, client, host, apiToken, vdom, certName)
-	if err != nil || !exists {
-		return nil, fmt.Errorf("verification failed: certificate not found after upload")
+	inFamily := familyMatcher(base)
+
+	var rb rebindResult
+	if cfg.rebindRefs {
+		progressCb(65, "Rebinding references to "+newName)
+		rb = rebindReferences(ctx, c, inFamily, newName)
+	}
+
+	// Prune is safe regardless of rebind outcome: FortiOS refuses to delete a
+	// still-referenced certificate, so a failed rebind cannot lead to a broken
+	// reference here — the old cert simply survives the prune.
+	var pruned, pruneErrs []string
+	if cfg.pruneOld {
+		progressCb(85, "Pruning superseded certificates")
+		pruned, pruneErrs = pruneFamily(ctx, c, inFamily, newName)
 	}
 
 	progressCb(100, "Deployment complete")
 
+	success := len(rb.Errors) == 0
+	msg := fmt.Sprintf("Certificate %s deployed (%d reference(s) rebound, %d superseded cert(s) pruned)", newName, len(rb.Rebound), len(pruned))
+	if !success {
+		msg = fmt.Sprintf("Certificate %s imported but %d reference rebind(s) failed: %s", newName, len(rb.Errors), strings.Join(rb.Errors, "; "))
+	}
+
+	return &registry.DeploymentResult{
+		Success:    success,
+		Message:    msg,
+		ResourceID: newName,
+		Details: map[string]any{
+			"host":             host,
+			"vdom":             cfg.vdom,
+			"certificate_name": newName,
+			"strategy":         "rebind",
+			"imported":         imported,
+			"rebound":          rb.Rebound,
+			"rebind_errors":    rb.Errors,
+			"pruned":           pruned,
+			"prune_errors":     pruneErrs,
+		},
+		DurationMs: time.Since(start).Milliseconds(),
+	}, nil
+}
+
+// deployDelete is the legacy replace strategy: delete the existing certificate
+// then re-import under the same name. It only works when the certificate is not
+// referenced by any other object; otherwise FortiOS blocks the delete. Kept as
+// an opt-in escape hatch via replace_strategy=delete.
+func (p *Provider) deployDelete(ctx context.Context, c *fgClient, cfg deployConfig, base, fullCert, keyPEM, host string, start time.Time, progressCb registry.ProgressCallback) (*registry.DeploymentResult, error) {
+	certName := base
+
+	progressCb(20, "Checking for existing certificate")
+	exists, err := c.certExists(ctx, certName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check existing certificate: %w", err)
+	}
+
+	if exists {
+		progressCb(50, "Deleting existing certificate")
+		if err := c.deleteCert(ctx, certName); err != nil {
+			return nil, fmt.Errorf("failed to replace certificate %s: %w; if it is referenced by an SSL profile or other object, set replace_strategy=rebind", certName, err)
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	progressCb(60, "Importing certificate")
+	if err := c.importCert(ctx, certName, fullCert, keyPEM, cfg.importScope); err != nil {
+		return nil, fmt.Errorf("failed to import certificate: %w", err)
+	}
+
+	progressCb(90, "Verifying deployment")
+	ok, err := c.certExists(ctx, certName)
+	if err != nil || !ok {
+		return nil, fmt.Errorf("verification failed: certificate not found after import")
+	}
+
+	progressCb(100, "Deployment complete")
 	return &registry.DeploymentResult{
 		Success:    true,
 		Message:    "Certificate deployed successfully to FortiGate",
 		ResourceID: certName,
 		Details: map[string]any{
 			"host":             host,
-			"vdom":             vdom,
+			"vdom":             cfg.vdom,
 			"certificate_name": certName,
+			"strategy":         "delete",
 			"was_update":       exists,
 		},
-		DurationMs: time.Since(startTime).Milliseconds(),
+		DurationMs: time.Since(start).Milliseconds(),
 	}, nil
 }
 
-// Verify verifies that a certificate is deployed correctly
-func (p *Provider) Verify(ctx context.Context, cert *registry.CertificateData, config, credentials map[string]any) (*registry.DeploymentResult, error) {
-	startTime := time.Now()
+// pruneFamily deletes family certificates other than keep. In-use members are
+// left in place (FortiOS rejects the delete) and reported as non-fatal errors.
+func pruneFamily(ctx context.Context, c *fgClient, inFamily func(string) bool, keep string) (pruned, errs []string) {
+	names, err := c.listLocalCertNames(ctx)
+	if err != nil {
+		return nil, []string{err.Error()}
+	}
+	for _, n := range names {
+		if n == keep || !inFamily(n) {
+			continue
+		}
+		if err := c.deleteCert(ctx, n); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", n, err))
+			continue
+		}
+		pruned = append(pruned, n)
+	}
+	return pruned, errs
+}
 
+// Verify checks that a member of the certificate family exists on the device.
+func (p *Provider) Verify(ctx context.Context, cert *registry.CertificateData, config, credentials map[string]any) (*registry.DeploymentResult, error) {
+	start := time.Now()
 	if err := p.ValidateCredentials(ctx, credentials, config); err != nil {
 		return nil, err
 	}
+	cfg := parseConfig(config)
+	c := newClient(credentials["host"].(string), credentials["api_token"].(string), cfg.vdom)
 
-	host := credentials["host"].(string)
-	apiToken := credentials["api_token"].(string)
-
-	vdom := "root"
-	if v, ok := config["vdom"].(string); ok && v != "" {
-		vdom = v
+	base := sanitizeName(cert.CommonName)
+	if base == "" {
+		base = "cert_" + safeIDPrefix(cert.ID)
 	}
+	inFamily := familyMatcher(base)
 
-	certName := sanitizeName(cert.CommonName)
-	if certName == "" {
-		certName = fmt.Sprintf("cert-%s", cert.ID[:8])
-	}
-
-	client := p.createHTTPClient()
-
-	exists, err := p.certExists(ctx, client, host, apiToken, vdom, certName)
+	names, err := c.listLocalCertNames(ctx)
 	if err != nil {
-		return &registry.DeploymentResult{
-			Success:    false,
-			Message:    fmt.Sprintf("Failed to verify: %v", err),
-			DurationMs: time.Since(startTime).Milliseconds(),
-		}, nil
+		return &registry.DeploymentResult{Success: false, Message: fmt.Sprintf("Failed to verify: %v", err), DurationMs: time.Since(start).Milliseconds()}, nil
 	}
-
-	if !exists {
-		return &registry.DeploymentResult{
-			Success:    false,
-			Message:    "Certificate not found on FortiGate",
-			DurationMs: time.Since(startTime).Milliseconds(),
-		}, nil
+	var found []string
+	for _, n := range names {
+		if inFamily(n) {
+			found = append(found, n)
+		}
 	}
+	if len(found) == 0 {
+		return &registry.DeploymentResult{Success: false, Message: "Certificate not found on FortiGate", DurationMs: time.Since(start).Milliseconds()}, nil
+	}
+	sort.Strings(found)
+	current := found[len(found)-1] // newest dated version sorts last
 
 	return &registry.DeploymentResult{
 		Success:    true,
 		Message:    "Certificate verified on FortiGate",
-		ResourceID: certName,
+		ResourceID: current,
 		Details: map[string]any{
-			"host":             host,
-			"vdom":             vdom,
-			"certificate_name": certName,
+			"host":             credentials["host"],
+			"vdom":             cfg.vdom,
+			"certificate_name": current,
+			"family_members":   found,
 		},
-		DurationMs: time.Since(startTime).Milliseconds(),
+		DurationMs: time.Since(start).Milliseconds(),
 	}, nil
 }
 
-// Rollback removes a deployed certificate
+// Rollback removes deployed family certificates that are no longer referenced.
+// Referenced members are left in place (FortiOS rejects the delete), so a
+// rollback cannot break a live configuration.
 func (p *Provider) Rollback(ctx context.Context, cert *registry.CertificateData, config, credentials map[string]any) (*registry.DeploymentResult, error) {
-	startTime := time.Now()
-
+	start := time.Now()
 	if err := p.ValidateCredentials(ctx, credentials, config); err != nil {
 		return nil, err
 	}
+	cfg := parseConfig(config)
+	c := newClient(credentials["host"].(string), credentials["api_token"].(string), cfg.vdom)
 
-	host := credentials["host"].(string)
-	apiToken := credentials["api_token"].(string)
-
-	vdom := "root"
-	if v, ok := config["vdom"].(string); ok && v != "" {
-		vdom = v
+	base := sanitizeName(cert.CommonName)
+	if base == "" {
+		base = "cert_" + safeIDPrefix(cert.ID)
 	}
+	inFamily := familyMatcher(base)
 
-	certName := sanitizeName(cert.CommonName)
-	if certName == "" {
-		certName = fmt.Sprintf("cert-%s", cert.ID[:8])
+	names, err := c.listLocalCertNames(ctx)
+	if err != nil {
+		return &registry.DeploymentResult{Success: false, Message: fmt.Sprintf("Rollback failed: %v", err), DurationMs: time.Since(start).Milliseconds()}, nil
 	}
-
-	client := p.createHTTPClient()
-
-	if err := p.deleteCertificate(ctx, client, host, apiToken, vdom, certName); err != nil {
-		return &registry.DeploymentResult{
-			Success:    false,
-			Message:    fmt.Sprintf("Rollback failed: %v", err),
-			DurationMs: time.Since(startTime).Milliseconds(),
-		}, nil
+	var deleted, skipped []string
+	for _, n := range names {
+		if !inFamily(n) {
+			continue
+		}
+		if err := c.deleteCert(ctx, n); err != nil {
+			skipped = append(skipped, fmt.Sprintf("%s (%v)", n, err))
+			continue
+		}
+		deleted = append(deleted, n)
 	}
 
 	return &registry.DeploymentResult{
 		Success:    true,
-		Message:    "Certificate removed from FortiGate",
-		DurationMs: time.Since(startTime).Milliseconds(),
+		Message:    fmt.Sprintf("Rollback removed %d certificate(s); %d still referenced", len(deleted), len(skipped)),
+		DurationMs: time.Since(start).Milliseconds(),
 		Details: map[string]any{
-			"deleted_cert": certName,
+			"deleted": deleted,
+			"skipped": skipped,
 		},
 	}, nil
 }
 
-// createHTTPClient creates an HTTP client for FortiGate API calls
-func (p *Provider) createHTTPClient() *http.Client {
-	return &http.Client{
-		Timeout: 60 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true, // FortiGate often uses self-signed certs
-			},
-		},
+func cfgString(m map[string]any, key, def string) string {
+	if v, ok := m[key].(string); ok && v != "" {
+		return v
 	}
+	return def
 }
 
-// certExists checks if a certificate exists on FortiGate
-func (p *Provider) certExists(ctx context.Context, client *http.Client, host, apiToken, vdom, name string) (bool, error) {
-	url := fmt.Sprintf("https://%s/api/v2/cmdb/certificate/local/%s?vdom=%s", host, name, vdom)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return false, err
-	}
-	req.Header.Set("Authorization", "Bearer "+apiToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == 404 {
-		return false, nil
-	}
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return false, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
-	}
-
-	return true, nil
-}
-
-// uploadCertificate uploads a new certificate to FortiGate
-func (p *Provider) uploadCertificate(ctx context.Context, client *http.Client, host, apiToken, vdom, name, certPEM, keyPEM string) error {
-	url := fmt.Sprintf("https://%s/api/v2/monitor/vpn-certificate/local/import?vdom=%s", host, vdom)
-
-	// FortiGate expects base64 encoded certificate and key in specific format
-	payload := map[string]any{
-		"type":             "regular",
-		"certname":         name,
-		"file_content":     base64.StdEncoding.EncodeToString([]byte(certPEM)),
-		"key_file_content": base64.StdEncoding.EncodeToString([]byte(keyPEM)),
-		"scope":            "global",
-	}
-	body, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+apiToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 && resp.StatusCode != 201 {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(respBody))
-	}
-
-	return nil
-}
-
-// updateCertificate updates an existing certificate on FortiGate
-// FortiGate doesn't have a direct update - we delete and re-upload
-func (p *Provider) updateCertificate(ctx context.Context, client *http.Client, host, apiToken, vdom, name, certPEM, keyPEM string) error {
-	// Delete existing certificate first
-	if err := p.deleteCertificate(ctx, client, host, apiToken, vdom, name); err != nil {
-		// Log but continue - might be in use or already deleted
-	}
-
-	// Small delay to ensure deletion is processed
-	time.Sleep(1 * time.Second)
-
-	// Upload new certificate
-	return p.uploadCertificate(ctx, client, host, apiToken, vdom, name, certPEM, keyPEM)
-}
-
-// deleteCertificate deletes a certificate from FortiGate
-func (p *Provider) deleteCertificate(ctx context.Context, client *http.Client, host, apiToken, vdom, name string) error {
-	url := fmt.Sprintf("https://%s/api/v2/cmdb/certificate/local/%s?vdom=%s", host, name, vdom)
-
-	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+apiToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == 404 {
-		// Already deleted
-		return nil
-	}
-	if resp.StatusCode != 200 {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(respBody))
-	}
-
-	return nil
-}
-
-// sanitizeName converts a common name to a valid FortiGate resource name.
-// Uses the same rules as the BIG-IP provider so the same certificate ends up
-// with a consistent identifier across devices:
-//   - Wildcard "*" is replaced with "star"
-//   - Dots "." are replaced with underscores "_"
-//   - All other non-alphanumeric characters are replaced with underscores
-//   - Multiple underscores are collapsed
-//   - Leading/trailing underscores are trimmed
-//   - A leading digit is prefixed with "cert_"
-//   - The result is truncated to FortiGate's 35-character limit (with a
-//     trailing-underscore trim afterwards so we don't leave a dangling "_")
-//
-// Examples:
-//
-//	"www.example.com"  → "www_example_com"
-//	"*.example.com"    → "star_example_com"
-//	"123.example.com"  → "cert_123_example_com"
-func sanitizeName(name string) string {
-	// Replace wildcard with "star" (first occurrence only; mirrors bigip).
-	result := strings.Replace(name, "*", "star", 1)
-
-	// Replace dots with underscores.
-	result = strings.ReplaceAll(result, ".", "_")
-
-	// Replace any remaining invalid characters with underscores.
-	result = strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
-			return r
+func cfgBool(m map[string]any, key string, def bool) bool {
+	switch v := m[key].(type) {
+	case bool:
+		return v
+	case string:
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "true", "1", "yes", "on":
+			return true
+		case "false", "0", "no", "off":
+			return false
 		}
-		return '_'
-	}, result)
-
-	// Collapse multiple underscores.
-	for strings.Contains(result, "__") {
-		result = strings.ReplaceAll(result, "__", "_")
 	}
+	return def
+}
 
-	// Remove leading/trailing underscores.
-	result = strings.Trim(result, "_")
-
-	// Ensure it doesn't start with a number.
-	if len(result) > 0 && result[0] >= '0' && result[0] <= '9' {
-		result = "cert_" + result
+func safeIDPrefix(id string) string {
+	if len(id) >= 8 {
+		return id[:8]
 	}
-
-	// FortiGate-specific constraint: 35-character limit.
-	if len(result) > 35 {
-		result = strings.TrimRight(result[:35], "_")
-	}
-
-	return result
+	return id
 }
