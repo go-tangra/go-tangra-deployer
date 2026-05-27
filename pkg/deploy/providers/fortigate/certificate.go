@@ -2,6 +2,7 @@ package fortigate
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -149,6 +150,96 @@ func sanitizeName(name string) string {
 	}
 
 	return result
+}
+
+// parseLeaf parses the first certificate block of a PEM bundle into an x509
+// certificate.
+func parseLeaf(pemData string) (*x509.Certificate, error) {
+	block, _ := pem.Decode([]byte(leafCertPEM(pemData)))
+	if block == nil {
+		return nil, fmt.Errorf("fortigate: no certificate PEM block found")
+	}
+	return x509.ParseCertificate(block.Bytes)
+}
+
+// normalizeSerial renders a hex serial uppercase with leading zeros stripped,
+// so values like "033643883…" and "33643883…" compare equal.
+func normalizeSerial(hexStr string) string {
+	s := strings.ToUpper(strings.TrimLeft(hexStr, "0"))
+	if s == "" {
+		return "0"
+	}
+	return s
+}
+
+// certSerial returns the normalized hex serial of a parsed certificate.
+func certSerial(c *x509.Certificate) string {
+	return normalizeSerial(fmt.Sprintf("%X", c.SerialNumber))
+}
+
+// subjectBaseName derives the logical name to base FortiGate objects on from
+// the certificate ITSELF (subject CN, then first DNS SAN), falling back to the
+// supplied value. This avoids trusting external metadata (e.g. LCM's stored
+// common_name), which can disagree with the actual certificate subject.
+func subjectBaseName(c *x509.Certificate, fallback string) string {
+	if c != nil {
+		if cn := strings.TrimSpace(c.Subject.CommonName); cn != "" {
+			return cn
+		}
+		if len(c.DNSNames) > 0 {
+			return c.DNSNames[0]
+		}
+	}
+	return fallback
+}
+
+// getLocalCertPEM returns the PEM of a local certificate's `certificate` field.
+func (c *fgClient) getLocalCertPEM(ctx context.Context, name string) (string, error) {
+	r, err := c.cmdbGet(ctx, "certificate/local/"+escapeMkey(name))
+	if err != nil {
+		return "", err
+	}
+	if r.StatusCode == 404 {
+		return "", nil
+	}
+	if !r.ok() {
+		return "", apiError("get certificate "+name, r)
+	}
+	var list []struct {
+		Certificate string `json:"certificate"`
+	}
+	if err := jsonResults(r, &list); err != nil {
+		return "", err
+	}
+	if len(list) == 0 {
+		return "", nil
+	}
+	return list[0].Certificate, nil
+}
+
+// findLocalCertBySerial returns the name of the local certificate whose serial
+// matches, or "" if none is present. This makes deployment idempotent: FortiOS
+// rejects re-importing identical content (error -145), so an already-present
+// certificate is reused rather than re-imported.
+func (c *fgClient) findLocalCertBySerial(ctx context.Context, serial string) (string, error) {
+	names, err := c.listLocalCertNames(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, name := range names {
+		pemStr, err := c.getLocalCertPEM(ctx, name)
+		if err != nil || !strings.Contains(pemStr, "BEGIN CERTIFICATE") {
+			continue
+		}
+		leaf, err := parseLeaf(pemStr)
+		if err != nil {
+			continue
+		}
+		if certSerial(leaf) == serial {
+			return name, nil
+		}
+	}
+	return "", nil
 }
 
 // leafCertPEM returns only the first CERTIFICATE block from a PEM bundle.

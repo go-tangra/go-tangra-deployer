@@ -28,37 +28,50 @@ func profileNameFor(base, suffix string) string {
 //     convention (more than one reference, or a differently-named holder),
 //     instead leaving the uploaded cert for manual review and signalling it,
 //   - never deletes any certificate or profile.
-func (p *Provider) deploySSLProfile(ctx context.Context, c *fgClient, cfg deployConfig, base, fullCert, keyPEM, host string, start time.Time, progressCb registry.ProgressCallback) (*registry.DeploymentResult, error) {
-	date := time.Now().UTC().Format("20060102")
-	newCert := versionedName(base, date)
+func (p *Provider) deploySSLProfile(ctx context.Context, c *fgClient, cfg deployConfig, base, leafCert, keyPEM, host string, start time.Time, progressCb registry.ProgressCallback) (*registry.DeploymentResult, error) {
 	profileName := profileNameFor(base, cfg.profileSuffix)
 
-	// 1. Import the renewed cert under a unique timestamped name.
-	progressCb(20, "Checking for existing certificate")
-	exists, err := c.certExists(ctx, newCert)
+	// 1. Resolve the on-device certificate name idempotently. FortiOS rejects
+	//    re-importing identical content (-145), so if a local cert with the
+	//    same serial is already present, reuse it instead of importing.
+	leaf, err := parseLeaf(leafCert)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check existing certificate: %w", err)
+		return nil, fmt.Errorf("failed to parse certificate: %w", err)
 	}
+	serial := certSerial(leaf)
+
+	progressCb(20, "Checking whether the certificate is already on the device")
+	existingName, err := c.findLocalCertBySerial(ctx, serial)
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up existing certificate: %w", err)
+	}
+
+	var resolvedName string
 	imported := false
-	if !exists {
-		progressCb(40, "Importing certificate "+newCert)
-		if err := c.importCert(ctx, newCert, fullCert, keyPEM, cfg.importScope); err != nil {
+	if existingName != "" {
+		resolvedName = existingName // reuse — idempotent
+	} else {
+		resolvedName = versionedName(base, time.Now().UTC().Format("20060102"))
+		progressCb(40, "Importing certificate "+resolvedName)
+		if err := c.importCert(ctx, resolvedName, leafCert, keyPEM, cfg.importScope); err != nil {
 			return nil, fmt.Errorf("failed to import certificate: %w", err)
 		}
-		ok, verr := c.certExists(ctx, newCert)
+		ok, verr := c.certExists(ctx, resolvedName)
 		if verr != nil || !ok {
-			return nil, fmt.Errorf("verification failed: certificate %s not found after import (%v)", newCert, verr)
+			return nil, fmt.Errorf("verification failed: certificate %s not found after import (%v)", resolvedName, verr)
 		}
 		imported = true
 	}
 
-	inFamily := familyMatcher(base)
+	// The cert set to protect: the resolved cert plus its dated name-family.
+	famMatch := familyMatcher(base)
+	inFamily := func(n string) bool { return n == resolvedName || famMatch(n) }
 
-	// 2. Determine whether auto-binding is safe (convention check).
+	// 2. Convention check: the cert must be referenced only by our profile.
 	progressCb(60, "Scanning certificate references")
 	hits, err := scanReferences(ctx, c, inFamily)
 	if err != nil {
-		return manualReviewResult(host, cfg, newCert, profileName, imported,
+		return manualReviewResult(host, cfg, resolvedName, profileName, imported,
 			fmt.Sprintf("could not scan references: %v", err), nil, start), nil
 	}
 	var foreign []referenceHit
@@ -70,10 +83,10 @@ func (p *Provider) deploySSLProfile(ctx context.Context, c *fgClient, cfg deploy
 	}
 	if len(foreign) > 0 {
 		reason := fmt.Sprintf("certificate is referenced by %d object(s) outside the expected profile %q", len(foreign), profileName)
-		return manualReviewResult(host, cfg, newCert, profileName, imported, reason, foreign, start), nil
+		return manualReviewResult(host, cfg, resolvedName, profileName, imported, reason, foreign, start), nil
 	}
 
-	// 3. Create or edit the convention-named profile to point at the new cert.
+	// 3. Create or edit the convention-named profile to point at the cert.
 	prof, found, err := c.getSSLSSHProfile(ctx, profileName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read profile %s: %w", profileName, err)
@@ -82,15 +95,15 @@ func (p *Provider) deploySSLProfile(ctx context.Context, c *fgClient, cfg deploy
 	var action string
 	if !found {
 		progressCb(85, "Creating SSL inspection profile "+profileName)
-		if err := c.createSSLSSHProfile(ctx, profileName, newCert); err != nil {
+		if err := c.createSSLSSHProfile(ctx, profileName, resolvedName); err != nil {
 			return nil, fmt.Errorf("failed to create profile %s: %w", profileName, err)
 		}
 		action = "created"
 	} else {
 		progressCb(85, "Updating SSL inspection profile "+profileName)
-		newList, _ := replaceInList(prof.ServerCert, inFamily, newCert)
-		if !containsName(newList, newCert) {
-			newList = append(newList, namedRef{Name: newCert})
+		newList, _ := replaceInList(prof.ServerCert, inFamily, resolvedName)
+		if !containsName(newList, resolvedName) {
+			newList = append(newList, namedRef{Name: resolvedName})
 		}
 		if err := c.setSSLSSHProfileServerCert(ctx, profileName, newList); err != nil {
 			return nil, fmt.Errorf("failed to update profile %s: %w", profileName, err)
@@ -99,14 +112,18 @@ func (p *Provider) deploySSLProfile(ctx context.Context, c *fgClient, cfg deploy
 	}
 
 	progressCb(100, "Deployment complete")
+	verb := "imported"
+	if !imported {
+		verb = "reused (already present)"
+	}
 	return &registry.DeploymentResult{
 		Success:    true,
-		Message:    fmt.Sprintf("Certificate %s deployed; SSL inspection profile %q %s (no certificates or profiles deleted)", newCert, profileName, action),
-		ResourceID: newCert,
+		Message:    fmt.Sprintf("Certificate %s %s; SSL inspection profile %q %s (no certificates or profiles deleted)", resolvedName, verb, profileName, action),
+		ResourceID: resolvedName,
 		Details: map[string]any{
 			"host":             host,
 			"vdom":             cfg.vdom,
-			"certificate_name": newCert,
+			"certificate_name": resolvedName,
 			"strategy":         "ssl_profile",
 			"profile":          profileName,
 			"profile_action":   action,

@@ -100,14 +100,18 @@ func (p *Provider) Deploy(ctx context.Context, cert *registry.CertificateData, c
 		return nil, fmt.Errorf("certificate and private key are required")
 	}
 
-	base := sanitizeName(cert.CommonName)
+	// FortiOS local (server) cert import expects a single leaf certificate.
+	// Sending the chain (leaf + intermediates) is rejected with error -145.
+	leafCert := leafCertPEM(cert.CertificatePEM)
+
+	// Derive the base name from the certificate's own subject (not external
+	// metadata, which can disagree with the actual cert — e.g. an apex cert
+	// recorded with a wildcard common_name).
+	parsedLeaf, _ := parseLeaf(leafCert)
+	base := sanitizeName(subjectBaseName(parsedLeaf, cert.CommonName))
 	if base == "" {
 		base = "cert_" + safeIDPrefix(cert.ID)
 	}
-	// FortiOS local (server) cert import expects a single leaf certificate.
-	// Sending the chain (leaf + intermediates) is rejected with error -145
-	// "the imported local certificate is invalid".
-	leafCert := leafCertPEM(cert.CertificatePEM)
 
 	switch cfg.strategy {
 	case "delete":
