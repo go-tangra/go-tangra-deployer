@@ -162,14 +162,57 @@ func (c *fgClient) getSSLSSHProfile(ctx context.Context, name string) (*sslSSHPr
 	return &list[0], true, nil
 }
 
-// createSSLSSHProfile creates a "protecting SSL server" inspection profile that
-// references cert (server-cert-mode=replace).
-func (c *fgClient) createSSLSSHProfile(ctx context.Context, name, cert string) error {
-	body := map[string]any{
-		"name":             name,
-		"server-cert-mode": "replace",
-		"server-cert":      []map[string]string{{"name": cert}},
+// getSSLSSHProfilesRaw returns all ssl-ssh-profiles as generic maps (full config).
+func (c *fgClient) getSSLSSHProfilesRaw(ctx context.Context) ([]map[string]any, error) {
+	r, err := c.cmdbGet(ctx, "firewall/ssl-ssh-profile")
+	if err != nil {
+		return nil, err
 	}
+	if !r.ok() {
+		return nil, apiError("list ssl-ssh-profiles", r)
+	}
+	var list []map[string]any
+	if err := jsonResults(r, &list); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+// findReplaceModeTemplate returns the full config of an existing "protecting SSL
+// server" profile (server-cert-mode=replace with a non-empty server-cert) to
+// use as a creation template, or nil if none exists. A minimal create body is
+// rejected by FortiOS (-651: interdependent required fields like HTTP3 ports
+// and exemption rules), so we clone a known-valid profile instead.
+func (c *fgClient) findReplaceModeTemplate(ctx context.Context, exclude string) (map[string]any, error) {
+	profs, err := c.getSSLSSHProfilesRaw(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range profs {
+		if name, _ := p["name"].(string); name == exclude {
+			continue
+		}
+		if mode, _ := p["server-cert-mode"].(string); mode != "replace" {
+			continue
+		}
+		if sc, ok := p["server-cert"].([]any); ok && len(sc) > 0 {
+			return p, nil
+		}
+	}
+	return nil, nil
+}
+
+// createSSLSSHProfileFromTemplate clones tmpl into a new profile named name and
+// bound to cert (server-cert-mode=replace). Cloning copies the template's
+// inspection settings, which the operator should review.
+func (c *fgClient) createSSLSSHProfileFromTemplate(ctx context.Context, name, cert string, tmpl map[string]any) error {
+	body, _ := stripQOriginKey(tmpl).(map[string]any)
+	if body == nil {
+		body = map[string]any{}
+	}
+	body["name"] = name
+	body["server-cert-mode"] = "replace"
+	body["server-cert"] = []map[string]string{{"name": cert}}
 	r, err := c.cmdbPost(ctx, "firewall/ssl-ssh-profile", body)
 	if err != nil {
 		return err
@@ -178,6 +221,30 @@ func (c *fgClient) createSSLSSHProfile(ctx context.Context, name, cert string) e
 		return apiError("create ssl-ssh-profile "+name, r)
 	}
 	return nil
+}
+
+// stripQOriginKey deep-copies a decoded JSON value, dropping FortiOS's
+// read-only "q_origin_key" fields so the result can be POSTed back.
+func stripQOriginKey(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, val := range x {
+			if k == "q_origin_key" {
+				continue
+			}
+			out[k] = stripQOriginKey(val)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = stripQOriginKey(e)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // setSSLSSHProfileServerCert replaces a profile's server-cert list.

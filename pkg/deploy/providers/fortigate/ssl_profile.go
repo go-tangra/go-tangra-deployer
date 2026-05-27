@@ -95,10 +95,19 @@ func (p *Provider) deploySSLProfile(ctx context.Context, c *fgClient, cfg deploy
 	var action string
 	if !found {
 		progressCb(85, "Creating SSL inspection profile "+profileName)
-		if err := c.createSSLSSHProfile(ctx, profileName, resolvedName); err != nil {
+		tmpl, terr := c.findReplaceModeTemplate(ctx, profileName)
+		if terr != nil {
+			return nil, fmt.Errorf("failed to find a profile template: %w", terr)
+		}
+		if tmpl == nil {
+			return manualReviewResult(host, cfg, resolvedName, profileName, imported,
+				fmt.Sprintf("profile %q does not exist and no replace-mode SSL-inspection profile is available to clone as a template; create %q once manually", profileName, profileName),
+				nil, start), nil
+		}
+		if err := c.createSSLSSHProfileFromTemplate(ctx, profileName, resolvedName, tmpl); err != nil {
 			return nil, fmt.Errorf("failed to create profile %s: %w", profileName, err)
 		}
-		action = "created"
+		action = "created (cloned from template)"
 	} else {
 		progressCb(85, "Updating SSL inspection profile "+profileName)
 		newList, _ := replaceInList(prof.ServerCert, inFamily, resolvedName)

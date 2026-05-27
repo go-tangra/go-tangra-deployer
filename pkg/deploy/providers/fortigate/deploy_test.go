@@ -146,11 +146,11 @@ func (f *fakeForti) handler() http.Handler {
 		case r.Method == http.MethodGet && p == "cmdb/firewall/ssl-ssh-profile":
 			var list []map[string]any
 			for name, certs := range f.profiles {
-				var sc []map[string]string
+				var sc []map[string]any
 				for _, c := range certs {
-					sc = append(sc, map[string]string{"name": c, "q_origin_key": c})
+					sc = append(sc, map[string]any{"name": c, "q_origin_key": c})
 				}
-				list = append(list, map[string]any{"name": name, "server-cert": sc})
+				list = append(list, map[string]any{"name": name, "server-cert": sc, "server-cert-mode": "replace", "ssl-exempt": []any{}})
 			}
 			writeEnv(w, 200, list)
 		case r.Method == http.MethodGet && strings.HasPrefix(p, "cmdb/firewall/ssl-ssh-profile/"):
@@ -235,7 +235,7 @@ func deployForTest(t *testing.T, fake *fakeForti, cfg map[string]any, commonName
 // ssl_profile (default): fresh cert (not on device) → import + create profile.
 func TestDeploySSLProfile_CreatesProfile(t *testing.T) {
 	certPEM, keyPEM := genTestCert(t, "test.example.com", 1001)
-	fake := &fakeForti{certs: map[string]string{}, profiles: map[string][]string{}, vpnServercert: "x", adminCert: "y"}
+	fake := &fakeForti{certs: map[string]string{}, profiles: map[string][]string{"deep-inspection": {"tmpl_cert"}}, vpnServercert: "x", adminCert: "y"}
 	res := deployForTest(t, fake, map[string]any{"vdom": "root"}, "test.example.com", certPEM, keyPEM)
 	if !res.Success {
 		t.Fatalf("expected success, got: %s", res.Message)
@@ -258,7 +258,7 @@ func TestDeploySSLProfile_ReusesExistingBySerial(t *testing.T) {
 	certPEM, keyPEM := genTestCert(t, "test.example.com", 2002)
 	fake := &fakeForti{
 		certs:         map[string]string{"preexisting_cert": certPEM},
-		profiles:      map[string][]string{},
+		profiles:      map[string][]string{"deep-inspection": {"tmpl_cert"}},
 		vpnServercert: "x", adminCert: "y",
 	}
 	res := deployForTest(t, fake, map[string]any{"vdom": "root"}, "test.example.com", certPEM, keyPEM)
@@ -283,7 +283,7 @@ func TestDeploySSLProfile_ReusesExistingBySerial(t *testing.T) {
 func TestDeploySSLProfile_UsesCertSubjectNotMetadata(t *testing.T) {
 	// Subject is apex.example.com; metadata lies and says *.example.com.
 	certPEM, keyPEM := genTestCert(t, "apex.example.com", 4004)
-	fake := &fakeForti{certs: map[string]string{}, profiles: map[string][]string{}, vpnServercert: "x", adminCert: "y"}
+	fake := &fakeForti{certs: map[string]string{}, profiles: map[string][]string{"deep-inspection": {"tmpl_cert"}}, vpnServercert: "x", adminCert: "y"}
 	res := deployForTest(t, fake, map[string]any{"vdom": "root"}, "*.example.com", certPEM, keyPEM)
 	if !res.Success {
 		t.Fatalf("expected success, got: %s", res.Message)
@@ -319,6 +319,26 @@ func TestDeploySSLProfile_BailsOnForeignReference(t *testing.T) {
 	}
 	if strings.Join(fake.profiles["Other Inspection"], ",") != "preexisting_cert" {
 		t.Error("foreign profile must not be modified")
+	}
+}
+
+// ssl_profile: profile missing AND no template to clone → bail (but cert still imported).
+func TestDeploySSLProfile_BailsWhenNoTemplate(t *testing.T) {
+	certPEM, keyPEM := genTestCert(t, "test.example.com", 7007)
+	fake := &fakeForti{certs: map[string]string{}, profiles: map[string][]string{}, vpnServercert: "x", adminCert: "y"}
+	res := deployForTest(t, fake, map[string]any{"vdom": "root"}, "test.example.com", certPEM, keyPEM)
+	if res.Success {
+		t.Fatal("expected bail when no template profile exists to clone")
+	}
+	if mr, _ := res.Details["manual_review_required"].(bool); !mr {
+		t.Error("expected manual_review_required")
+	}
+	base := sanitizeName("test.example.com")
+	newCert := versionedName(base, time.Now().UTC().Format("20060102"))
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if _, ok := fake.certs[newCert]; !ok {
+		t.Error("cert should still be imported even when bailing on missing template")
 	}
 }
 
