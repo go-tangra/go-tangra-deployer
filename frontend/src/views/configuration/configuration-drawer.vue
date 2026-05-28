@@ -207,13 +207,21 @@ async function handleSubmit() {
         message: $t('deployer.page.configuration.createSuccess'),
       });
     } else if (data.value?.mode === 'edit') {
-      await configStore.updateConfiguration(data.value.row.id!, {
+      // Only send credentials when the operator actually re-entered them.
+      // The stored credentials are never returned to the UI, so on edit the
+      // form starts with an empty map. Sending {} was treated by the older
+      // backend as "validate these (empty) credentials" → "host is required".
+      // Omit the key entirely to preserve the existing stored credentials.
+      const updatePayload: Parameters<typeof configStore.updateConfiguration>[1] = {
         name: formState.value.name,
         description: formState.value.description,
-        credentials: formState.value.credentials as Record<string, never>,
         config: formState.value.config as Record<string, never>,
         status: formState.value.status as any,
-      });
+      };
+      if (Object.keys(formState.value.credentials).length > 0) {
+        updatePayload.credentials = formState.value.credentials as Record<string, never>;
+      }
+      await configStore.updateConfiguration(data.value.row.id!, updatePayload);
       notification.success({
         message: $t('deployer.page.configuration.updateSuccess'),
       });

@@ -198,20 +198,28 @@ func (s *TargetConfigurationService) UpdateConfiguration(ctx context.Context, re
 		config = existing.Config
 	}
 
-	// Handle credentials update
+	// Handle credentials update. Treat an empty credentials map as "no
+	// change" (same as nil) so a config-only edit doesn't have to re-send
+	// the host+api_token. The UI cannot pre-populate stored credentials —
+	// it would otherwise force the operator to retype them on every edit,
+	// and forgetting to do so failed with a misleading "host is required".
+	// Credentials are only validated and re-encrypted when the caller
+	// actually supplies new values.
 	var encryptedCreds []byte
 	if req.Credentials != nil {
 		credentials := structToMap(req.Credentials)
-		provider, err := registry.Get(existing.ProviderType)
-		if err != nil {
-			return nil, err
-		}
-		if err := provider.ValidateCredentials(ctx, credentials, config); err != nil {
-			return nil, deployerV1.ErrorCredentialsInvalid("credentials validation failed: %v", err)
-		}
-		encryptedCreds, err = s.encryptCredentials(credentials)
-		if err != nil {
-			return nil, deployerV1.ErrorInternalServerError("failed to encrypt credentials")
+		if len(credentials) > 0 {
+			provider, err := registry.Get(existing.ProviderType)
+			if err != nil {
+				return nil, err
+			}
+			if err := provider.ValidateCredentials(ctx, credentials, config); err != nil {
+				return nil, deployerV1.ErrorCredentialsInvalid("credentials validation failed: %v", err)
+			}
+			encryptedCreds, err = s.encryptCredentials(credentials)
+			if err != nil {
+				return nil, deployerV1.ErrorInternalServerError("failed to encrypt credentials")
+			}
 		}
 	}
 
