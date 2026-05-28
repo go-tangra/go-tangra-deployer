@@ -129,6 +129,12 @@ const selectedProviderInfo = computed(() => {
 // Optional config fields by provider type
 const optionalConfigFields: Record<string, string[]> = {
   bigip: ['ssl_profile'],
+  // fortigate: default_ssl_profile names the shared production-bound
+  // ssl-ssh-profile (the one attached to firewall policies). When set,
+  // each deploy also updates that profile in place, preserving sibling
+  // certs for multi-domain inspection. Must pre-exist on the device in
+  // server-cert-mode=replace.
+  fortigate: ['default_ssl_profile'],
   webhook: ['verify_url', 'rollback_url', 'skip_tls_verify', 'timeout_seconds'],
   // tangra-client: client_ids is a comma-separated list, labels is a
   // JSON object literal (e.g. {"env":"prod"}). Backend parseConfig

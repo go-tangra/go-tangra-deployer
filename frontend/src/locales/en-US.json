@@ -252,7 +252,9 @@
         "api_token": "API Token",
         "api_token_placeholder": "FortiGate REST API token",
         "vdom": "VDOM",
-        "vdom_placeholder": "e.g., root"
+        "vdom_placeholder": "e.g., root",
+        "default_ssl_profile": "Default SSL Profile",
+        "default_ssl_profile_placeholder": "Optional: name of the production ssl-ssh-profile attached to firewall policies (must pre-exist, server-cert-mode=replace)"
       }
     },
     "webhook": {
