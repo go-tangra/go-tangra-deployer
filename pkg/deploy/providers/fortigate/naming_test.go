@@ -28,14 +28,23 @@ func TestVersionedName(t *testing.T) {
 
 func TestFamilyMatcher(t *testing.T) {
 	inFamily := familyMatcher("star_factory_bg")
-	match := []string{"star_factory_bg", "star_factory_bg_20260527", "star_factory_bg_20250101"}
+	match := []string{
+		"star_factory_bg",
+		"star_factory_bg_20260527",
+		"star_factory_bg_20250101",
+		"star_factory_bg_20260527_01", // same-day suffix #1
+		"star_factory_bg_20260527_99", // same-day suffix #99
+	}
 	noMatch := []string{
-		"star_factory_bg_2025",    // 4-digit manual suffix, not a date
-		"star_factory_bg_LE",      // label suffix
-		"star_jobs_bg_2025",       // different base
-		"star_factory_bg_2026052", // 7 digits
-		"factory_bg",              // shorter, different base
-		"star_factory_bg_x20260527",
+		"star_factory_bg_2025",        // 4-digit manual suffix, not a date
+		"star_factory_bg_LE",          // label suffix
+		"star_jobs_bg_2025",           // different base
+		"star_factory_bg_2026052",     // 7 digits
+		"factory_bg",                  // shorter, different base
+		"star_factory_bg_x20260527",   // garbage prefix on date
+		"star_factory_bg_20260527_1",  // single-digit seq, not the format
+		"star_factory_bg_20260527_AB", // non-numeric seq
+		"star_factory_bg_20260527_100", // 3-digit seq, not the format
 	}
 	for _, n := range match {
 		if !inFamily(n) {
@@ -45,6 +54,28 @@ func TestFamilyMatcher(t *testing.T) {
 	for _, n := range noMatch {
 		if inFamily(n) {
 			t.Errorf("expected %q NOT to be in family", n)
+		}
+	}
+}
+
+func TestSuffixedVersionedName(t *testing.T) {
+	cases := []struct {
+		base, date string
+		seq        int
+		want       string
+	}{
+		{"star_factory_bg", "20260527", 1, "star_factory_bg_20260527_01"},
+		{"app", "20260527", 99, "app_20260527_99"},
+		// 33-char base + "_YYYYMMDD_NN" overhead 12 → truncates to 23-char base.
+		{"verylongbase_aaaaaaaaaaaaaaaaaaaaa", "20260527", 1, "verylongbase_aaaaaaaaaa_20260527_01"},
+	}
+	for _, tc := range cases {
+		got := suffixedVersionedName(tc.base, tc.date, tc.seq)
+		if got != tc.want {
+			t.Errorf("suffixedVersionedName(%q,%q,%d) = %q, want %q", tc.base, tc.date, tc.seq, got, tc.want)
+		}
+		if len(got) > fortiNameMaxLen {
+			t.Errorf("name %q exceeds %d chars", got, fortiNameMaxLen)
 		}
 	}
 }

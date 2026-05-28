@@ -39,22 +39,24 @@ func (p *Provider) GetCapabilities() *registry.ProviderCapabilities { return cap
 
 // deployConfig holds the resolved provider configuration for one deployment.
 type deployConfig struct {
-	vdom          string
-	importScope   string // "global" | "vdom"
-	strategy      string // "ssl_profile" (default) | "rebind" | "delete"
-	profileSuffix string // suffix for the owned profile in ssl_profile mode
-	rebindRefs    bool   // rebind strategy only
-	pruneOld      bool   // rebind strategy only
+	vdom           string
+	importScope    string // "global" | "vdom"
+	strategy       string // "ssl_profile" (default) | "rebind" | "delete"
+	profileSuffix  string // suffix for the owned profile in ssl_profile mode
+	defaultProfile string // optional production-bound ssl-ssh-profile updated in addition to {base}_ssl_profile
+	rebindRefs     bool   // rebind strategy only
+	pruneOld       bool   // rebind strategy only
 }
 
 func parseConfig(config map[string]any) deployConfig {
 	return deployConfig{
-		vdom:          cfgString(config, "vdom", "root"),
-		importScope:   cfgString(config, "import_scope", "global"),
-		strategy:      cfgString(config, "replace_strategy", "ssl_profile"),
-		profileSuffix: cfgString(config, "profile_suffix", defaultProfileSuffix),
-		rebindRefs:    cfgBool(config, "rebind_references", true),
-		pruneOld:      cfgBool(config, "prune_old", true),
+		vdom:           cfgString(config, "vdom", "root"),
+		importScope:    cfgString(config, "import_scope", "global"),
+		strategy:       cfgString(config, "replace_strategy", "ssl_profile"),
+		profileSuffix:  cfgString(config, "profile_suffix", defaultProfileSuffix),
+		defaultProfile: cfgString(config, "default_ssl_profile", ""),
+		rebindRefs:     cfgBool(config, "rebind_references", true),
+		pruneOld:       cfgBool(config, "prune_old", true),
 	}
 }
 
@@ -128,18 +130,38 @@ func (p *Provider) Deploy(ctx context.Context, cert *registry.CertificateData, c
 // This avoids FortiOS rejecting the replacement of a referenced certificate.
 func (p *Provider) deployRebind(ctx context.Context, c *fgClient, cfg deployConfig, base, fullCert, keyPEM, host string, start time.Time, progressCb registry.ProgressCallback) (*registry.DeploymentResult, error) {
 	date := time.Now().UTC().Format("20060102")
-	newName := versionedName(base, date)
 
-	progressCb(20, "Checking for existing certificate")
-	exists, err := c.certExists(ctx, newName)
+	// Idempotency by CONTENT (serial), not by name. The previous code skipped
+	// import whenever the dated name already existed, which silently dropped a
+	// same-day reissue's bytes and rebound references to the morning cert.
+	// Mirror the ssl_profile strategy: serial-scan for reuse, suffix-probe on
+	// dated-name collision, and strip the chain to a single leaf so FortiOS
+	// doesn't reject the import with -145.
+	leaf := leafCertPEM(fullCert)
+	parsed, err := parseLeaf(leaf)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check existing certificate: %w", err)
+		return nil, fmt.Errorf("failed to parse certificate: %w", err)
+	}
+	progressCb(15, "Checking whether the certificate is already on the device")
+	existingName, err := c.findLocalCertBySerial(ctx, certSerial(parsed))
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up existing certificate: %w", err)
 	}
 
+	var newName string
 	imported := false
-	if !exists {
+	sameDayCollision := false
+	if existingName != "" {
+		newName = existingName // reuse — same serial is already on the device
+	} else {
+		name, collided, rerr := c.resolveFreeImportName(ctx, base, date)
+		if rerr != nil {
+			return nil, fmt.Errorf("failed to resolve import name: %w", rerr)
+		}
+		newName = name
+		sameDayCollision = collided
 		progressCb(40, "Importing certificate "+newName)
-		if err := c.importCert(ctx, newName, fullCert, keyPEM, cfg.importScope); err != nil {
+		if err := c.importCert(ctx, newName, leaf, keyPEM, cfg.importScope); err != nil {
 			return nil, fmt.Errorf("failed to import certificate: %w", err)
 		}
 		ok, verr := c.certExists(ctx, newName)
@@ -174,21 +196,25 @@ func (p *Provider) deployRebind(ctx context.Context, c *fgClient, cfg deployConf
 		msg = fmt.Sprintf("Certificate %s imported but %d reference rebind(s) failed: %s", newName, len(rb.Errors), strings.Join(rb.Errors, "; "))
 	}
 
+	details := map[string]any{
+		"host":             host,
+		"vdom":             cfg.vdom,
+		"certificate_name": newName,
+		"strategy":         "rebind",
+		"imported":         imported,
+		"rebound":          rb.Rebound,
+		"rebind_errors":    rb.Errors,
+		"pruned":           pruned,
+		"prune_errors":     pruneErrs,
+	}
+	if sameDayCollision {
+		details["same_day_collision"] = true
+	}
 	return &registry.DeploymentResult{
 		Success:    success,
 		Message:    msg,
 		ResourceID: newName,
-		Details: map[string]any{
-			"host":             host,
-			"vdom":             cfg.vdom,
-			"certificate_name": newName,
-			"strategy":         "rebind",
-			"imported":         imported,
-			"rebound":          rb.Rebound,
-			"rebind_errors":    rb.Errors,
-			"pruned":           pruned,
-			"prune_errors":     pruneErrs,
-		},
+		Details:    details,
 		DurationMs: time.Since(start).Milliseconds(),
 	}, nil
 }

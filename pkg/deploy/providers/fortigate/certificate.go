@@ -17,6 +17,16 @@ const fortiNameMaxLen = 35
 // dateVersionLen is the length of the "_YYYYMMDD" suffix used for versioning.
 const dateVersionLen = 9
 
+// sequenceVersionLen is the length of the "_NN" suffix appended to disambiguate
+// two imports that happen on the same day (e.g. the same base CN was reissued
+// in the morning and again in the afternoon under a different serial).
+const sequenceVersionLen = 3
+
+// maxSameDaySequence caps the suffix probe at "_99". A hundred renewals of the
+// same logical certificate within a single UTC day would be a clear sign of an
+// upstream loop and is not a regime we want to silently support.
+const maxSameDaySequence = 99
+
 // certExists reports whether a local certificate with the given name exists.
 func (c *fgClient) certExists(ctx context.Context, name string) (bool, error) {
 	r, err := c.cmdbGet(ctx, "certificate/local/"+escapeMkey(name))
@@ -274,18 +284,74 @@ func versionedName(base, date string) string {
 	return vbase + "_" + date
 }
 
-// familyMatcher returns a predicate that matches the legacy bare base name and
-// any dated version "<vbase>_YYYYMMDD" of it. This lets a renewal find prior
+// suffixedVersionedName builds a sequence-suffixed dated name, e.g.
+// "star_factory_bg" + "20260527" + 1 → "star_factory_bg_20260527_01". Used to
+// disambiguate same-day reissues so a morning import does not block an
+// afternoon import that happens to share the date but not the serial. Base is
+// truncated harder than versionedName to make room for the "_NN" tail.
+func suffixedVersionedName(base, date string, seq int) string {
+	vbase := base
+	overhead := dateVersionLen + sequenceVersionLen
+	if len(vbase)+overhead > fortiNameMaxLen {
+		vbase = strings.TrimRight(vbase[:fortiNameMaxLen-overhead], "_")
+	}
+	return fmt.Sprintf("%s_%s_%02d", vbase, date, seq)
+}
+
+// resolveFreeImportName returns a local-cert name that is free to import to.
+// The preferred name is the date-only versionedName; if that is already taken
+// (by a cert with a different serial — same-serial reuse is handled upstream
+// by findLocalCertBySerial), it probes "_01", "_02", ... until either a free
+// name is found or maxSameDaySequence is exhausted.
+//
+// Returns the chosen name and a flag reporting whether a suffix was used (so
+// the caller can surface this in DeploymentResult.Details for operator
+// visibility — same-day collisions are unusual and worth flagging).
+func (c *fgClient) resolveFreeImportName(ctx context.Context, base, date string) (string, bool, error) {
+	preferred := versionedName(base, date)
+	exists, err := c.certExists(ctx, preferred)
+	if err != nil {
+		return "", false, fmt.Errorf("check for existing certificate name %s: %w", preferred, err)
+	}
+	if !exists {
+		return preferred, false, nil
+	}
+	for seq := 1; seq <= maxSameDaySequence; seq++ {
+		candidate := suffixedVersionedName(base, date, seq)
+		exists, err := c.certExists(ctx, candidate)
+		if err != nil {
+			return "", false, fmt.Errorf("check for existing certificate name %s: %w", candidate, err)
+		}
+		if !exists {
+			return candidate, true, nil
+		}
+	}
+	return "", false, fmt.Errorf("no free import name for base %q on date %s after probing %d sequence suffixes", base, date, maxSameDaySequence)
+}
+
+// familyMatcher returns a predicate that matches the legacy bare base name,
+// any dated version "<vbase>_YYYYMMDD", and any same-day sequence-suffixed
+// variant "<vbase>_YYYYMMDD_NN" of it. This lets a renewal find prior
 // deployments of the same logical certificate to rebind away from and prune,
 // while never matching unrelated certs or manually-suffixed ones (e.g.
-// "star_jobs_bg_2025" has a 4-digit suffix and is not matched).
+// "star_jobs_bg_2025" has a 4-digit non-date suffix and is not matched).
+//
+// Two vbase truncations are tried so the matcher covers names that were
+// imported under the legacy (date-only) overhead and names imported under
+// the newer (date+sequence) overhead — these may differ when the base is
+// long enough that the two truncations land on different prefixes.
 func familyMatcher(base string) func(string) bool {
 	vbase := base
 	if len(vbase)+dateVersionLen > fortiNameMaxLen {
 		vbase = strings.TrimRight(vbase[:fortiNameMaxLen-dateVersionLen], "_")
 	}
-	re := regexp.MustCompile("^" + regexp.QuoteMeta(vbase) + `_\d{8}$`)
+	sbase := base
+	if len(sbase)+dateVersionLen+sequenceVersionLen > fortiNameMaxLen {
+		sbase = strings.TrimRight(sbase[:fortiNameMaxLen-dateVersionLen-sequenceVersionLen], "_")
+	}
+	reDated := regexp.MustCompile("^" + regexp.QuoteMeta(vbase) + `_\d{8}$`)
+	reSeq := regexp.MustCompile("^" + regexp.QuoteMeta(sbase) + `_\d{8}_\d{2}$`)
 	return func(name string) bool {
-		return name == base || re.MatchString(name)
+		return name == base || reDated.MatchString(name) || reSeq.MatchString(name)
 	}
 }

@@ -136,8 +136,9 @@ func scanVIPs(ctx context.Context, c *fgClient, inFamily func(string) bool) ([]r
 
 // sslSSHProfile is the subset of an ssl-ssh-profile we read/write.
 type sslSSHProfile struct {
-	Name       string     `json:"name"`
-	ServerCert []namedRef `json:"server-cert"`
+	Name           string     `json:"name"`
+	ServerCert     []namedRef `json:"server-cert"`
+	ServerCertMode string     `json:"server-cert-mode"`
 }
 
 // getSSLSSHProfile fetches a profile by name; found=false on 404.
@@ -221,6 +222,33 @@ func (c *fgClient) createSSLSSHProfileFromTemplate(ctx context.Context, name, ce
 		return apiError("create ssl-ssh-profile "+name, r)
 	}
 	return nil
+}
+
+// findPoliciesBoundToProfile returns the names of firewall policies whose
+// ssl-ssh-profile is name. Used to surface the deployment blast radius — every
+// policy in this list will start serving the new cert as soon as the profile
+// is PUT. Reported in DeploymentResult.Details, never blocking.
+func (c *fgClient) findPoliciesBoundToProfile(ctx context.Context, name string) ([]string, error) {
+	r, err := c.cmdbGet(ctx, "firewall/policy")
+	if err != nil {
+		return nil, err
+	}
+	if !r.ok() {
+		return nil, apiError("list firewall policies", r)
+	}
+	var pols []map[string]any
+	if err := jsonResults(r, &pols); err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, p := range pols {
+		if prof, _ := p["ssl-ssh-profile"].(string); prof == name {
+			if pname, _ := p["name"].(string); pname != "" {
+				out = append(out, pname)
+			}
+		}
+	}
+	return out, nil
 }
 
 // stripQOriginKey deep-copies a decoded JSON value, dropping FortiOS's

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -53,8 +54,20 @@ type fakeForti struct {
 	mu            sync.Mutex
 	certs         map[string]string
 	profiles      map[string][]string // profile name -> server-cert names
+	profileModes  map[string]string   // profile name -> server-cert-mode (default "replace")
+	policies      map[string]string   // firewall policy name -> bound ssl-ssh-profile
 	vpnServercert string
 	adminCert     string
+	putCount      map[string]int // path key -> count, for asserting dedup
+}
+
+// modeFor returns the configured mode for a profile, defaulting to "replace"
+// so existing tests need not set profileModes explicitly.
+func (f *fakeForti) modeFor(name string) string {
+	if m := f.profileModes[name]; m != "" {
+		return m
+	}
+	return "replace"
 }
 
 // newFakeForti seeds the rebind/delete scenarios. The pre-existing certs are
@@ -138,6 +151,13 @@ func (f *fakeForti) handler() http.Handler {
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			name, _ := body["certname"].(string)
+			if _, exists := f.certs[name]; exists {
+				// FortiOS rejects importing a local cert under a name that is
+				// already taken (it does not overwrite). Mirror that here so
+				// same-day name-collision regressions surface in tests.
+				writeEnv(w, 500, map[string]any{"error": "duplicate certificate name"})
+				return
+			}
 			fc, _ := body["file_content"].(string)
 			dec, _ := base64.StdEncoding.DecodeString(fc)
 			f.certs[name] = string(dec)
@@ -150,7 +170,7 @@ func (f *fakeForti) handler() http.Handler {
 				for _, c := range certs {
 					sc = append(sc, map[string]any{"name": c, "q_origin_key": c})
 				}
-				list = append(list, map[string]any{"name": name, "server-cert": sc, "server-cert-mode": "replace", "ssl-exempt": []any{}})
+				list = append(list, map[string]any{"name": name, "server-cert": sc, "server-cert-mode": f.modeFor(name), "ssl-exempt": []any{}})
 			}
 			writeEnv(w, 200, list)
 		case r.Method == http.MethodGet && strings.HasPrefix(p, "cmdb/firewall/ssl-ssh-profile/"):
@@ -164,7 +184,7 @@ func (f *fakeForti) handler() http.Handler {
 			for _, c := range certs {
 				sc = append(sc, map[string]string{"name": c})
 			}
-			writeEnv(w, 200, []map[string]any{{"name": name, "server-cert": sc}})
+			writeEnv(w, 200, []map[string]any{{"name": name, "server-cert": sc, "server-cert-mode": f.modeFor(name)}})
 		case r.Method == http.MethodPost && p == "cmdb/firewall/ssl-ssh-profile":
 			var body struct {
 				Name       string     `json:"name"`
@@ -180,7 +200,18 @@ func (f *fakeForti) handler() http.Handler {
 			}
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			f.profiles[name] = certNames(body.ServerCert)
+			if f.putCount == nil {
+				f.putCount = map[string]int{}
+			}
+			f.putCount["ssl-ssh-profile:"+name]++
 			writeEnv(w, 200, nil)
+
+		case r.Method == http.MethodGet && p == "cmdb/firewall/policy":
+			list := make([]map[string]any, 0, len(f.policies))
+			for name, prof := range f.policies {
+				list = append(list, map[string]any{"name": name, "ssl-ssh-profile": prof})
+			}
+			writeEnv(w, 200, list)
 
 		case r.Method == http.MethodGet && p == "cmdb/firewall/vip":
 			writeEnv(w, 200, []map[string]any{})
@@ -342,6 +373,300 @@ func TestDeploySSLProfile_BailsWhenNoTemplate(t *testing.T) {
 	}
 }
 
+// ssl_profile + default_ssl_profile: production-bound profile contains an
+// old family member and a sibling cert; deploy swaps the family member in
+// place and preserves the sibling so multi-domain inspection keeps working.
+func TestDeploySSLProfile_DefaultProfile_SwapsExistingFamily(t *testing.T) {
+	certPEM, keyPEM := genTestCert(t, "app1.example.com", 8001)
+	base := sanitizeName("app1.example.com")
+	auditProf := profileNameFor(base, "")
+	defaultProf := "multi_domain_ssl_profile"
+	oldFamily := "app1_example_com_20260101"
+	sibling := "app2_example_com_20260101"
+	fake := &fakeForti{
+		certs:         map[string]string{oldFamily: "placeholder"},
+		profiles:      map[string][]string{defaultProf: {oldFamily, sibling}},
+		vpnServercert: "x", adminCert: "y",
+	}
+	cfg := map[string]any{"vdom": "root", "default_ssl_profile": defaultProf}
+	res := deployForTest(t, fake, cfg, "app1.example.com", certPEM, keyPEM)
+	if !res.Success {
+		t.Fatalf("expected success, got: %s — details=%v", res.Message, res.Details)
+	}
+	newCert := versionedName(base, time.Now().UTC().Format("20060102"))
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	got := fake.profiles[defaultProf]
+	if len(got) != 2 || !slices.Contains(got, newCert) || !slices.Contains(got, sibling) {
+		t.Errorf("default profile = %v, want [%s, %s] (any order)", got, newCert, sibling)
+	}
+	if slices.Contains(got, oldFamily) {
+		t.Errorf("default profile still contains old family member %q: %v", oldFamily, got)
+	}
+	if _, ok := fake.profiles[auditProf]; !ok {
+		t.Errorf("audit profile %q must also be created/updated", auditProf)
+	}
+	if act, _ := res.Details["default_profile_action"].(string); !strings.Contains(act, "updated") {
+		t.Errorf("Details.default_profile_action = %q, want \"updated\"", act)
+	}
+}
+
+// ssl_profile + default_ssl_profile: family is absent from the production
+// profile (e.g. operator manually removed it). Deploy must APPEND so future
+// renewals re-converge instead of silently no-op'ing.
+func TestDeploySSLProfile_DefaultProfile_AppendsWhenAbsent(t *testing.T) {
+	certPEM, keyPEM := genTestCert(t, "app3.example.com", 8002)
+	defaultProf := "multi_domain_ssl_profile"
+	sibling := "app2_example_com_20260101"
+	fake := &fakeForti{
+		certs:         map[string]string{},
+		profiles:      map[string][]string{defaultProf: {sibling}},
+		vpnServercert: "x", adminCert: "y",
+	}
+	cfg := map[string]any{"vdom": "root", "default_ssl_profile": defaultProf}
+	res := deployForTest(t, fake, cfg, "app3.example.com", certPEM, keyPEM)
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Message)
+	}
+	newCert := versionedName(sanitizeName("app3.example.com"), time.Now().UTC().Format("20060102"))
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	got := fake.profiles[defaultProf]
+	if len(got) != 2 || !slices.Contains(got, sibling) || !slices.Contains(got, newCert) {
+		t.Errorf("default profile = %v, want sibling+new (any order)", got)
+	}
+	if act, _ := res.Details["default_profile_action"].(string); !strings.Contains(act, "appended") {
+		t.Errorf("Details.default_profile_action = %q, want \"appended\"", act)
+	}
+}
+
+// ssl_profile + default_ssl_profile: profile is missing → manual review, no
+// writes to either profile. The cert is still imported (idempotent).
+func TestDeploySSLProfile_DefaultProfileMissing_ManualReview(t *testing.T) {
+	certPEM, keyPEM := genTestCert(t, "test.example.com", 8003)
+	// A replace-mode template must exist or we'd bail for a different reason.
+	fake := &fakeForti{
+		certs:         map[string]string{},
+		profiles:      map[string][]string{"deep-inspection": {"tmpl_cert"}},
+		vpnServercert: "x", adminCert: "y",
+	}
+	cfg := map[string]any{"vdom": "root", "default_ssl_profile": "nonexistent_profile"}
+	res := deployForTest(t, fake, cfg, "test.example.com", certPEM, keyPEM)
+	if res.Success {
+		t.Fatal("expected manual review when default_ssl_profile is missing")
+	}
+	if mr, _ := res.Details["manual_review_required"].(bool); !mr {
+		t.Error("expected Details.manual_review_required=true")
+	}
+	if !strings.Contains(res.Message, "does not exist") {
+		t.Errorf("expected message to explain the missing profile, got: %s", res.Message)
+	}
+	auditProf := profileNameFor(sanitizeName("test.example.com"), "")
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if _, ok := fake.profiles[auditProf]; ok {
+		t.Error("audit profile must NOT be created when bailing on missing default profile")
+	}
+	newCert := versionedName(sanitizeName("test.example.com"), time.Now().UTC().Format("20060102"))
+	if _, ok := fake.certs[newCert]; !ok {
+		t.Error("cert should still be imported (idempotent) even when bailing")
+	}
+}
+
+// ssl_profile + default_ssl_profile: profile exists but mode is not "replace"
+// → manual review, because PUTting server-cert would be a silent no-op.
+func TestDeploySSLProfile_DefaultProfileWrongMode_ManualReview(t *testing.T) {
+	certPEM, keyPEM := genTestCert(t, "test.example.com", 8004)
+	defaultProf := "deep-inspection-resign"
+	fake := &fakeForti{
+		certs:         map[string]string{},
+		profiles:      map[string][]string{defaultProf: {"some_ca"}, "deep-inspection": {"tmpl_cert"}},
+		profileModes:  map[string]string{defaultProf: "re-sign"},
+		vpnServercert: "x", adminCert: "y",
+	}
+	cfg := map[string]any{"vdom": "root", "default_ssl_profile": defaultProf}
+	res := deployForTest(t, fake, cfg, "test.example.com", certPEM, keyPEM)
+	if res.Success {
+		t.Fatal("expected manual review when default profile is not in replace mode")
+	}
+	if !strings.Contains(res.Message, "server-cert-mode") {
+		t.Errorf("expected message to call out server-cert-mode, got: %s", res.Message)
+	}
+	auditProf := profileNameFor(sanitizeName("test.example.com"), "")
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if _, ok := fake.profiles[auditProf]; ok {
+		t.Error("audit profile must NOT be created when bailing on wrong-mode default profile")
+	}
+	if got := strings.Join(fake.profiles[defaultProf], ","); got != "some_ca" {
+		t.Errorf("default profile must be untouched, got %q", got)
+	}
+}
+
+// ssl_profile + default_ssl_profile: when default_ssl_profile equals the
+// audit profile name, the deploy must only PUT once (not twice).
+func TestDeploySSLProfile_DefaultEqualsAudit_SinglePUT(t *testing.T) {
+	certPEM, keyPEM := genTestCert(t, "test.example.com", 8005)
+	base := sanitizeName("test.example.com")
+	auditProf := profileNameFor(base, "")
+	old := "test_example_com_20260101"
+	fake := &fakeForti{
+		certs:         map[string]string{old: "placeholder"},
+		profiles:      map[string][]string{auditProf: {old}},
+		vpnServercert: "x", adminCert: "y",
+	}
+	cfg := map[string]any{"vdom": "root", "default_ssl_profile": auditProf}
+	res := deployForTest(t, fake, cfg, "test.example.com", certPEM, keyPEM)
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Message)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if got := fake.putCount["ssl-ssh-profile:"+auditProf]; got != 1 {
+		t.Errorf("expected exactly 1 PUT to %q, got %d", auditProf, got)
+	}
+	if _, ok := res.Details["default_profile"]; ok {
+		t.Error("Details.default_profile must be omitted when default collapses to audit")
+	}
+}
+
+// ssl_profile + default_ssl_profile: the production profile is one of two
+// references to the cert; this must NOT trigger the foreign-reference bail.
+func TestDeploySSLProfile_DefaultProfileReference_NotFlaggedAsForeign(t *testing.T) {
+	certPEM, keyPEM := genTestCert(t, "app1.example.com", 8006)
+	base := sanitizeName("app1.example.com")
+	auditProf := profileNameFor(base, "")
+	defaultProf := "multi_domain_ssl_profile"
+	pre := "preexisting_app1_cert"
+	fake := &fakeForti{
+		certs:         map[string]string{pre: certPEM},
+		profiles:      map[string][]string{defaultProf: {pre, "app2_cert"}, auditProf: {pre}},
+		vpnServercert: "x", adminCert: "y",
+	}
+	cfg := map[string]any{"vdom": "root", "default_ssl_profile": defaultProf}
+	res := deployForTest(t, fake, cfg, "app1.example.com", certPEM, keyPEM)
+	if !res.Success {
+		t.Fatalf("expected success (not foreign), got: %s — details=%v", res.Message, res.Details)
+	}
+	if res.ResourceID != pre {
+		t.Errorf("ResourceID = %q, want preexisting %q (idempotent)", res.ResourceID, pre)
+	}
+}
+
+// ssl_profile + default_ssl_profile: bound_policies enumeration surfaces the
+// firewall policies that will start serving the new cert.
+func TestDeploySSLProfile_DefaultProfile_ReportsBoundPolicies(t *testing.T) {
+	certPEM, keyPEM := genTestCert(t, "app1.example.com", 8007)
+	defaultProf := "multi_domain_ssl_profile"
+	fake := &fakeForti{
+		certs:         map[string]string{},
+		profiles:      map[string][]string{defaultProf: {"sibling_cert"}},
+		policies:      map[string]string{"WAN-to-DMZ": defaultProf, "Internal-to-DMZ": defaultProf, "Other-Policy": "different_profile"},
+		vpnServercert: "x", adminCert: "y",
+	}
+	cfg := map[string]any{"vdom": "root", "default_ssl_profile": defaultProf}
+	res := deployForTest(t, fake, cfg, "app1.example.com", certPEM, keyPEM)
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Message)
+	}
+	bp, _ := res.Details["bound_policies"].([]string)
+	if len(bp) != 2 || !slices.Contains(bp, "WAN-to-DMZ") || !slices.Contains(bp, "Internal-to-DMZ") {
+		t.Errorf("Details.bound_policies = %v, want both WAN-to-DMZ and Internal-to-DMZ", bp)
+	}
+	if slices.Contains(bp, "Other-Policy") {
+		t.Error("Details.bound_policies must not include policies bound to a different profile")
+	}
+}
+
+// ssl_profile + same-day reissue: morning cert occupies <base>_YYYYMMDD;
+// afternoon deploys a different serial under the same base on the same day.
+// The deploy must NOT collide on the dated name — instead it suffix-probes
+// to <base>_YYYYMMDD_01.
+func TestDeploySSLProfile_SameDayCollision_UsesSequenceSuffix(t *testing.T) {
+	base := sanitizeName("test.example.com")
+	date := time.Now().UTC().Format("20060102")
+	morningName := versionedName(base, date)
+	morningPEM, _ := genTestCert(t, "test.example.com", 9001)
+	afternoonPEM, afternoonKey := genTestCert(t, "test.example.com", 9002)
+	fake := &fakeForti{
+		certs:         map[string]string{morningName: morningPEM},
+		profiles:      map[string][]string{"deep-inspection": {"tmpl_cert"}},
+		vpnServercert: "x", adminCert: "y",
+	}
+	res := deployForTest(t, fake, map[string]any{"vdom": "root"}, "test.example.com", afternoonPEM, afternoonKey)
+	if !res.Success {
+		t.Fatalf("expected success, got: %s — details=%v", res.Message, res.Details)
+	}
+	wantNew := suffixedVersionedName(base, date, 1)
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if _, ok := fake.certs[wantNew]; !ok {
+		t.Errorf("expected afternoon import as %q, certs=%v", wantNew, mapKeys(fake.certs))
+	}
+	if _, ok := fake.certs[morningName]; !ok {
+		t.Errorf("morning cert %q must NOT be removed or overwritten", morningName)
+	}
+	if collided, _ := res.Details["same_day_collision"].(bool); !collided {
+		t.Error("Details.same_day_collision must be true on suffix-probed import")
+	}
+}
+
+// ssl_profile + same-day reissue: morning AND first afternoon names both
+// taken; the deploy must probe past _01 to _02.
+func TestDeploySSLProfile_SameDayCollision_ProbesUntilFree(t *testing.T) {
+	base := sanitizeName("test.example.com")
+	date := time.Now().UTC().Format("20060102")
+	morning := versionedName(base, date)
+	midday := suffixedVersionedName(base, date, 1)
+	morningPEM, _ := genTestCert(t, "test.example.com", 9101)
+	middayPEM, _ := genTestCert(t, "test.example.com", 9102)
+	afternoonPEM, afternoonKey := genTestCert(t, "test.example.com", 9103)
+	fake := &fakeForti{
+		certs:         map[string]string{morning: morningPEM, midday: middayPEM},
+		profiles:      map[string][]string{"deep-inspection": {"tmpl_cert"}},
+		vpnServercert: "x", adminCert: "y",
+	}
+	res := deployForTest(t, fake, map[string]any{"vdom": "root"}, "test.example.com", afternoonPEM, afternoonKey)
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Message)
+	}
+	want := suffixedVersionedName(base, date, 2)
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if _, ok := fake.certs[want]; !ok {
+		t.Errorf("expected import as %q, certs=%v", want, mapKeys(fake.certs))
+	}
+}
+
+// ssl_profile + same-day re-trigger (same serial): findLocalCertBySerial hits
+// the morning cert and we reuse it — no suffix probe, no new import.
+func TestDeploySSLProfile_SameDaySameSerial_StaysIdempotent(t *testing.T) {
+	base := sanitizeName("test.example.com")
+	date := time.Now().UTC().Format("20060102")
+	morningName := versionedName(base, date)
+	certPEM, keyPEM := genTestCert(t, "test.example.com", 9200)
+	fake := &fakeForti{
+		certs:         map[string]string{morningName: certPEM},
+		profiles:      map[string][]string{"deep-inspection": {"tmpl_cert"}},
+		vpnServercert: "x", adminCert: "y",
+	}
+	res := deployForTest(t, fake, map[string]any{"vdom": "root"}, "test.example.com", certPEM, keyPEM)
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Message)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.certs) != 1 {
+		t.Errorf("expected no new import (idempotent), certs=%v", mapKeys(fake.certs))
+	}
+	if collided, _ := res.Details["same_day_collision"].(bool); collided {
+		t.Error("Details.same_day_collision must be false on idempotent reuse")
+	}
+	if res.ResourceID != morningName {
+		t.Errorf("ResourceID = %q, want %q", res.ResourceID, morningName)
+	}
+}
+
 // rebind strategy (opt-in): repoints references and prunes old family members.
 func TestDeployRebind_EndToEnd(t *testing.T) {
 	fake := newFakeForti()
@@ -365,6 +690,79 @@ func TestDeployRebind_EndToEnd(t *testing.T) {
 	want := []string{"star_jobs_bg_2025", newName}
 	if got := fake.profiles["Jobs-Tech SSL Inspection"]; strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("profile server-cert = %v, want %v", got, want)
+	}
+}
+
+// rebind same-day reissue: morning cert occupies <base>_YYYYMMDD; afternoon
+// deploys a different serial under the same base on the same day. The fix
+// imports as <base>_YYYYMMDD_01, rebinds refs there, and prunes the morning
+// cert (it's in family and no longer referenced after the rebind).
+func TestDeployRebind_SameDayCollision_UsesSequenceSuffixAndPrunesMorning(t *testing.T) {
+	base := sanitizeName("*.factory.bg")
+	date := time.Now().UTC().Format("20060102")
+	morningName := versionedName(base, date)
+	morningPEM, _ := genTestCert(t, "*.factory.bg", 7501)
+	afternoonPEM, afternoonKey := genTestCert(t, "*.factory.bg", 7502)
+	// Morning state: dated cert on device, referenced by a profile.
+	fake := &fakeForti{
+		certs:         map[string]string{morningName: morningPEM},
+		profiles:      map[string][]string{"Jobs-Tech SSL Inspection": {morningName}},
+		vpnServercert: "x", adminCert: "y",
+	}
+	res := deployForTest(t, fake,
+		map[string]any{"vdom": "root", "replace_strategy": "rebind"},
+		"*.factory.bg", afternoonPEM, afternoonKey)
+	if !res.Success {
+		t.Fatalf("expected success, got: %s — details=%v", res.Message, res.Details)
+	}
+	wantNew := suffixedVersionedName(base, date, 1)
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if _, ok := fake.certs[wantNew]; !ok {
+		t.Errorf("expected afternoon import as %q, certs=%v", wantNew, mapKeys(fake.certs))
+	}
+	// Morning cert should be pruned (in family, no longer referenced).
+	if _, ok := fake.certs[morningName]; ok {
+		t.Errorf("expected morning cert %q to be pruned, certs=%v", morningName, mapKeys(fake.certs))
+	}
+	// Profile must be rebound to the suffixed name.
+	if got := strings.Join(fake.profiles["Jobs-Tech SSL Inspection"], ","); got != wantNew {
+		t.Errorf("profile server-cert = %q, want %q", got, wantNew)
+	}
+	if collided, _ := res.Details["same_day_collision"].(bool); !collided {
+		t.Error("Details.same_day_collision must be true on suffix-probed rebind")
+	}
+}
+
+// rebind same-day re-trigger (same serial): findLocalCertBySerial reuses the
+// existing name; no new import, no suffix probe. Was the only path that
+// "accidentally worked" under the old code; must keep working under the new.
+func TestDeployRebind_SameDaySameSerial_StaysIdempotent(t *testing.T) {
+	base := sanitizeName("*.factory.bg")
+	date := time.Now().UTC().Format("20060102")
+	morningName := versionedName(base, date)
+	certPEM, keyPEM := genTestCert(t, "*.factory.bg", 7600)
+	fake := &fakeForti{
+		certs:         map[string]string{morningName: certPEM},
+		profiles:      map[string][]string{"Jobs-Tech SSL Inspection": {morningName}},
+		vpnServercert: "x", adminCert: "y",
+	}
+	res := deployForTest(t, fake,
+		map[string]any{"vdom": "root", "replace_strategy": "rebind"},
+		"*.factory.bg", certPEM, keyPEM)
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Message)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.certs) != 1 {
+		t.Errorf("expected no new import on same-serial retry, certs=%v", mapKeys(fake.certs))
+	}
+	if res.ResourceID != morningName {
+		t.Errorf("ResourceID = %q, want %q", res.ResourceID, morningName)
+	}
+	if collided, _ := res.Details["same_day_collision"].(bool); collided {
+		t.Error("Details.same_day_collision must be false on idempotent reuse")
 	}
 }
 
