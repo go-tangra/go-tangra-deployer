@@ -25,6 +25,7 @@ var ProviderSet = wire.NewSet(
 	service.NewJobExecutor,
 	service.NewStatisticsService,
 	service.NewBackupService,
+	service.NewSqlBackupService,
 	event.NewHandler,
 	event.NewSubscriber,
 )
