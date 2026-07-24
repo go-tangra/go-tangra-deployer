@@ -21,6 +21,7 @@ import (
 
 	appViewer "github.com/go-tangra/go-tangra-common/viewer"
 	"github.com/go-tangra/go-tangra-common/middleware/audit"
+	"github.com/go-tangra/go-tangra-common/middleware/claims"
 	"github.com/go-tangra/go-tangra-common/middleware/mtls"
 )
 
@@ -59,8 +60,16 @@ func newGrpcMiddleware(
 	if tlsEnabled {
 		ms = append(ms, mtls.MTLSMiddleware(logger,
 			mtls.WithPublicEndpoints(publicEndpoints...),
+			// mTLS caller allow-list (client cert CN "lcm-<module>"); gateway=lcm-admin, backup=lcm-backup.
+			// LCM dials deployer presenting CN lcm-deployer (its dialer uses callerModuleID="deployer").
+			mtls.WithAllowedIdentities("lcm-admin", "lcm-backup", "lcm-deployer"),
 		))
 	}
+
+	// Bind x-md-global-* user claims to the gateway's HMAC assertion so a direct
+	// mTLS caller cannot forge platform:admin (CRIT-3.2). No-op for calls that
+	// carry no user claims; strips unverified claims in enforce mode.
+	ms = append(ms, claims.Server(logger))
 
 	ms = append(ms, logging.Server(logger))
 
