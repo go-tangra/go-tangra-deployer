@@ -18,6 +18,7 @@ import {
 } from '../../api/services';
 import { $t } from 'shell/locales';
 import { useDeployerJobStore } from '../../stores/deployer-job.state';
+import { formatDateTime as formatDateTimeShared } from '../../datetime';
 
 const jobStore = useDeployerJobStore();
 
@@ -129,7 +130,7 @@ function actionToName(action: string | undefined) {
 function formatDateTime(value: string | undefined) {
   if (!value) return '-';
   try {
-    return new Date(value).toLocaleString();
+    return formatDateTimeShared(value);
   } catch {
     return value;
   }

@@ -19,6 +19,7 @@ import {
   DeployerStatisticsService,
   type GetStatisticsResponse,
 } from '../../api/services';
+import { formatDateTime, formatTime } from '../../datetime';
 
 // 30s auto-refresh: dashboards lose value if they go stale during an
 // active incident, but we don't need second-by-second polling either.
@@ -135,7 +136,7 @@ function triggerLabel(code: string): string {
 
 const lastUpdatedLabel = computed(() => {
   if (!lastUpdated.value) return '';
-  return lastUpdated.value.toLocaleTimeString();
+  return formatTime(lastUpdated.value);
 });
 </script>
 
@@ -287,7 +288,7 @@ const lastUpdatedLabel = computed(() => {
             <li v-for="e in recentErrors" :key="(e.jobId || '') + (e.occurredAt || '')" class="flex flex-col border-b pb-2">
               <div class="flex justify-between text-sm">
                 <span><b>{{ e.configurationName || e.providerType || e.jobId }}</b></span>
-                <span class="text-gray-500">{{ e.occurredAt ? new Date(e.occurredAt).toLocaleString() : '' }}</span>
+                <span class="text-gray-500">{{ e.occurredAt ? formatDateTime(e.occurredAt) : '' }}</span>
               </div>
               <div class="text-xs text-red-600 truncate">{{ e.errorMessage }}</div>
             </li>

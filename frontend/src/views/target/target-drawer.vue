@@ -28,6 +28,7 @@ import {
 import { $t } from 'shell/locales';
 import { useDeployerConfigurationStore } from '../../stores/deployer-configuration.state';
 import { useDeployerTargetStore } from '../../stores/deployer-target.state';
+import { formatDateTime as formatDateTimeShared } from '../../datetime';
 import { useTenantStore } from 'shell/stores';
 
 const targetStore = useDeployerTargetStore();
@@ -92,7 +93,7 @@ const title = computed(() => {
 function formatDateTime(value: string | undefined) {
   if (!value) return '-';
   try {
-    return new Date(value).toLocaleString();
+    return formatDateTimeShared(value);
   } catch {
     return value;
   }

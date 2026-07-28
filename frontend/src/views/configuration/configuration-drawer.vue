@@ -24,6 +24,7 @@ import {
 import { $t } from 'shell/locales';
 import { useDeployerConfigurationStore } from '../../stores/deployer-configuration.state';
 import { useTenantStore } from 'shell/stores';
+import { formatDateTime as formatDateTimeShared } from '../../datetime';
 
 const configStore = useDeployerConfigurationStore();
 const tenantStore = useTenantStore();
@@ -95,7 +96,7 @@ function statusToName(status: string | undefined) {
 function formatDateTime(value: string | undefined) {
   if (!value) return '-';
   try {
-    return new Date(value).toLocaleString();
+    return formatDateTimeShared(value);
   } catch {
     return value;
   }
