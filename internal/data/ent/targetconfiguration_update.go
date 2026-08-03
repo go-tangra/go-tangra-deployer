@@ -8,14 +8,13 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
+	"entgo.io/ent/dialect/sql/sqlgraph"
+	"entgo.io/ent/schema/field"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenttarget"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/predicate"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/targetconfiguration"
-
-	"entgo.io/ent/dialect/sql"
-	"entgo.io/ent/dialect/sql/sqlgraph"
-	"entgo.io/ent/schema/field"
 )
 
 // TargetConfigurationUpdate is the builder for updating TargetConfiguration entities.

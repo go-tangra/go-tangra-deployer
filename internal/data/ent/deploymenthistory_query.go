@@ -7,15 +7,14 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenthistory"
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/predicate"
-
 	"entgo.io/ent"
 	"entgo.io/ent/dialect"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenthistory"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/predicate"
 )
 
 // DeploymentHistoryQuery is the builder for querying DeploymentHistory entities.

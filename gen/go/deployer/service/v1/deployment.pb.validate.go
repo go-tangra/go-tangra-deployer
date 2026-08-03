@@ -482,6 +482,10 @@ func (m *VerifyRequest) validate(all bool) error {
 
 	// no validation rules for CertificateId
 
+	if m.DeploymentTargetId != nil {
+		// no validation rules for DeploymentTargetId
+	}
+
 	if len(errors) > 0 {
 		return VerifyRequestMultiError(errors)
 	}

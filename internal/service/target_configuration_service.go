@@ -13,12 +13,12 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
 
+	deployerV1 "github.com/go-tangra/go-tangra-deployer/gen/go/deployer/service/v1"
 	"github.com/go-tangra/go-tangra-deployer/internal/conf"
 	"github.com/go-tangra/go-tangra-deployer/internal/data"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/targetconfiguration"
 	"github.com/go-tangra/go-tangra-deployer/internal/metrics"
 	"github.com/go-tangra/go-tangra-deployer/pkg/deploy/registry"
-	deployerV1 "github.com/go-tangra/go-tangra-deployer/gen/go/deployer/service/v1"
 )
 
 // TargetConfigurationService implements the TargetConfigurationService gRPC service

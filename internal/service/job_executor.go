@@ -26,6 +26,7 @@ type JobExecutor struct {
 	log           *log.Helper
 	jobRepo       *data.DeploymentJobRepo
 	configRepo    *data.TargetConfigurationRepo
+	targetRepo    *data.DeploymentTargetRepo
 	historyRepo   *data.DeploymentHistoryRepo
 	configService *TargetConfigurationService
 	lcmClient     *data.LcmClient
@@ -44,6 +45,7 @@ func NewJobExecutor(
 	ctx *bootstrap.Context,
 	jobRepo *data.DeploymentJobRepo,
 	configRepo *data.TargetConfigurationRepo,
+	targetRepo *data.DeploymentTargetRepo,
 	historyRepo *data.DeploymentHistoryRepo,
 	configService *TargetConfigurationService,
 	lcmClient *data.LcmClient,
@@ -73,6 +75,7 @@ func NewJobExecutor(
 		log:           ctx.NewLoggerHelper("deployer/job-executor"),
 		jobRepo:       jobRepo,
 		configRepo:    configRepo,
+		targetRepo:    targetRepo,
 		historyRepo:   historyRepo,
 		configService: configService,
 		lcmClient:     lcmClient,
@@ -292,7 +295,12 @@ func (e *JobExecutor) processJob(job *ent.DeploymentJob) error {
 
 	// Execute deployment
 	startTime := time.Now()
-	result, err := provider.Deploy(ctx, certData, config.Config, credentials, progressCb)
+	// Layer the deployment target's per-configuration override on top, so a
+	// shared configuration deploys to this target's zone rather than the
+	// configuration's own.
+	effectiveConfig := resolveEffectiveConfig(e.ctx, e.targetRepo, e.log, job.DeploymentTargetID, config)
+
+	result, err := provider.Deploy(ctx, certData, effectiveConfig, credentials, progressCb)
 
 	// Record history
 	historyResult := deploymenthistory.ResultRESULT_SUCCESS

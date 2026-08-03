@@ -8,11 +8,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/auditlog"
-
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/auditlog"
 )
 
 // AuditLogCreate is the builder for creating a AuditLog entity.

@@ -2,39 +2,30 @@ syntax = "proto3";
 
 package deployer.service.v1;
 
-
+import "gnostic/openapi/v3/annotations.proto";
 import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
-import "gnostic/openapi/v3/annotations.proto";
 
 // Deployer Statistics Service provides aggregated statistics about the deployment system
 service DeployerStatisticsService {
   // GetStatistics returns comprehensive statistics about the Deployer system
-  rpc GetStatistics (GetStatisticsRequest) returns (GetStatisticsResponse) {
-    option (google.api.http) = {
-      get: "/v1/statistics"
-    };
+  rpc GetStatistics(GetStatisticsRequest) returns (GetStatisticsResponse) {
+    option (google.api.http) = {get: "/v1/statistics"};
   }
 
   // GetTenantStatistics returns statistics for a specific tenant
-  rpc GetTenantStatistics (GetTenantStatisticsRequest) returns (TenantStatistics) {
-    option (google.api.http) = {
-      get: "/v1/statistics/tenant/{tenant_id}"
-    };
+  rpc GetTenantStatistics(GetTenantStatisticsRequest) returns (TenantStatistics) {
+    option (google.api.http) = {get: "/v1/statistics/tenant/{tenant_id}"};
   }
 }
 
 // GetStatisticsRequest is the request message for GetStatistics
 message GetStatisticsRequest {
   // Number of recent errors to return (default: 10)
-  optional int32 recent_errors_limit = 1 [
-    (gnostic.openapi.v3.property) = {description: "Maximum number of recent errors to return"}
-  ];
+  optional int32 recent_errors_limit = 1 [(gnostic.openapi.v3.property) = {description: "Maximum number of recent errors to return"}];
 
   // Filter by specific tenant ID (optional, admin only)
-  optional uint32 tenant_id = 2 [
-    (gnostic.openapi.v3.property) = {description: "Filter statistics by tenant ID"}
-  ];
+  optional uint32 tenant_id = 2 [(gnostic.openapi.v3.property) = {description: "Filter statistics by tenant ID"}];
 }
 
 // GetStatisticsResponse is the response message for GetStatistics
@@ -115,42 +106,28 @@ message JobTimeBreakdown {
 // TargetStatistics contains statistics about deployment targets
 message TargetStatistics {
   // Total number of targets
-  int64 total_count = 1 [
-    (gnostic.openapi.v3.property) = {description: "Total number of deployment targets"}
-  ];
+  int64 total_count = 1 [(gnostic.openapi.v3.property) = {description: "Total number of deployment targets"}];
 
   // Number of targets with auto-deploy enabled
-  int64 auto_deploy_enabled_count = 2 [
-    (gnostic.openapi.v3.property) = {description: "Number of targets with auto-deploy on renewal"}
-  ];
+  int64 auto_deploy_enabled_count = 2 [(gnostic.openapi.v3.property) = {description: "Number of targets with auto-deploy on renewal"}];
 
   // Number of targets with auto-deploy disabled
-  int64 auto_deploy_disabled_count = 3 [
-    (gnostic.openapi.v3.property) = {description: "Number of targets with auto-deploy disabled"}
-  ];
+  int64 auto_deploy_disabled_count = 3 [(gnostic.openapi.v3.property) = {description: "Number of targets with auto-deploy disabled"}];
 }
 
 // ConfigurationStatistics contains statistics about target configurations
 message ConfigurationStatistics {
   // Total number of configurations
-  int64 total_count = 1 [
-    (gnostic.openapi.v3.property) = {description: "Total number of target configurations"}
-  ];
+  int64 total_count = 1 [(gnostic.openapi.v3.property) = {description: "Total number of target configurations"}];
 
   // Number of active configurations
-  int64 active_count = 2 [
-    (gnostic.openapi.v3.property) = {description: "Number of active configurations"}
-  ];
+  int64 active_count = 2 [(gnostic.openapi.v3.property) = {description: "Number of active configurations"}];
 
   // Number of inactive configurations
-  int64 inactive_count = 3 [
-    (gnostic.openapi.v3.property) = {description: "Number of inactive configurations"}
-  ];
+  int64 inactive_count = 3 [(gnostic.openapi.v3.property) = {description: "Number of inactive configurations"}];
 
   // Number of configurations in error state
-  int64 error_count = 4 [
-    (gnostic.openapi.v3.property) = {description: "Number of configurations in error state"}
-  ];
+  int64 error_count = 4 [(gnostic.openapi.v3.property) = {description: "Number of configurations in error state"}];
 
   // Configurations grouped by status
   map<string, int64> by_status = 5;
@@ -189,9 +166,7 @@ message RecentError {
 // GetTenantStatisticsRequest is the request for GetTenantStatistics
 message GetTenantStatisticsRequest {
   // Tenant ID to get statistics for
-  uint32 tenant_id = 1 [
-    (gnostic.openapi.v3.property) = {description: "Tenant ID"}
-  ];
+  uint32 tenant_id = 1 [(gnostic.openapi.v3.property) = {description: "Tenant ID"}];
 }
 
 // TenantStatistics provides statistics for a specific tenant

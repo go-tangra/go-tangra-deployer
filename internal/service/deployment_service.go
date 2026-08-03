@@ -8,12 +8,12 @@ import (
 	"github.com/tx7do/kratos-bootstrap/bootstrap"
 	"google.golang.org/protobuf/types/known/structpb"
 
+	deployerV1 "github.com/go-tangra/go-tangra-deployer/gen/go/deployer/service/v1"
 	"github.com/go-tangra/go-tangra-deployer/internal/data"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenthistory"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
 	"github.com/go-tangra/go-tangra-deployer/internal/metrics"
 	"github.com/go-tangra/go-tangra-deployer/pkg/deploy/registry"
-	deployerV1 "github.com/go-tangra/go-tangra-deployer/gen/go/deployer/service/v1"
 )
 
 // DeploymentService implements the DeploymentService gRPC service
@@ -368,7 +368,11 @@ func (s *DeploymentService) Verify(ctx context.Context, req *deployerV1.VerifyRe
 	}
 
 	// Verify
-	result, err := provider.Verify(ctx, certData, config.Config, credentials)
+	// Verification is only meaningful against the config that will actually be
+	// deployed, so honour the target's override when the caller names a target.
+	effectiveConfig := resolveEffectiveConfig(ctx, s.targetRepo, s.log, req.DeploymentTargetId, config)
+
+	result, err := provider.Verify(ctx, certData, effectiveConfig, credentials)
 	if err != nil {
 		return nil, err
 	}
@@ -440,7 +444,9 @@ func (s *DeploymentService) Rollback(ctx context.Context, req *deployerV1.Rollba
 	}
 	s.collector.JobStatusChanged("pending", "processing")
 
-	result, err := provider.Rollback(ctx, certData, config.Config, credentials)
+	effectiveConfig := resolveEffectiveConfig(ctx, s.targetRepo, s.log, job.DeploymentTargetID, config)
+
+	result, err := provider.Rollback(ctx, certData, effectiveConfig, credentials)
 	if err != nil {
 		if _, statusErr := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, err.Error(), 0); statusErr != nil {
 			s.log.Warnf("Failed to update job %s status after rollback error: %v", job.ID, statusErr)
@@ -534,7 +540,9 @@ func (s *DeploymentService) executeDeployment(ctx context.Context, job *data.Dep
 	}
 
 	// Execute deployment
-	result, err := provider.Deploy(ctx, certData, config.Config, credentials, progressCb)
+	effectiveConfig := resolveEffectiveConfig(ctx, s.targetRepo, s.log, job.DeploymentTargetID, config)
+
+	result, err := provider.Deploy(ctx, certData, effectiveConfig, credentials, progressCb)
 	if err != nil {
 		if _, statusErr := s.jobRepo.UpdateStatus(ctx, job.ID, deploymentjob.StatusJOB_STATUS_FAILED, err.Error(), 0); statusErr != nil {
 			s.log.Warnf("Failed to update job %s status after deploy error: %v", job.ID, statusErr)

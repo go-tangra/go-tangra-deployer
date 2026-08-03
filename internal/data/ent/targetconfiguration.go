@@ -8,10 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/targetconfiguration"
-
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/targetconfiguration"
 )
 
 // TargetConfiguration is the model entity for the TargetConfiguration schema.

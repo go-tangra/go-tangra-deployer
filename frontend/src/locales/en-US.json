@@ -82,7 +82,14 @@
         "nameRequired": "Name is required",
         "providerRequired": "Provider type is required",
         "credentialsRequired": "Credentials are required"
-      }
+      },
+      "configOverrides": "Overrides",
+      "override": "Override",
+      "overrideTitle": "Config overrides — {name}",
+      "overrideHint": "These values replace the configuration’s own provider config for this target only. Use it to point one shared configuration (a single API token) at a different zone_id per target. Credentials are never overridden.",
+      "overrideField": "Field (e.g. zone_id)",
+      "overrideValue": "Value",
+      "overrideAddField": "Add field"
     },
     "configuration": {
       "moduleName": "Target Configuration",

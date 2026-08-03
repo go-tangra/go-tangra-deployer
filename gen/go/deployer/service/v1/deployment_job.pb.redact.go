@@ -25,9 +25,9 @@ var (
 	_ status.Status
 	_ validate.Rule
 	_ annotations.FieldBehavior
-	_ timestamppb.Timestamp
 	_ emptypb.Empty
 	_ structpb.Struct
+	_ timestamppb.Timestamp
 )
 
 // RegisterRedactedDeploymentJobServiceServer wraps the DeploymentJobServiceServer with the redacted server and registers the service in GRPC

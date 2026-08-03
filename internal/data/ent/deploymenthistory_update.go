@@ -8,13 +8,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenthistory"
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/predicate"
-
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenthistory"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/predicate"
 )
 
 // DeploymentHistoryUpdate is the builder for updating DeploymentHistory entities.

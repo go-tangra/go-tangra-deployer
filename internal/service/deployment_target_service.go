@@ -6,11 +6,12 @@ import (
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/tx7do/kratos-bootstrap/bootstrap"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/structpb"
 
+	deployerV1 "github.com/go-tangra/go-tangra-deployer/gen/go/deployer/service/v1"
 	"github.com/go-tangra/go-tangra-deployer/internal/data"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/schema"
 	"github.com/go-tangra/go-tangra-deployer/internal/metrics"
-	deployerV1 "github.com/go-tangra/go-tangra-deployer/gen/go/deployer/service/v1"
 )
 
 // DeploymentTargetService implements the DeploymentTargetService gRPC service
@@ -91,7 +92,7 @@ func (s *DeploymentTargetService) CreateTarget(ctx context.Context, req *deploye
 	}
 
 	entity, err := s.targetRepo.Create(ctx, req.GetTenantId(), req.GetName(), description,
-		autoDeployOnRenewal, filters, req.ConfigurationIds)
+		autoDeployOnRenewal, filters, req.ConfigurationIds, overridesToMap(req.GetConfigOverrides()))
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +197,7 @@ func (s *DeploymentTargetService) UpdateTarget(ctx context.Context, req *deploye
 	}
 
 	entity, err := s.targetRepo.Update(ctx, req.GetId(), req.Name, req.Description,
-		req.AutoDeployOnRenewal, filters)
+		req.AutoDeployOnRenewal, filters, overridesToMap(req.GetConfigOverrides()))
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +266,7 @@ func (s *DeploymentTargetService) AddConfigurations(ctx context.Context, req *de
 		return nil, deployerV1.ErrorConfigurationNotFound("one or more configuration IDs not found")
 	}
 
-	_, err = s.targetRepo.AddConfigurations(ctx, req.GetId(), req.ConfigurationIds)
+	_, err = s.targetRepo.AddConfigurations(ctx, req.GetId(), req.ConfigurationIds, overridesToMap(req.GetConfigOverrides()))
 	if err != nil {
 		return nil, err
 	}
@@ -337,4 +338,22 @@ func (s *DeploymentTargetService) ListTargetConfigurations(ctx context.Context, 
 		Items: items,
 		Total: uint64(total),
 	}, nil
+}
+
+// overridesToMap converts the proto Struct map into the plain map the repo and
+// the deploy path use. A nil input yields nil, which callers read as "not
+// supplied" — that distinction is what lets Update leave existing overrides
+// alone instead of clearing them.
+func overridesToMap(in map[string]*structpb.Struct) map[string]map[string]any {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]map[string]any, len(in))
+	for configID, st := range in {
+		if st == nil {
+			continue
+		}
+		out[configID] = st.AsMap()
+	}
+	return out
 }

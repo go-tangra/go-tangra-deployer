@@ -8,8 +8,8 @@ import (
 	"github.com/tx7do/kratos-bootstrap/bootstrap"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/go-tangra/go-tangra-deployer/internal/data"
 	deployerV1 "github.com/go-tangra/go-tangra-deployer/gen/go/deployer/service/v1"
+	"github.com/go-tangra/go-tangra-deployer/internal/data"
 )
 
 // StatisticsService implements the DeployerStatisticsService gRPC service

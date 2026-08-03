@@ -8,12 +8,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenthistory"
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
-
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenthistory"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
 )
 
 // DeploymentHistoryCreate is the builder for creating a DeploymentHistory entity.

@@ -7,6 +7,7 @@ import (
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/google/uuid"
 	"github.com/tx7do/kratos-bootstrap/bootstrap"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	entCrud "github.com/tx7do/go-crud/entgo"
@@ -32,7 +33,8 @@ func NewDeploymentTargetRepo(ctx *bootstrap.Context, entClient *entCrud.EntClien
 
 // Create creates a new deployment target (group)
 func (r *DeploymentTargetRepo) Create(ctx context.Context, tenantID uint32, name, description string,
-	autoDeployOnRenewal bool, filters []schema.CertificateFilter, configIDs []string) (*ent.DeploymentTarget, error) {
+	autoDeployOnRenewal bool, filters []schema.CertificateFilter, configIDs []string,
+	configOverrides map[string]map[string]any) (*ent.DeploymentTarget, error) {
 
 	id := uuid.New().String()
 
@@ -48,6 +50,10 @@ func (r *DeploymentTargetRepo) Create(ctx context.Context, tenantID uint32, name
 	}
 	if filters != nil {
 		builder.SetCertificateFilters(filters)
+	}
+
+	if len(configOverrides) > 0 {
+		builder.SetConfigOverrides(configOverrides)
 	}
 
 	// Link configurations if provided
@@ -166,7 +172,8 @@ func (r *DeploymentTargetRepo) ListByAutoDeployEnabled(ctx context.Context) ([]*
 
 // Update updates a deployment target
 func (r *DeploymentTargetRepo) Update(ctx context.Context, id string, name, description *string,
-	autoDeployOnRenewal *bool, filters []schema.CertificateFilter) (*ent.DeploymentTarget, error) {
+	autoDeployOnRenewal *bool, filters []schema.CertificateFilter,
+	configOverrides map[string]map[string]any) (*ent.DeploymentTarget, error) {
 
 	builder := r.entClient.Client().DeploymentTarget.UpdateOneID(id).
 		SetUpdateTime(time.Now())
@@ -183,6 +190,12 @@ func (r *DeploymentTargetRepo) Update(ctx context.Context, id string, name, desc
 	if filters != nil {
 		builder.SetCertificateFilters(filters)
 	}
+	// A nil map means "not supplied" and leaves the stored overrides alone; a
+	// non-nil (possibly empty) map replaces them wholesale, which is how an
+	// operator clears an override.
+	if configOverrides != nil {
+		builder.SetConfigOverrides(configOverrides)
+	}
 
 	entity, err := builder.Save(ctx)
 	if err != nil {
@@ -197,11 +210,36 @@ func (r *DeploymentTargetRepo) Update(ctx context.Context, id string, name, desc
 }
 
 // AddConfigurations adds configurations to a deployment target
-func (r *DeploymentTargetRepo) AddConfigurations(ctx context.Context, id string, configIDs []string) (*ent.DeploymentTarget, error) {
-	entity, err := r.entClient.Client().DeploymentTarget.UpdateOneID(id).
+func (r *DeploymentTargetRepo) AddConfigurations(ctx context.Context, id string, configIDs []string,
+	configOverrides map[string]map[string]any) (*ent.DeploymentTarget, error) {
+
+	builder := r.entClient.Client().DeploymentTarget.UpdateOneID(id).
 		AddConfigurationIDs(configIDs...).
-		SetUpdateTime(time.Now()).
-		Save(ctx)
+		SetUpdateTime(time.Now())
+
+	// Overrides supplied here are merged into the target's existing map rather
+	// than replacing it, so attaching a second configuration does not wipe the
+	// override of the one already attached.
+	if len(configOverrides) > 0 {
+		existing, err := r.entClient.Client().DeploymentTarget.Get(ctx, id)
+		if err != nil {
+			if ent.IsNotFound(err) {
+				return nil, deployerV1.ErrorTargetNotFound("deployment target not found")
+			}
+			r.log.Errorf("add configurations failed: %s", err.Error())
+			return nil, deployerV1.ErrorInternalServerError("add configurations failed")
+		}
+		merged := make(map[string]map[string]any, len(existing.ConfigOverrides)+len(configOverrides))
+		for k, v := range existing.ConfigOverrides {
+			merged[k] = v
+		}
+		for k, v := range configOverrides {
+			merged[k] = v
+		}
+		builder.SetConfigOverrides(merged)
+	}
+
+	entity, err := builder.Save(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
 			return nil, deployerV1.ErrorTargetNotFound("deployment target not found")
@@ -214,10 +252,24 @@ func (r *DeploymentTargetRepo) AddConfigurations(ctx context.Context, id string,
 
 // RemoveConfigurations removes configurations from a deployment target
 func (r *DeploymentTargetRepo) RemoveConfigurations(ctx context.Context, id string, configIDs []string) (*ent.DeploymentTarget, error) {
-	entity, err := r.entClient.Client().DeploymentTarget.UpdateOneID(id).
+	builder := r.entClient.Client().DeploymentTarget.UpdateOneID(id).
 		RemoveConfigurationIDs(configIDs...).
-		SetUpdateTime(time.Now()).
-		Save(ctx)
+		SetUpdateTime(time.Now())
+
+	// Detaching a configuration drops its override as well. Leaving it behind
+	// would silently reapply a stale zone if the configuration were reattached.
+	if existing, err := r.entClient.Client().DeploymentTarget.Get(ctx, id); err == nil && len(existing.ConfigOverrides) > 0 {
+		remaining := make(map[string]map[string]any, len(existing.ConfigOverrides))
+		for k, v := range existing.ConfigOverrides {
+			remaining[k] = v
+		}
+		for _, cid := range configIDs {
+			delete(remaining, cid)
+		}
+		builder.SetConfigOverrides(remaining)
+	}
+
+	entity, err := builder.Save(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
 			return nil, deployerV1.ErrorTargetNotFound("deployment target not found")
@@ -302,6 +354,22 @@ func (r *DeploymentTargetRepo) ToProto(entity *ent.DeploymentTarget, configRepo 
 
 	if entity.Description != "" {
 		proto.Description = &entity.Description
+	}
+
+	// Expose the per-configuration overrides so the UI can show and edit which
+	// zone (or other config field) this target uses for a shared configuration.
+	if len(entity.ConfigOverrides) > 0 {
+		proto.ConfigOverrides = make(map[string]*structpb.Struct, len(entity.ConfigOverrides))
+		for configID, fields := range entity.ConfigOverrides {
+			st, err := structpb.NewStruct(fields)
+			if err != nil {
+				// A value that will not round-trip through Struct would break
+				// the whole response; drop just that entry and say so.
+				r.log.Warnf("skipping unencodable config override for %s/%s: %v", entity.ID, configID, err)
+				continue
+			}
+			proto.ConfigOverrides[configID] = st
+		}
 	}
 
 	// Convert certificate filters

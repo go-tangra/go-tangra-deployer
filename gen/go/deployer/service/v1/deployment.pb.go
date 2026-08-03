@@ -228,8 +228,13 @@ type VerifyRequest struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
 	TargetConfigurationId string                 `protobuf:"bytes,1,opt,name=target_configuration_id,json=targetConfigurationId,proto3" json:"target_configuration_id,omitempty"`
 	CertificateId         string                 `protobuf:"bytes,2,opt,name=certificate_id,json=certificateId,proto3" json:"certificate_id,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Optional deployment target to verify in the context of. When set, that
+	// target's config overrides are applied before verifying — without it a
+	// shared configuration is verified against its own config, which is not the
+	// config the target would actually deploy with.
+	DeploymentTargetId *string `protobuf:"bytes,3,opt,name=deployment_target_id,json=deploymentTargetId,proto3,oneof" json:"deployment_target_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *VerifyRequest) Reset() {
@@ -272,6 +277,13 @@ func (x *VerifyRequest) GetTargetConfigurationId() string {
 func (x *VerifyRequest) GetCertificateId() string {
 	if x != nil {
 		return x.CertificateId
+	}
+	return ""
+}
+
+func (x *VerifyRequest) GetDeploymentTargetId() string {
+	if x != nil && x.DeploymentTargetId != nil {
+		return *x.DeploymentTargetId
 	}
 	return ""
 }
@@ -961,7 +973,7 @@ var File_deployer_service_v1_deployment_proto protoreflect.FileDescriptor
 
 const file_deployer_service_v1_deployment_proto_rawDesc = "" +
 	"\n" +
-	"$deployer/service/v1/deployment.proto\x12\x13deployer.service.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/api/field_behavior.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a(deployer/service/v1/deployment_job.proto\"\x87\x02\n" +
+	"$deployer/service/v1/deployment.proto\x12\x13deployer.service.v1\x1a\x1bbuf/validate/validate.proto\x1a(deployer/service/v1/deployment_job.proto\x1a\x1fgoogle/api/field_behavior.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x87\x02\n" +
 	"\x10DeploymentResult\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x1d\n" +
 	"\amessage\x18\x02 \x01(\tH\x00R\amessage\x88\x01\x01\x12$\n" +
@@ -986,10 +998,12 @@ const file_deployer_service_v1_deployment_proto_rawDesc = "" +
 	"\x0eDeployResponse\x124\n" +
 	"\x03job\x18\x01 \x01(\v2\".deployer.service.v1.DeploymentJobR\x03job\x12B\n" +
 	"\x06result\x18\x02 \x01(\v2%.deployer.service.v1.DeploymentResultH\x00R\x06result\x88\x01\x01B\t\n" +
-	"\a_result\"x\n" +
+	"\a_result\"\xc8\x01\n" +
 	"\rVerifyRequest\x12;\n" +
 	"\x17target_configuration_id\x18\x01 \x01(\tB\x03\xe0A\x02R\x15targetConfigurationId\x12*\n" +
-	"\x0ecertificate_id\x18\x02 \x01(\tB\x03\xe0A\x02R\rcertificateId\"O\n" +
+	"\x0ecertificate_id\x18\x02 \x01(\tB\x03\xe0A\x02R\rcertificateId\x125\n" +
+	"\x14deployment_target_id\x18\x03 \x01(\tH\x00R\x12deploymentTargetId\x88\x01\x01B\x17\n" +
+	"\x15_deployment_target_id\"O\n" +
 	"\x0eVerifyResponse\x12=\n" +
 	"\x06result\x18\x01 \x01(\v2%.deployer.service.v1.DeploymentResultR\x06result\"\xd3\x01\n" +
 	"\x0fRollbackRequest\x12;\n" +
@@ -1132,6 +1146,7 @@ func file_deployer_service_v1_deployment_proto_init() {
 	file_deployer_service_v1_deployment_proto_msgTypes[0].OneofWrappers = []any{}
 	file_deployer_service_v1_deployment_proto_msgTypes[1].OneofWrappers = []any{}
 	file_deployer_service_v1_deployment_proto_msgTypes[2].OneofWrappers = []any{}
+	file_deployer_service_v1_deployment_proto_msgTypes[3].OneofWrappers = []any{}
 	file_deployer_service_v1_deployment_proto_msgTypes[5].OneofWrappers = []any{}
 	file_deployer_service_v1_deployment_proto_msgTypes[6].OneofWrappers = []any{}
 	file_deployer_service_v1_deployment_proto_msgTypes[7].OneofWrappers = []any{}

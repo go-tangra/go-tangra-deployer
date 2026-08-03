@@ -25,9 +25,9 @@ var (
 	_ status.Status
 	_ validate.Rule
 	_ annotations.FieldBehavior
-	_ timestamppb.Timestamp
 	_ emptypb.Empty
 	_ structpb.Struct
+	_ timestamppb.Timestamp
 	_ redact.FieldRules
 )
 

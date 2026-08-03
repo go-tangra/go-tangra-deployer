@@ -775,7 +775,7 @@ var File_deployer_service_v1_statistics_proto protoreflect.FileDescriptor
 
 const file_deployer_service_v1_statistics_proto_rawDesc = "" +
 	"\n" +
-	"$deployer/service/v1/statistics.proto\x12\x13deployer.service.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a$gnostic/openapi/v3/annotations.proto\"\xea\x01\n" +
+	"$deployer/service/v1/statistics.proto\x12\x13deployer.service.v1\x1a$gnostic/openapi/v3/annotations.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xea\x01\n" +
 	"\x14GetStatisticsRequest\x12d\n" +
 	"\x13recent_errors_limit\x18\x01 \x01(\x05B/\xbaG,\x92\x02)Maximum number of recent errors to returnH\x00R\x11recentErrorsLimit\x88\x01\x01\x12F\n" +
 	"\ttenant_id\x18\x02 \x01(\rB$\xbaG!\x92\x02\x1eFilter statistics by tenant IDH\x01R\btenantId\x88\x01\x01B\x16\n" +

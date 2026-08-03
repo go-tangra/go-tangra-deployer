@@ -5,10 +5,9 @@ package deploymenttarget
 import (
 	"time"
 
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/predicate"
-
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/predicate"
 )
 
 // ID filters vertices based on their ID field.
@@ -569,6 +568,16 @@ func CertificateFiltersIsNil() predicate.DeploymentTarget {
 // CertificateFiltersNotNil applies the NotNil predicate on the "certificate_filters" field.
 func CertificateFiltersNotNil() predicate.DeploymentTarget {
 	return predicate.DeploymentTarget(sql.FieldNotNull(FieldCertificateFilters))
+}
+
+// ConfigOverridesIsNil applies the IsNil predicate on the "config_overrides" field.
+func ConfigOverridesIsNil() predicate.DeploymentTarget {
+	return predicate.DeploymentTarget(sql.FieldIsNull(FieldConfigOverrides))
+}
+
+// ConfigOverridesNotNil applies the NotNil predicate on the "config_overrides" field.
+func ConfigOverridesNotNil() predicate.DeploymentTarget {
+	return predicate.DeploymentTarget(sql.FieldNotNull(FieldConfigOverrides))
 }
 
 // HasConfigurations applies the HasEdge predicate on the "configurations" edge.

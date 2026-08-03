@@ -12,6 +12,7 @@ import (
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -24,8 +25,9 @@ var (
 	_ status.Status
 	_ validate.Rule
 	_ annotations.FieldBehavior
-	_ timestamppb.Timestamp
 	_ emptypb.Empty
+	_ structpb.Struct
+	_ timestamppb.Timestamp
 )
 
 // RegisterRedactedDeploymentTargetServiceServer wraps the DeploymentTargetServiceServer with the redacted server and registers the service in GRPC
@@ -180,6 +182,8 @@ func (x *DeploymentTarget) Redact() string {
 
 	// Safe field: ConfigurationCount
 
+	// Safe field: ConfigOverrides
+
 	// Safe field: CreatedBy
 
 	// Safe field: UpdatedBy
@@ -207,6 +211,8 @@ func (x *CreateTargetRequest) Redact() string {
 	// Safe field: CertificateFilters
 
 	// Safe field: ConfigurationIds
+
+	// Safe field: ConfigOverrides
 	return x.String()
 }
 
@@ -287,6 +293,8 @@ func (x *UpdateTargetRequest) Redact() string {
 	// Safe field: AutoDeployOnRenewal
 
 	// Safe field: CertificateFilters
+
+	// Safe field: ConfigOverrides
 	return x.String()
 }
 
@@ -319,6 +327,8 @@ func (x *AddConfigurationsRequest) Redact() string {
 	// Safe field: Id
 
 	// Safe field: ConfigurationIds
+
+	// Safe field: ConfigOverrides
 	return x.String()
 }
 

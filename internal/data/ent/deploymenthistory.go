@@ -8,11 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenthistory"
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
-
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenthistory"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
 )
 
 // DeploymentHistory is the model entity for the DeploymentHistory schema.

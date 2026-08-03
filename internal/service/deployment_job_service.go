@@ -8,10 +8,10 @@ import (
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/tx7do/kratos-bootstrap/bootstrap"
 
+	deployerV1 "github.com/go-tangra/go-tangra-deployer/gen/go/deployer/service/v1"
 	"github.com/go-tangra/go-tangra-deployer/internal/data"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
 	"github.com/go-tangra/go-tangra-deployer/internal/metrics"
-	deployerV1 "github.com/go-tangra/go-tangra-deployer/gen/go/deployer/service/v1"
 )
 
 // DeploymentJobService implements the DeploymentJobService gRPC service
@@ -396,10 +396,10 @@ func (s *DeploymentJobService) RetryJob(ctx context.Context, req *deployerV1.Ret
 		for _, child := range childJobs {
 			if child.Status == deploymentjob.StatusJOB_STATUS_FAILED {
 				if _, err := s.jobRepo.UpdateStatus(ctx, child.ID, deploymentjob.StatusJOB_STATUS_PENDING, "Retry requested", 0); err != nil {
-				s.log.Warnf("Failed to reset child job %s for retry: %v", child.ID, err)
-			} else {
-				s.collector.JobStatusChanged("failed", "pending")
-			}
+					s.log.Warnf("Failed to reset child job %s for retry: %v", child.ID, err)
+				} else {
+					s.collector.JobStatusChanged("failed", "pending")
+				}
 			}
 		}
 		// Reset parent status to processing

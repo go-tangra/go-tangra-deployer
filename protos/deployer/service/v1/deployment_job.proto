@@ -5,9 +5,9 @@ package deployer.service.v1;
 import "buf/validate/validate.proto";
 import "google/api/annotations.proto";
 import "google/api/field_behavior.proto";
-import "google/protobuf/timestamp.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
 
 // Job status
 enum JobStatus {
@@ -224,32 +224,22 @@ service DeploymentJobService {
   }
   // Get job status
   rpc GetJobStatus(GetJobStatusRequest) returns (GetJobStatusResponse) {
-    option (google.api.http) = {
-      get: "/v1/deployment-jobs/{id}/status"
-    };
+    option (google.api.http) = {get: "/v1/deployment-jobs/{id}/status"};
   }
   // Get job result with history
   rpc GetJobResult(GetJobResultRequest) returns (GetJobResultResponse) {
-    option (google.api.http) = {
-      get: "/v1/deployment-jobs/{id}/result"
-    };
+    option (google.api.http) = {get: "/v1/deployment-jobs/{id}/result"};
   }
   // List deployment jobs
   rpc ListJobs(ListJobsRequest) returns (ListJobsResponse) {
-    option (google.api.http) = {
-      get: "/v1/deployment-jobs"
-    };
+    option (google.api.http) = {get: "/v1/deployment-jobs"};
   }
   // Cancel a pending or processing job
   rpc CancelJob(CancelJobRequest) returns (CancelJobResponse) {
-    option (google.api.http) = {
-      post: "/v1/deployment-jobs/{id}/cancel"
-    };
+    option (google.api.http) = {post: "/v1/deployment-jobs/{id}/cancel"};
   }
   // Retry a failed job
   rpc RetryJob(RetryJobRequest) returns (RetryJobResponse) {
-    option (google.api.http) = {
-      post: "/v1/deployment-jobs/{id}/retry"
-    };
+    option (google.api.http) = {post: "/v1/deployment-jobs/{id}/retry"};
   }
 }

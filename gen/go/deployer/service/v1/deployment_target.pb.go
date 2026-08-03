@@ -12,6 +12,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
@@ -150,13 +151,23 @@ type DeploymentTarget struct {
 	// Linked target configurations (populated when requested)
 	Configurations []*TargetConfiguration `protobuf:"bytes,10,rep,name=configurations,proto3" json:"configurations,omitempty"`
 	// Count of linked configurations
-	ConfigurationCount *int32                 `protobuf:"varint,11,opt,name=configuration_count,json=configurationCount,proto3,oneof" json:"configuration_count,omitempty"`
-	CreatedBy          *uint32                `protobuf:"varint,100,opt,name=created_by,json=createdBy,proto3,oneof" json:"created_by,omitempty"`
-	UpdatedBy          *uint32                `protobuf:"varint,101,opt,name=updated_by,json=updatedBy,proto3,oneof" json:"updated_by,omitempty"`
-	CreateTime         *timestamppb.Timestamp `protobuf:"bytes,200,opt,name=create_time,json=createTime,proto3,oneof" json:"create_time,omitempty"`
-	UpdateTime         *timestamppb.Timestamp `protobuf:"bytes,201,opt,name=update_time,json=updateTime,proto3,oneof" json:"update_time,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	ConfigurationCount *int32 `protobuf:"varint,11,opt,name=configuration_count,json=configurationCount,proto3,oneof" json:"configuration_count,omitempty"`
+	// config_overrides holds per-configuration provider config overrides, keyed
+	// by target configuration id. They are layered over that configuration's own
+	// `config` at deploy time, so one shared configuration — a single Cloudflare
+	// API token, say — can serve several targets that each deploy to a different
+	// zone_id, instead of duplicating the configuration and its credentials per
+	// zone.
+	//
+	// Only the provider `config` map is overridable. Credentials are never taken
+	// from here: sharing them is the point.
+	ConfigOverrides map[string]*structpb.Struct `protobuf:"bytes,12,rep,name=config_overrides,json=configOverrides,proto3" json:"config_overrides,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	CreatedBy       *uint32                     `protobuf:"varint,100,opt,name=created_by,json=createdBy,proto3,oneof" json:"created_by,omitempty"`
+	UpdatedBy       *uint32                     `protobuf:"varint,101,opt,name=updated_by,json=updatedBy,proto3,oneof" json:"updated_by,omitempty"`
+	CreateTime      *timestamppb.Timestamp      `protobuf:"bytes,200,opt,name=create_time,json=createTime,proto3,oneof" json:"create_time,omitempty"`
+	UpdateTime      *timestamppb.Timestamp      `protobuf:"bytes,201,opt,name=update_time,json=updateTime,proto3,oneof" json:"update_time,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *DeploymentTarget) Reset() {
@@ -245,6 +256,13 @@ func (x *DeploymentTarget) GetConfigurationCount() int32 {
 	return 0
 }
 
+func (x *DeploymentTarget) GetConfigOverrides() map[string]*structpb.Struct {
+	if x != nil {
+		return x.ConfigOverrides
+	}
+	return nil
+}
+
 func (x *DeploymentTarget) GetCreatedBy() uint32 {
 	if x != nil && x.CreatedBy != nil {
 		return *x.CreatedBy
@@ -283,8 +301,10 @@ type CreateTargetRequest struct {
 	CertificateFilters  []*CertificateFilter   `protobuf:"bytes,5,rep,name=certificate_filters,json=certificateFilters,proto3" json:"certificate_filters,omitempty"`
 	// Optional: link configurations during creation
 	ConfigurationIds []string `protobuf:"bytes,6,rep,name=configuration_ids,json=configurationIds,proto3" json:"configuration_ids,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Optional: per-configuration provider config overrides (see DeploymentTarget).
+	ConfigOverrides map[string]*structpb.Struct `protobuf:"bytes,7,rep,name=config_overrides,json=configOverrides,proto3" json:"config_overrides,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *CreateTargetRequest) Reset() {
@@ -355,6 +375,13 @@ func (x *CreateTargetRequest) GetCertificateFilters() []*CertificateFilter {
 func (x *CreateTargetRequest) GetConfigurationIds() []string {
 	if x != nil {
 		return x.ConfigurationIds
+	}
+	return nil
+}
+
+func (x *CreateTargetRequest) GetConfigOverrides() map[string]*structpb.Struct {
+	if x != nil {
+		return x.ConfigOverrides
 	}
 	return nil
 }
@@ -639,8 +666,12 @@ type UpdateTargetRequest struct {
 	Description         *string                `protobuf:"bytes,3,opt,name=description,proto3,oneof" json:"description,omitempty"`
 	AutoDeployOnRenewal *bool                  `protobuf:"varint,4,opt,name=auto_deploy_on_renewal,json=autoDeployOnRenewal,proto3,oneof" json:"auto_deploy_on_renewal,omitempty"`
 	CertificateFilters  []*CertificateFilter   `protobuf:"bytes,5,rep,name=certificate_filters,json=certificateFilters,proto3" json:"certificate_filters,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Per-configuration provider config overrides (see DeploymentTarget). When
+	// present the whole map is replaced, so send the full set; omit the field to
+	// leave the existing overrides untouched.
+	ConfigOverrides map[string]*structpb.Struct `protobuf:"bytes,6,rep,name=config_overrides,json=configOverrides,proto3" json:"config_overrides,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *UpdateTargetRequest) Reset() {
@@ -704,6 +735,13 @@ func (x *UpdateTargetRequest) GetAutoDeployOnRenewal() bool {
 func (x *UpdateTargetRequest) GetCertificateFilters() []*CertificateFilter {
 	if x != nil {
 		return x.CertificateFilters
+	}
+	return nil
+}
+
+func (x *UpdateTargetRequest) GetConfigOverrides() map[string]*structpb.Struct {
+	if x != nil {
+		return x.ConfigOverrides
 	}
 	return nil
 }
@@ -802,8 +840,12 @@ type AddConfigurationsRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	ConfigurationIds []string               `protobuf:"bytes,2,rep,name=configuration_ids,json=configurationIds,proto3" json:"configuration_ids,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Optional overrides for the configurations being attached, keyed by
+	// configuration id. Attach time is when an operator knows which zone this
+	// target deploys to, so it is the natural place to supply them.
+	ConfigOverrides map[string]*structpb.Struct `protobuf:"bytes,3,rep,name=config_overrides,json=configOverrides,proto3" json:"config_overrides,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AddConfigurationsRequest) Reset() {
@@ -846,6 +888,13 @@ func (x *AddConfigurationsRequest) GetId() string {
 func (x *AddConfigurationsRequest) GetConfigurationIds() []string {
 	if x != nil {
 		return x.ConfigurationIds
+	}
+	return nil
+}
+
+func (x *AddConfigurationsRequest) GetConfigOverrides() map[string]*structpb.Struct {
+	if x != nil {
+		return x.ConfigOverrides
 	}
 	return nil
 }
@@ -1108,7 +1157,7 @@ var File_deployer_service_v1_deployment_target_proto protoreflect.FileDescriptor
 
 const file_deployer_service_v1_deployment_target_proto_rawDesc = "" +
 	"\n" +
-	"+deployer/service/v1/deployment_target.proto\x12\x13deployer.service.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/api/field_behavior.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a.deployer/service/v1/target_configuration.proto\"\xfe\x03\n" +
+	"+deployer/service/v1/deployment_target.proto\x12\x13deployer.service.v1\x1a\x1bbuf/validate/validate.proto\x1a.deployer/service/v1/target_configuration.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/api/field_behavior.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfe\x03\n" +
 	"\x11CertificateFilter\x12$\n" +
 	"\vissuer_name\x18\x01 \x01(\tH\x00R\n" +
 	"issuerName\x88\x01\x01\x123\n" +
@@ -1127,7 +1176,7 @@ const file_deployer_service_v1_deployment_target_proto_rawDesc = "" +
 	"\x15_subject_organizationB\x13\n" +
 	"\x11_subject_org_unitB\x12\n" +
 	"\x10_subject_countryB\x11\n" +
-	"\x0f_domain_pattern\"\x91\x06\n" +
+	"\x0f_domain_pattern\"\xd5\a\n" +
 	"\x10DeploymentTarget\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tH\x00R\x02id\x88\x01\x01\x12 \n" +
 	"\ttenant_id\x18\x02 \x01(\rH\x01R\btenantId\x88\x01\x01\x12\x17\n" +
@@ -1137,7 +1186,8 @@ const file_deployer_service_v1_deployment_target_proto_rawDesc = "" +
 	"\x13certificate_filters\x18\x06 \x03(\v2&.deployer.service.v1.CertificateFilterR\x12certificateFilters\x12P\n" +
 	"\x0econfigurations\x18\n" +
 	" \x03(\v2(.deployer.service.v1.TargetConfigurationR\x0econfigurations\x124\n" +
-	"\x13configuration_count\x18\v \x01(\x05H\x05R\x12configurationCount\x88\x01\x01\x12\"\n" +
+	"\x13configuration_count\x18\v \x01(\x05H\x05R\x12configurationCount\x88\x01\x01\x12e\n" +
+	"\x10config_overrides\x18\f \x03(\v2:.deployer.service.v1.DeploymentTarget.ConfigOverridesEntryR\x0fconfigOverrides\x12\"\n" +
 	"\n" +
 	"created_by\x18d \x01(\rH\x06R\tcreatedBy\x88\x01\x01\x12\"\n" +
 	"\n" +
@@ -1145,7 +1195,10 @@ const file_deployer_service_v1_deployment_target_proto_rawDesc = "" +
 	"\vcreate_time\x18\xc8\x01 \x01(\v2\x1a.google.protobuf.TimestampH\bR\n" +
 	"createTime\x88\x01\x01\x12A\n" +
 	"\vupdate_time\x18\xc9\x01 \x01(\v2\x1a.google.protobuf.TimestampH\tR\n" +
-	"updateTime\x88\x01\x01B\x05\n" +
+	"updateTime\x88\x01\x01\x1a[\n" +
+	"\x14ConfigOverridesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12-\n" +
+	"\x05value\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x05value:\x028\x01B\x05\n" +
 	"\x03_idB\f\n" +
 	"\n" +
 	"_tenant_idB\a\n" +
@@ -1156,14 +1209,18 @@ const file_deployer_service_v1_deployment_target_proto_rawDesc = "" +
 	"\v_created_byB\r\n" +
 	"\v_updated_byB\x0e\n" +
 	"\f_create_timeB\x0e\n" +
-	"\f_update_time\"\xf6\x02\n" +
+	"\f_update_time\"\xbd\x04\n" +
 	"\x13CreateTargetRequest\x12 \n" +
 	"\ttenant_id\x18\x01 \x01(\rB\x03\xe0A\x02R\btenantId\x12!\n" +
 	"\x04name\x18\x02 \x01(\tB\r\xe0A\x02\xbaH\ar\x05\x10\x01\x18\x80\x01R\x04name\x12/\n" +
 	"\vdescription\x18\x03 \x01(\tB\b\xbaH\x05r\x03\x18\x80\x04H\x00R\vdescription\x88\x01\x01\x128\n" +
 	"\x16auto_deploy_on_renewal\x18\x04 \x01(\bH\x01R\x13autoDeployOnRenewal\x88\x01\x01\x12W\n" +
 	"\x13certificate_filters\x18\x05 \x03(\v2&.deployer.service.v1.CertificateFilterR\x12certificateFilters\x12+\n" +
-	"\x11configuration_ids\x18\x06 \x03(\tR\x10configurationIdsB\x0e\n" +
+	"\x11configuration_ids\x18\x06 \x03(\tR\x10configurationIds\x12h\n" +
+	"\x10config_overrides\x18\a \x03(\v2=.deployer.service.v1.CreateTargetRequest.ConfigOverridesEntryR\x0fconfigOverrides\x1a[\n" +
+	"\x14ConfigOverridesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12-\n" +
+	"\x05value\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x05value:\x028\x01B\x0e\n" +
 	"\f_descriptionB\x19\n" +
 	"\x17_auto_deploy_on_renewal\"U\n" +
 	"\x14CreateTargetResponse\x12=\n" +
@@ -1190,24 +1247,32 @@ const file_deployer_service_v1_deployment_target_proto_rawDesc = "" +
 	"_page_size\"h\n" +
 	"\x13ListTargetsResponse\x12;\n" +
 	"\x05items\x18\x01 \x03(\v2%.deployer.service.v1.DeploymentTargetR\x05items\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x04R\x05total\"\xc7\x02\n" +
+	"\x05total\x18\x02 \x01(\x04R\x05total\"\x8e\x04\n" +
 	"\x13UpdateTargetRequest\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tB\x03\xe0A\x02R\x02id\x12#\n" +
 	"\x04name\x18\x02 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01H\x00R\x04name\x88\x01\x01\x12/\n" +
 	"\vdescription\x18\x03 \x01(\tB\b\xbaH\x05r\x03\x18\x80\x04H\x01R\vdescription\x88\x01\x01\x128\n" +
 	"\x16auto_deploy_on_renewal\x18\x04 \x01(\bH\x02R\x13autoDeployOnRenewal\x88\x01\x01\x12W\n" +
-	"\x13certificate_filters\x18\x05 \x03(\v2&.deployer.service.v1.CertificateFilterR\x12certificateFiltersB\a\n" +
+	"\x13certificate_filters\x18\x05 \x03(\v2&.deployer.service.v1.CertificateFilterR\x12certificateFilters\x12h\n" +
+	"\x10config_overrides\x18\x06 \x03(\v2=.deployer.service.v1.UpdateTargetRequest.ConfigOverridesEntryR\x0fconfigOverrides\x1a[\n" +
+	"\x14ConfigOverridesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12-\n" +
+	"\x05value\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x05value:\x028\x01B\a\n" +
 	"\x05_nameB\x0e\n" +
 	"\f_descriptionB\x19\n" +
 	"\x17_auto_deploy_on_renewal\"U\n" +
 	"\x14UpdateTargetResponse\x12=\n" +
 	"\x06target\x18\x01 \x01(\v2%.deployer.service.v1.DeploymentTargetR\x06target\"*\n" +
 	"\x13DeleteTargetRequest\x12\x13\n" +
-	"\x02id\x18\x01 \x01(\tB\x03\xe0A\x02R\x02id\"i\n" +
+	"\x02id\x18\x01 \x01(\tB\x03\xe0A\x02R\x02id\"\xb5\x02\n" +
 	"\x18AddConfigurationsRequest\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tB\x03\xe0A\x02R\x02id\x128\n" +
-	"\x11configuration_ids\x18\x02 \x03(\tB\v\xe0A\x02\xbaH\x05\x92\x01\x02\b\x01R\x10configurationIds\"Z\n" +
+	"\x11configuration_ids\x18\x02 \x03(\tB\v\xe0A\x02\xbaH\x05\x92\x01\x02\b\x01R\x10configurationIds\x12m\n" +
+	"\x10config_overrides\x18\x03 \x03(\v2B.deployer.service.v1.AddConfigurationsRequest.ConfigOverridesEntryR\x0fconfigOverrides\x1a[\n" +
+	"\x14ConfigOverridesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12-\n" +
+	"\x05value\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x05value:\x028\x01\"Z\n" +
 	"\x19AddConfigurationsResponse\x12=\n" +
 	"\x06target\x18\x01 \x01(\v2%.deployer.service.v1.DeploymentTargetR\x06target\"l\n" +
 	"\x1bRemoveConfigurationsRequest\x12\x13\n" +
@@ -1249,7 +1314,7 @@ func file_deployer_service_v1_deployment_target_proto_rawDescGZIP() []byte {
 	return file_deployer_service_v1_deployment_target_proto_rawDescData
 }
 
-var file_deployer_service_v1_deployment_target_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_deployer_service_v1_deployment_target_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_deployer_service_v1_deployment_target_proto_goTypes = []any{
 	(*CertificateFilter)(nil),                // 0: deployer.service.v1.CertificateFilter
 	(*DeploymentTarget)(nil),                 // 1: deployer.service.v1.DeploymentTarget
@@ -1268,45 +1333,58 @@ var file_deployer_service_v1_deployment_target_proto_goTypes = []any{
 	(*RemoveConfigurationsResponse)(nil),     // 14: deployer.service.v1.RemoveConfigurationsResponse
 	(*ListTargetConfigurationsRequest)(nil),  // 15: deployer.service.v1.ListTargetConfigurationsRequest
 	(*ListTargetConfigurationsResponse)(nil), // 16: deployer.service.v1.ListTargetConfigurationsResponse
-	(*TargetConfiguration)(nil),              // 17: deployer.service.v1.TargetConfiguration
-	(*timestamppb.Timestamp)(nil),            // 18: google.protobuf.Timestamp
-	(*emptypb.Empty)(nil),                    // 19: google.protobuf.Empty
+	nil,                                      // 17: deployer.service.v1.DeploymentTarget.ConfigOverridesEntry
+	nil,                                      // 18: deployer.service.v1.CreateTargetRequest.ConfigOverridesEntry
+	nil,                                      // 19: deployer.service.v1.UpdateTargetRequest.ConfigOverridesEntry
+	nil,                                      // 20: deployer.service.v1.AddConfigurationsRequest.ConfigOverridesEntry
+	(*TargetConfiguration)(nil),              // 21: deployer.service.v1.TargetConfiguration
+	(*timestamppb.Timestamp)(nil),            // 22: google.protobuf.Timestamp
+	(*structpb.Struct)(nil),                  // 23: google.protobuf.Struct
+	(*emptypb.Empty)(nil),                    // 24: google.protobuf.Empty
 }
 var file_deployer_service_v1_deployment_target_proto_depIdxs = []int32{
 	0,  // 0: deployer.service.v1.DeploymentTarget.certificate_filters:type_name -> deployer.service.v1.CertificateFilter
-	17, // 1: deployer.service.v1.DeploymentTarget.configurations:type_name -> deployer.service.v1.TargetConfiguration
-	18, // 2: deployer.service.v1.DeploymentTarget.create_time:type_name -> google.protobuf.Timestamp
-	18, // 3: deployer.service.v1.DeploymentTarget.update_time:type_name -> google.protobuf.Timestamp
-	0,  // 4: deployer.service.v1.CreateTargetRequest.certificate_filters:type_name -> deployer.service.v1.CertificateFilter
-	1,  // 5: deployer.service.v1.CreateTargetResponse.target:type_name -> deployer.service.v1.DeploymentTarget
-	1,  // 6: deployer.service.v1.GetTargetResponse.target:type_name -> deployer.service.v1.DeploymentTarget
-	1,  // 7: deployer.service.v1.ListTargetsResponse.items:type_name -> deployer.service.v1.DeploymentTarget
-	0,  // 8: deployer.service.v1.UpdateTargetRequest.certificate_filters:type_name -> deployer.service.v1.CertificateFilter
-	1,  // 9: deployer.service.v1.UpdateTargetResponse.target:type_name -> deployer.service.v1.DeploymentTarget
-	1,  // 10: deployer.service.v1.AddConfigurationsResponse.target:type_name -> deployer.service.v1.DeploymentTarget
-	1,  // 11: deployer.service.v1.RemoveConfigurationsResponse.target:type_name -> deployer.service.v1.DeploymentTarget
-	17, // 12: deployer.service.v1.ListTargetConfigurationsResponse.items:type_name -> deployer.service.v1.TargetConfiguration
-	2,  // 13: deployer.service.v1.DeploymentTargetService.CreateTarget:input_type -> deployer.service.v1.CreateTargetRequest
-	4,  // 14: deployer.service.v1.DeploymentTargetService.GetTarget:input_type -> deployer.service.v1.GetTargetRequest
-	6,  // 15: deployer.service.v1.DeploymentTargetService.ListTargets:input_type -> deployer.service.v1.ListTargetsRequest
-	8,  // 16: deployer.service.v1.DeploymentTargetService.UpdateTarget:input_type -> deployer.service.v1.UpdateTargetRequest
-	10, // 17: deployer.service.v1.DeploymentTargetService.DeleteTarget:input_type -> deployer.service.v1.DeleteTargetRequest
-	11, // 18: deployer.service.v1.DeploymentTargetService.AddConfigurations:input_type -> deployer.service.v1.AddConfigurationsRequest
-	13, // 19: deployer.service.v1.DeploymentTargetService.RemoveConfigurations:input_type -> deployer.service.v1.RemoveConfigurationsRequest
-	15, // 20: deployer.service.v1.DeploymentTargetService.ListTargetConfigurations:input_type -> deployer.service.v1.ListTargetConfigurationsRequest
-	3,  // 21: deployer.service.v1.DeploymentTargetService.CreateTarget:output_type -> deployer.service.v1.CreateTargetResponse
-	5,  // 22: deployer.service.v1.DeploymentTargetService.GetTarget:output_type -> deployer.service.v1.GetTargetResponse
-	7,  // 23: deployer.service.v1.DeploymentTargetService.ListTargets:output_type -> deployer.service.v1.ListTargetsResponse
-	9,  // 24: deployer.service.v1.DeploymentTargetService.UpdateTarget:output_type -> deployer.service.v1.UpdateTargetResponse
-	19, // 25: deployer.service.v1.DeploymentTargetService.DeleteTarget:output_type -> google.protobuf.Empty
-	12, // 26: deployer.service.v1.DeploymentTargetService.AddConfigurations:output_type -> deployer.service.v1.AddConfigurationsResponse
-	14, // 27: deployer.service.v1.DeploymentTargetService.RemoveConfigurations:output_type -> deployer.service.v1.RemoveConfigurationsResponse
-	16, // 28: deployer.service.v1.DeploymentTargetService.ListTargetConfigurations:output_type -> deployer.service.v1.ListTargetConfigurationsResponse
-	21, // [21:29] is the sub-list for method output_type
-	13, // [13:21] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	21, // 1: deployer.service.v1.DeploymentTarget.configurations:type_name -> deployer.service.v1.TargetConfiguration
+	17, // 2: deployer.service.v1.DeploymentTarget.config_overrides:type_name -> deployer.service.v1.DeploymentTarget.ConfigOverridesEntry
+	22, // 3: deployer.service.v1.DeploymentTarget.create_time:type_name -> google.protobuf.Timestamp
+	22, // 4: deployer.service.v1.DeploymentTarget.update_time:type_name -> google.protobuf.Timestamp
+	0,  // 5: deployer.service.v1.CreateTargetRequest.certificate_filters:type_name -> deployer.service.v1.CertificateFilter
+	18, // 6: deployer.service.v1.CreateTargetRequest.config_overrides:type_name -> deployer.service.v1.CreateTargetRequest.ConfigOverridesEntry
+	1,  // 7: deployer.service.v1.CreateTargetResponse.target:type_name -> deployer.service.v1.DeploymentTarget
+	1,  // 8: deployer.service.v1.GetTargetResponse.target:type_name -> deployer.service.v1.DeploymentTarget
+	1,  // 9: deployer.service.v1.ListTargetsResponse.items:type_name -> deployer.service.v1.DeploymentTarget
+	0,  // 10: deployer.service.v1.UpdateTargetRequest.certificate_filters:type_name -> deployer.service.v1.CertificateFilter
+	19, // 11: deployer.service.v1.UpdateTargetRequest.config_overrides:type_name -> deployer.service.v1.UpdateTargetRequest.ConfigOverridesEntry
+	1,  // 12: deployer.service.v1.UpdateTargetResponse.target:type_name -> deployer.service.v1.DeploymentTarget
+	20, // 13: deployer.service.v1.AddConfigurationsRequest.config_overrides:type_name -> deployer.service.v1.AddConfigurationsRequest.ConfigOverridesEntry
+	1,  // 14: deployer.service.v1.AddConfigurationsResponse.target:type_name -> deployer.service.v1.DeploymentTarget
+	1,  // 15: deployer.service.v1.RemoveConfigurationsResponse.target:type_name -> deployer.service.v1.DeploymentTarget
+	21, // 16: deployer.service.v1.ListTargetConfigurationsResponse.items:type_name -> deployer.service.v1.TargetConfiguration
+	23, // 17: deployer.service.v1.DeploymentTarget.ConfigOverridesEntry.value:type_name -> google.protobuf.Struct
+	23, // 18: deployer.service.v1.CreateTargetRequest.ConfigOverridesEntry.value:type_name -> google.protobuf.Struct
+	23, // 19: deployer.service.v1.UpdateTargetRequest.ConfigOverridesEntry.value:type_name -> google.protobuf.Struct
+	23, // 20: deployer.service.v1.AddConfigurationsRequest.ConfigOverridesEntry.value:type_name -> google.protobuf.Struct
+	2,  // 21: deployer.service.v1.DeploymentTargetService.CreateTarget:input_type -> deployer.service.v1.CreateTargetRequest
+	4,  // 22: deployer.service.v1.DeploymentTargetService.GetTarget:input_type -> deployer.service.v1.GetTargetRequest
+	6,  // 23: deployer.service.v1.DeploymentTargetService.ListTargets:input_type -> deployer.service.v1.ListTargetsRequest
+	8,  // 24: deployer.service.v1.DeploymentTargetService.UpdateTarget:input_type -> deployer.service.v1.UpdateTargetRequest
+	10, // 25: deployer.service.v1.DeploymentTargetService.DeleteTarget:input_type -> deployer.service.v1.DeleteTargetRequest
+	11, // 26: deployer.service.v1.DeploymentTargetService.AddConfigurations:input_type -> deployer.service.v1.AddConfigurationsRequest
+	13, // 27: deployer.service.v1.DeploymentTargetService.RemoveConfigurations:input_type -> deployer.service.v1.RemoveConfigurationsRequest
+	15, // 28: deployer.service.v1.DeploymentTargetService.ListTargetConfigurations:input_type -> deployer.service.v1.ListTargetConfigurationsRequest
+	3,  // 29: deployer.service.v1.DeploymentTargetService.CreateTarget:output_type -> deployer.service.v1.CreateTargetResponse
+	5,  // 30: deployer.service.v1.DeploymentTargetService.GetTarget:output_type -> deployer.service.v1.GetTargetResponse
+	7,  // 31: deployer.service.v1.DeploymentTargetService.ListTargets:output_type -> deployer.service.v1.ListTargetsResponse
+	9,  // 32: deployer.service.v1.DeploymentTargetService.UpdateTarget:output_type -> deployer.service.v1.UpdateTargetResponse
+	24, // 33: deployer.service.v1.DeploymentTargetService.DeleteTarget:output_type -> google.protobuf.Empty
+	12, // 34: deployer.service.v1.DeploymentTargetService.AddConfigurations:output_type -> deployer.service.v1.AddConfigurationsResponse
+	14, // 35: deployer.service.v1.DeploymentTargetService.RemoveConfigurations:output_type -> deployer.service.v1.RemoveConfigurationsResponse
+	16, // 36: deployer.service.v1.DeploymentTargetService.ListTargetConfigurations:output_type -> deployer.service.v1.ListTargetConfigurationsResponse
+	29, // [29:37] is the sub-list for method output_type
+	21, // [21:29] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_deployer_service_v1_deployment_target_proto_init() }
@@ -1328,7 +1406,7 @@ func file_deployer_service_v1_deployment_target_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_deployer_service_v1_deployment_target_proto_rawDesc), len(file_deployer_service_v1_deployment_target_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

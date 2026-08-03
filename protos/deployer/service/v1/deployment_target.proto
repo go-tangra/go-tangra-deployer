@@ -3,12 +3,12 @@ syntax = "proto3";
 package deployer.service.v1;
 
 import "buf/validate/validate.proto";
+import "deployer/service/v1/target_configuration.proto";
 import "google/api/annotations.proto";
 import "google/api/field_behavior.proto";
-import "google/protobuf/timestamp.proto";
 import "google/protobuf/empty.proto";
-
-import "deployer/service/v1/target_configuration.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
 
 // Certificate filter for auto-deployment
 // All specified fields must match (AND logic). Empty fields are ignored.
@@ -35,7 +35,10 @@ message CertificateFilter {
   repeated string labels = 10 [json_name = "labels"];
 
   // Deprecated: Use common_name_pattern and san_pattern instead
-  optional string domain_pattern = 99 [json_name = "domainPattern", deprecated = true];
+  optional string domain_pattern = 99 [
+    json_name = "domainPattern",
+    deprecated = true
+  ];
 }
 
 // Deployment target entity - represents a GROUP of target configurations
@@ -51,6 +54,17 @@ message DeploymentTarget {
   repeated TargetConfiguration configurations = 10 [json_name = "configurations"];
   // Count of linked configurations
   optional int32 configuration_count = 11 [json_name = "configurationCount"];
+
+  // config_overrides holds per-configuration provider config overrides, keyed
+  // by target configuration id. They are layered over that configuration's own
+  // `config` at deploy time, so one shared configuration — a single Cloudflare
+  // API token, say — can serve several targets that each deploy to a different
+  // zone_id, instead of duplicating the configuration and its credentials per
+  // zone.
+  //
+  // Only the provider `config` map is overridable. Credentials are never taken
+  // from here: sharing them is the point.
+  map<string, google.protobuf.Struct> config_overrides = 12 [json_name = "configOverrides"];
 
   optional uint32 created_by = 100 [json_name = "createdBy"];
   optional uint32 updated_by = 101 [json_name = "updatedBy"];
@@ -80,6 +94,8 @@ message CreateTargetRequest {
   repeated CertificateFilter certificate_filters = 5 [json_name = "certificateFilters"];
   // Optional: link configurations during creation
   repeated string configuration_ids = 6 [json_name = "configurationIds"];
+  // Optional: per-configuration provider config overrides (see DeploymentTarget).
+  map<string, google.protobuf.Struct> config_overrides = 7 [json_name = "configOverrides"];
 }
 
 message CreateTargetResponse {
@@ -134,6 +150,10 @@ message UpdateTargetRequest {
   ];
   optional bool auto_deploy_on_renewal = 4 [json_name = "autoDeployOnRenewal"];
   repeated CertificateFilter certificate_filters = 5 [json_name = "certificateFilters"];
+  // Per-configuration provider config overrides (see DeploymentTarget). When
+  // present the whole map is replaced, so send the full set; omit the field to
+  // leave the existing overrides untouched.
+  map<string, google.protobuf.Struct> config_overrides = 6 [json_name = "configOverrides"];
 }
 
 message UpdateTargetResponse {
@@ -159,6 +179,10 @@ message AddConfigurationsRequest {
     (google.api.field_behavior) = REQUIRED,
     (buf.validate.field).repeated.min_items = 1
   ];
+  // Optional overrides for the configurations being attached, keyed by
+  // configuration id. Attach time is when an operator knows which zone this
+  // target deploys to, so it is the natural place to supply them.
+  map<string, google.protobuf.Struct> config_overrides = 3 [json_name = "configOverrides"];
 }
 
 message AddConfigurationsResponse {
@@ -208,15 +232,11 @@ service DeploymentTargetService {
   }
   // Get a deployment target by ID
   rpc GetTarget(GetTargetRequest) returns (GetTargetResponse) {
-    option (google.api.http) = {
-      get: "/v1/deployment-targets/{id}"
-    };
+    option (google.api.http) = {get: "/v1/deployment-targets/{id}"};
   }
   // List deployment targets
   rpc ListTargets(ListTargetsRequest) returns (ListTargetsResponse) {
-    option (google.api.http) = {
-      get: "/v1/deployment-targets"
-    };
+    option (google.api.http) = {get: "/v1/deployment-targets"};
   }
   // Update a deployment target
   rpc UpdateTarget(UpdateTargetRequest) returns (UpdateTargetResponse) {
@@ -227,9 +247,7 @@ service DeploymentTargetService {
   }
   // Delete a deployment target
   rpc DeleteTarget(DeleteTargetRequest) returns (google.protobuf.Empty) {
-    option (google.api.http) = {
-      delete: "/v1/deployment-targets/{id}"
-    };
+    option (google.api.http) = {delete: "/v1/deployment-targets/{id}"};
   }
   // Add configurations to a deployment target
   rpc AddConfigurations(AddConfigurationsRequest) returns (AddConfigurationsResponse) {
@@ -240,14 +258,10 @@ service DeploymentTargetService {
   }
   // Remove configurations from a deployment target
   rpc RemoveConfigurations(RemoveConfigurationsRequest) returns (RemoveConfigurationsResponse) {
-    option (google.api.http) = {
-      delete: "/v1/deployment-targets/{id}/configurations"
-    };
+    option (google.api.http) = {delete: "/v1/deployment-targets/{id}/configurations"};
   }
   // List configurations linked to a deployment target
   rpc ListTargetConfigurations(ListTargetConfigurationsRequest) returns (ListTargetConfigurationsResponse) {
-    option (google.api.http) = {
-      get: "/v1/deployment-targets/{id}/configurations"
-    };
+    option (google.api.http) = {get: "/v1/deployment-targets/{id}/configurations"};
   }
 }

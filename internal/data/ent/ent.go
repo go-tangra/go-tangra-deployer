@@ -9,15 +9,14 @@ import (
 	"reflect"
 	"sync"
 
+	"entgo.io/ent"
+	"entgo.io/ent/dialect/sql"
+	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/auditlog"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenthistory"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenttarget"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/targetconfiguration"
-
-	"entgo.io/ent"
-	"entgo.io/ent/dialect/sql"
-	"entgo.io/ent/dialect/sql/sqlgraph"
 )
 
 // ent aliases to avoid import conflicts in user's code.

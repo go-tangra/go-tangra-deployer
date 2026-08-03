@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"entgo.io/ent"
+	"entgo.io/ent/dialect/sql"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/auditlog"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenthistory"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
@@ -16,9 +18,6 @@ import (
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/predicate"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/schema"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/targetconfiguration"
-
-	"entgo.io/ent"
-	"entgo.io/ent/dialect/sql"
 )
 
 const (
@@ -4997,6 +4996,7 @@ type DeploymentTargetMutation struct {
 	auto_deploy_on_renewal    *bool
 	certificate_filters       *[]schema.CertificateFilter
 	appendcertificate_filters []schema.CertificateFilter
+	config_overrides          *map[string]map[string]interface{}
 	clearedFields             map[string]struct{}
 	configurations            map[string]struct{}
 	removedconfigurations     map[string]struct{}
@@ -5656,6 +5656,55 @@ func (m *DeploymentTargetMutation) ResetCertificateFilters() {
 	delete(m.clearedFields, deploymenttarget.FieldCertificateFilters)
 }
 
+// SetConfigOverrides sets the "config_overrides" field.
+func (m *DeploymentTargetMutation) SetConfigOverrides(value map[string]map[string]interface{}) {
+	m.config_overrides = &value
+}
+
+// ConfigOverrides returns the value of the "config_overrides" field in the mutation.
+func (m *DeploymentTargetMutation) ConfigOverrides() (r map[string]map[string]interface{}, exists bool) {
+	v := m.config_overrides
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConfigOverrides returns the old "config_overrides" field's value of the DeploymentTarget entity.
+// If the DeploymentTarget object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DeploymentTargetMutation) OldConfigOverrides(ctx context.Context) (v map[string]map[string]interface{}, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConfigOverrides is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConfigOverrides requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConfigOverrides: %w", err)
+	}
+	return oldValue.ConfigOverrides, nil
+}
+
+// ClearConfigOverrides clears the value of the "config_overrides" field.
+func (m *DeploymentTargetMutation) ClearConfigOverrides() {
+	m.config_overrides = nil
+	m.clearedFields[deploymenttarget.FieldConfigOverrides] = struct{}{}
+}
+
+// ConfigOverridesCleared returns if the "config_overrides" field was cleared in this mutation.
+func (m *DeploymentTargetMutation) ConfigOverridesCleared() bool {
+	_, ok := m.clearedFields[deploymenttarget.FieldConfigOverrides]
+	return ok
+}
+
+// ResetConfigOverrides resets all changes to the "config_overrides" field.
+func (m *DeploymentTargetMutation) ResetConfigOverrides() {
+	m.config_overrides = nil
+	delete(m.clearedFields, deploymenttarget.FieldConfigOverrides)
+}
+
 // AddConfigurationIDs adds the "configurations" edge to the TargetConfiguration entity by ids.
 func (m *DeploymentTargetMutation) AddConfigurationIDs(ids ...string) {
 	if m.configurations == nil {
@@ -5798,7 +5847,7 @@ func (m *DeploymentTargetMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *DeploymentTargetMutation) Fields() []string {
-	fields := make([]string, 0, 10)
+	fields := make([]string, 0, 11)
 	if m.create_by != nil {
 		fields = append(fields, deploymenttarget.FieldCreateBy)
 	}
@@ -5829,6 +5878,9 @@ func (m *DeploymentTargetMutation) Fields() []string {
 	if m.certificate_filters != nil {
 		fields = append(fields, deploymenttarget.FieldCertificateFilters)
 	}
+	if m.config_overrides != nil {
+		fields = append(fields, deploymenttarget.FieldConfigOverrides)
+	}
 	return fields
 }
 
@@ -5857,6 +5909,8 @@ func (m *DeploymentTargetMutation) Field(name string) (ent.Value, bool) {
 		return m.AutoDeployOnRenewal()
 	case deploymenttarget.FieldCertificateFilters:
 		return m.CertificateFilters()
+	case deploymenttarget.FieldConfigOverrides:
+		return m.ConfigOverrides()
 	}
 	return nil, false
 }
@@ -5886,6 +5940,8 @@ func (m *DeploymentTargetMutation) OldField(ctx context.Context, name string) (e
 		return m.OldAutoDeployOnRenewal(ctx)
 	case deploymenttarget.FieldCertificateFilters:
 		return m.OldCertificateFilters(ctx)
+	case deploymenttarget.FieldConfigOverrides:
+		return m.OldConfigOverrides(ctx)
 	}
 	return nil, fmt.Errorf("unknown DeploymentTarget field %s", name)
 }
@@ -5964,6 +6020,13 @@ func (m *DeploymentTargetMutation) SetField(name string, value ent.Value) error 
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetCertificateFilters(v)
+		return nil
+	case deploymenttarget.FieldConfigOverrides:
+		v, ok := value.(map[string]map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConfigOverrides(v)
 		return nil
 	}
 	return fmt.Errorf("unknown DeploymentTarget field %s", name)
@@ -6058,6 +6121,9 @@ func (m *DeploymentTargetMutation) ClearedFields() []string {
 	if m.FieldCleared(deploymenttarget.FieldCertificateFilters) {
 		fields = append(fields, deploymenttarget.FieldCertificateFilters)
 	}
+	if m.FieldCleared(deploymenttarget.FieldConfigOverrides) {
+		fields = append(fields, deploymenttarget.FieldConfigOverrides)
+	}
 	return fields
 }
 
@@ -6096,6 +6162,9 @@ func (m *DeploymentTargetMutation) ClearField(name string) error {
 	case deploymenttarget.FieldCertificateFilters:
 		m.ClearCertificateFilters()
 		return nil
+	case deploymenttarget.FieldConfigOverrides:
+		m.ClearConfigOverrides()
+		return nil
 	}
 	return fmt.Errorf("unknown DeploymentTarget nullable field %s", name)
 }
@@ -6133,6 +6202,9 @@ func (m *DeploymentTargetMutation) ResetField(name string) error {
 		return nil
 	case deploymenttarget.FieldCertificateFilters:
 		m.ResetCertificateFilters()
+		return nil
+	case deploymenttarget.FieldConfigOverrides:
+		m.ResetConfigOverrides()
 		return nil
 	}
 	return fmt.Errorf("unknown DeploymentTarget field %s", name)

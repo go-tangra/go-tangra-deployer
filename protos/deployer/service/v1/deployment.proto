@@ -3,11 +3,10 @@ syntax = "proto3";
 package deployer.service.v1;
 
 import "buf/validate/validate.proto";
-import "google/api/field_behavior.proto";
-import "google/protobuf/timestamp.proto";
-import "google/protobuf/struct.proto";
-
 import "deployer/service/v1/deployment_job.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
 
 // Deployment result
 message DeploymentResult {
@@ -47,6 +46,11 @@ message VerifyRequest {
     json_name = "certificateId",
     (google.api.field_behavior) = REQUIRED
   ];
+  // Optional deployment target to verify in the context of. When set, that
+  // target's config overrides are applied before verifying — without it a
+  // shared configuration is verified against its own config, which is not the
+  // config the target would actually deploy with.
+  optional string deployment_target_id = 3 [json_name = "deploymentTargetId"];
 }
 
 message VerifyResponse {

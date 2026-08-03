@@ -24,8 +24,8 @@ var (
 	_ status.Status
 	_ validate.Rule
 	_ annotations.FieldBehavior
-	_ timestamppb.Timestamp
 	_ structpb.Struct
+	_ timestamppb.Timestamp
 )
 
 // RegisterRedactedDeploymentServiceServer wraps the DeploymentServiceServer with the redacted server and registers the service in GRPC
@@ -167,6 +167,8 @@ func (x *VerifyRequest) Redact() string {
 	// Safe field: TargetConfigurationId
 
 	// Safe field: CertificateId
+
+	// Safe field: DeploymentTargetId
 	return x.String()
 }
 

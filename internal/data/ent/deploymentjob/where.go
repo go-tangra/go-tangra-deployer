@@ -5,10 +5,9 @@ package deploymentjob
 import (
 	"time"
 
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/predicate"
-
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/predicate"
 )
 
 // ID filters vertices based on their ID field.

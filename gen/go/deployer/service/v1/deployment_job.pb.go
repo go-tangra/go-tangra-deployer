@@ -1303,7 +1303,7 @@ var File_deployer_service_v1_deployment_job_proto protoreflect.FileDescriptor
 
 const file_deployer_service_v1_deployment_job_proto_rawDesc = "" +
 	"\n" +
-	"(deployer/service/v1/deployment_job.proto\x12\x13deployer.service.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/api/field_behavior.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xf8\x0e\n" +
+	"(deployer/service/v1/deployment_job.proto\x12\x13deployer.service.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/api/field_behavior.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf8\x0e\n" +
 	"\rDeploymentJob\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tH\x00R\x02id\x88\x01\x01\x12 \n" +
 	"\ttenant_id\x18\x02 \x01(\rH\x01R\btenantId\x88\x01\x01\x125\n" +

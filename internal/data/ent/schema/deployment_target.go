@@ -76,6 +76,18 @@ func (DeploymentTarget) Fields() []ent.Field {
 		field.JSON("certificate_filters", []CertificateFilter{}).
 			Optional().
 			Comment("Filters for auto-deployment"),
+
+		// Per-attachment provider config overrides, keyed by target
+		// configuration id. Lets one shared configuration (one Cloudflare API
+		// token, say) be reused by several targets that each point at a
+		// different zone_id, instead of duplicating the configuration and its
+		// credentials per zone.
+		//
+		// Only the provider `config` map is overridable — credentials are
+		// never taken from here, which is the whole point of sharing them.
+		field.JSON("config_overrides", map[string]map[string]interface{}{}).
+			Optional().
+			Comment("Per-configuration provider config overrides, keyed by target configuration id"),
 	}
 }
 

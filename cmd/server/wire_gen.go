@@ -77,7 +77,7 @@ func initApp(context *bootstrap.Context) (*kratos.App, func(), error) {
 		cleanup()
 		return nil, nil, err
 	}
-	jobExecutor := service.NewJobExecutor(context, deploymentJobRepo, targetConfigurationRepo, deploymentHistoryRepo, targetConfigurationService, lcmClient, collector)
+	jobExecutor := service.NewJobExecutor(context, deploymentJobRepo, targetConfigurationRepo, deploymentTargetRepo, deploymentHistoryRepo, targetConfigurationService, lcmClient, collector)
 	tangraClientPusher := data.NewTangraClientPusher(context, client, lcmClient)
 	app := newApp(context, grpcServer, httpServer, subscriber, jobExecutor, registrationClient, tangraClientPusher)
 	return app, func() {

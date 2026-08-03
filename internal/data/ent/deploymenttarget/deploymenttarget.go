@@ -33,6 +33,8 @@ const (
 	FieldAutoDeployOnRenewal = "auto_deploy_on_renewal"
 	// FieldCertificateFilters holds the string denoting the certificate_filters field in the database.
 	FieldCertificateFilters = "certificate_filters"
+	// FieldConfigOverrides holds the string denoting the config_overrides field in the database.
+	FieldConfigOverrides = "config_overrides"
 	// EdgeConfigurations holds the string denoting the configurations edge name in mutations.
 	EdgeConfigurations = "configurations"
 	// EdgeJobs holds the string denoting the jobs edge name in mutations.
@@ -66,6 +68,7 @@ var Columns = []string{
 	FieldDescription,
 	FieldAutoDeployOnRenewal,
 	FieldCertificateFilters,
+	FieldConfigOverrides,
 }
 
 var (

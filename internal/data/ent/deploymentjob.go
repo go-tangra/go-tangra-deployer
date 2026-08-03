@@ -8,12 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"entgo.io/ent"
+	"entgo.io/ent/dialect/sql"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenttarget"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/targetconfiguration"
-
-	"entgo.io/ent"
-	"entgo.io/ent/dialect/sql"
 )
 
 // DeploymentJob is the model entity for the DeploymentJob schema.

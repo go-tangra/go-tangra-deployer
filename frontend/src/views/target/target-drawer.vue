@@ -5,6 +5,7 @@ import { useVbenDrawer } from 'shell/vben/common-ui';
 import { LucidePlus, LucideTrash } from 'shell/vben/icons';
 
 import {
+  Alert,
   Button,
   Descriptions,
   DescriptionsItem,
@@ -12,6 +13,7 @@ import {
   Form,
   FormItem,
   Input,
+  Modal,
   notification,
   Select,
   Switch,
@@ -123,10 +125,92 @@ async function loadAvailableConfigurations() {
   }
 }
 
+// Per-configuration provider config overrides, keyed by configuration id.
+// Lets one shared configuration (a single Cloudflare API token) be pointed at a
+// different zone_id per target instead of duplicating the configuration.
+const configOverrides = ref<Record<string, Record<string, string>>>({});
+
+const overrideModalOpen = ref(false);
+const overrideConfigId = ref('');
+const overrideConfigName = ref('');
+const overrideRows = ref<{ key: string; value: string }[]>([]);
+
+function overrideSummary(configId: string): string {
+  const fields = configOverrides.value[configId];
+  if (!fields) return '';
+  const entries = Object.entries(fields).filter(([k]) => k);
+  if (entries.length === 0) return '';
+  return entries.map(([k, v]) => `${k}=${v}`).join(', ');
+}
+
+function openOverrideEditor(config: any) {
+  overrideConfigId.value = config.id;
+  overrideConfigName.value = config.name ?? config.id;
+  const existing = configOverrides.value[config.id] ?? {};
+  overrideRows.value = Object.entries(existing).map(([key, value]) => ({
+    key,
+    value: String(value),
+  }));
+  // Seed an empty row so the editor is usable immediately, and prefill the key
+  // the provider requires when we can infer it.
+  if (overrideRows.value.length === 0) {
+    overrideRows.value = [
+      { key: config.providerType === 'cloudflare' ? 'zone_id' : '', value: '' },
+    ];
+  }
+  overrideModalOpen.value = true;
+}
+
+function addOverrideRow() {
+  overrideRows.value.push({ key: '', value: '' });
+}
+
+function removeOverrideRow(index: number) {
+  overrideRows.value.splice(index, 1);
+}
+
+async function saveOverrides() {
+  if (!data.value?.row.id) return;
+
+  const fields: Record<string, string> = {};
+  for (const { key, value } of overrideRows.value) {
+    const k = key.trim();
+    if (k) fields[k] = value;
+  }
+
+  const next = { ...configOverrides.value };
+  if (Object.keys(fields).length === 0) {
+    // Clearing every field removes the override entirely rather than storing an
+    // empty map, so the configuration's own config applies again.
+    delete next[overrideConfigId.value];
+  } else {
+    next[overrideConfigId.value] = fields;
+  }
+
+  loading.value = true;
+  try {
+    // The whole map is replaced, so send the full set.
+    await targetStore.updateTarget(data.value.row.id, {
+      configOverrides: next,
+    } as any);
+    configOverrides.value = next;
+    notification.success({ message: $t('deployer.page.target.updateSuccess') });
+    overrideModalOpen.value = false;
+  } catch (e) {
+    console.error('Failed to save config overrides:', e);
+    notification.error({ message: $t('ui.notification.save_failed') });
+  } finally {
+    loading.value = false;
+  }
+}
+
 async function loadLinkedConfigurations(targetId: string) {
   try {
     const result = await targetStore.listTargetConfigurations(targetId, { page: 1, pageSize: 100 });
     linkedConfigurations.value = result.items ?? [];
+    // The overrides live on the target, not on the configuration rows.
+    const row: any = data.value?.row ?? {};
+    configOverrides.value = { ...(row.configOverrides ?? {}) };
   } catch (e) {
     console.error('Failed to load linked configurations:', e);
   }
@@ -168,7 +252,8 @@ async function handleRemoveConfiguration(configId: string) {
 const configurationColumns = [
   { title: $t('deployer.page.configuration.name'), dataIndex: 'name', key: 'name' },
   { title: $t('deployer.page.configuration.providerType'), dataIndex: 'providerType', key: 'providerType' },
-  { title: $t('ui.table.action'), key: 'action', width: 80 },
+  { title: $t('deployer.page.target.configOverrides'), key: 'overrides' },
+  { title: $t('ui.table.action'), key: 'action', width: 140 },
 ];
 
 // Filter out already linked configurations
@@ -325,6 +410,12 @@ const isEditMode = computed(() => data.value?.mode === 'edit');
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'providerType'">
             <Tag color="blue">{{ record.providerType }}</Tag>
+          </template>
+          <template v-else-if="column.key === 'overrides'">
+            <Tag v-if="overrideSummary(record.id)" color="purple">
+              {{ overrideSummary(record.id) }}
+            </Tag>
+            <span v-else class="text-gray-500">—</span>
           </template>
         </template>
       </Table>
@@ -508,7 +599,16 @@ const isEditMode = computed(() => data.value?.mode === 'edit');
               <template v-if="column.key === 'providerType'">
                 <Tag color="blue">{{ record.providerType }}</Tag>
               </template>
+              <template v-else-if="column.key === 'overrides'">
+                <Tag v-if="overrideSummary(record.id)" color="purple">
+                  {{ overrideSummary(record.id) }}
+                </Tag>
+                <span v-else class="text-gray-500">—</span>
+              </template>
               <template v-else-if="column.key === 'action'">
+                <Button type="text" size="small" @click="openOverrideEditor(record)">
+                  {{ $t('deployer.page.target.override') }}
+                </Button>
                 <a-popconfirm
                   :title="$t('deployer.page.target.removeConfiguration') + '?'"
                   @confirm="handleRemoveConfiguration(record.id)"
@@ -631,4 +731,40 @@ const isEditMode = computed(() => data.value?.mode === 'edit');
       </Form>
     </template>
   </Drawer>
+  <!-- Per-configuration provider config overrides -->
+  <Modal
+    v-model:open="overrideModalOpen"
+    :title="$t('deployer.page.target.overrideTitle', { name: overrideConfigName })"
+    :confirm-loading="loading"
+    @ok="saveOverrides"
+  >
+    <Alert
+      type="info"
+      show-icon
+      class="mb-3"
+      :message="$t('deployer.page.target.overrideHint')"
+    />
+    <div
+      v-for="(row, index) in overrideRows"
+      :key="index"
+      class="flex gap-2 mb-2 items-center"
+    >
+      <Input
+        v-model:value="row.key"
+        :placeholder="$t('deployer.page.target.overrideField')"
+        style="flex: 1"
+      />
+      <Input
+        v-model:value="row.value"
+        :placeholder="$t('deployer.page.target.overrideValue')"
+        style="flex: 2"
+      />
+      <Button type="text" danger size="small" @click="removeOverrideRow(index)">
+        <LucideTrash class="size-4" />
+      </Button>
+    </div>
+    <Button type="dashed" block @click="addOverrideRow">
+      {{ $t('deployer.page.target.overrideAddField') }}
+    </Button>
+  </Modal>
 </template>

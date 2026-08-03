@@ -8,12 +8,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/auditlog"
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/predicate"
-
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/auditlog"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/predicate"
 )
 
 // AuditLogUpdate is the builder for updating AuditLog entities.

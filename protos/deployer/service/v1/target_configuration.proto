@@ -5,9 +5,9 @@ package deployer.service.v1;
 import "buf/validate/validate.proto";
 import "google/api/annotations.proto";
 import "google/api/field_behavior.proto";
-import "google/protobuf/timestamp.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
 import "redact/v3/redact.proto";
 
 // Configuration status
@@ -182,15 +182,11 @@ service TargetConfigurationService {
   }
   // Get a target configuration by ID
   rpc GetConfiguration(GetConfigurationRequest) returns (GetConfigurationResponse) {
-    option (google.api.http) = {
-      get: "/v1/target-configurations/{id}"
-    };
+    option (google.api.http) = {get: "/v1/target-configurations/{id}"};
   }
   // List target configurations
   rpc ListConfigurations(ListConfigurationsRequest) returns (ListConfigurationsResponse) {
-    option (google.api.http) = {
-      get: "/v1/target-configurations"
-    };
+    option (google.api.http) = {get: "/v1/target-configurations"};
   }
   // Update a target configuration
   rpc UpdateConfiguration(UpdateConfigurationRequest) returns (UpdateConfigurationResponse) {
@@ -201,9 +197,7 @@ service TargetConfigurationService {
   }
   // Delete a target configuration
   rpc DeleteConfiguration(DeleteConfigurationRequest) returns (google.protobuf.Empty) {
-    option (google.api.http) = {
-      delete: "/v1/target-configurations/{id}"
-    };
+    option (google.api.http) = {delete: "/v1/target-configurations/{id}"};
   }
   // Validate provider credentials
   rpc ValidateCredentials(ValidateConfigurationCredentialsRequest) returns (ValidateConfigurationCredentialsResponse) {
@@ -214,8 +208,6 @@ service TargetConfigurationService {
   }
   // List available providers
   rpc ListProviders(ListConfigurationProvidersRequest) returns (ListConfigurationProvidersResponse) {
-    option (google.api.http) = {
-      get: "/v1/target-configurations/providers"
-    };
+    option (google.api.http) = {get: "/v1/target-configurations/providers"};
   }
 }

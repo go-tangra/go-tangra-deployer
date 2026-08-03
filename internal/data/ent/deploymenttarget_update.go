@@ -8,16 +8,15 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
+	"entgo.io/ent/dialect/sql/sqlgraph"
+	"entgo.io/ent/dialect/sql/sqljson"
+	"entgo.io/ent/schema/field"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenttarget"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/predicate"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/schema"
 	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/targetconfiguration"
-
-	"entgo.io/ent/dialect/sql"
-	"entgo.io/ent/dialect/sql/sqlgraph"
-	"entgo.io/ent/dialect/sql/sqljson"
-	"entgo.io/ent/schema/field"
 )
 
 // DeploymentTargetUpdate is the builder for updating DeploymentTarget entities.
@@ -191,6 +190,18 @@ func (_u *DeploymentTargetUpdate) AppendCertificateFilters(v []schema.Certificat
 // ClearCertificateFilters clears the value of the "certificate_filters" field.
 func (_u *DeploymentTargetUpdate) ClearCertificateFilters() *DeploymentTargetUpdate {
 	_u.mutation.ClearCertificateFilters()
+	return _u
+}
+
+// SetConfigOverrides sets the "config_overrides" field.
+func (_u *DeploymentTargetUpdate) SetConfigOverrides(v map[string]map[string]interface{}) *DeploymentTargetUpdate {
+	_u.mutation.SetConfigOverrides(v)
+	return _u
+}
+
+// ClearConfigOverrides clears the value of the "config_overrides" field.
+func (_u *DeploymentTargetUpdate) ClearConfigOverrides() *DeploymentTargetUpdate {
+	_u.mutation.ClearConfigOverrides()
 	return _u
 }
 
@@ -384,6 +395,12 @@ func (_u *DeploymentTargetUpdate) sqlSave(ctx context.Context) (_node int, err e
 	}
 	if _u.mutation.CertificateFiltersCleared() {
 		_spec.ClearField(deploymenttarget.FieldCertificateFilters, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.ConfigOverrides(); ok {
+		_spec.SetField(deploymenttarget.FieldConfigOverrides, field.TypeJSON, value)
+	}
+	if _u.mutation.ConfigOverridesCleared() {
+		_spec.ClearField(deploymenttarget.FieldConfigOverrides, field.TypeJSON)
 	}
 	if _u.mutation.ConfigurationsCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -657,6 +674,18 @@ func (_u *DeploymentTargetUpdateOne) ClearCertificateFilters() *DeploymentTarget
 	return _u
 }
 
+// SetConfigOverrides sets the "config_overrides" field.
+func (_u *DeploymentTargetUpdateOne) SetConfigOverrides(v map[string]map[string]interface{}) *DeploymentTargetUpdateOne {
+	_u.mutation.SetConfigOverrides(v)
+	return _u
+}
+
+// ClearConfigOverrides clears the value of the "config_overrides" field.
+func (_u *DeploymentTargetUpdateOne) ClearConfigOverrides() *DeploymentTargetUpdateOne {
+	_u.mutation.ClearConfigOverrides()
+	return _u
+}
+
 // AddConfigurationIDs adds the "configurations" edge to the TargetConfiguration entity by IDs.
 func (_u *DeploymentTargetUpdateOne) AddConfigurationIDs(ids ...string) *DeploymentTargetUpdateOne {
 	_u.mutation.AddConfigurationIDs(ids...)
@@ -877,6 +906,12 @@ func (_u *DeploymentTargetUpdateOne) sqlSave(ctx context.Context) (_node *Deploy
 	}
 	if _u.mutation.CertificateFiltersCleared() {
 		_spec.ClearField(deploymenttarget.FieldCertificateFilters, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.ConfigOverrides(); ok {
+		_spec.SetField(deploymenttarget.FieldConfigOverrides, field.TypeJSON, value)
+	}
+	if _u.mutation.ConfigOverridesCleared() {
+		_spec.ClearField(deploymenttarget.FieldConfigOverrides, field.TypeJSON)
 	}
 	if _u.mutation.ConfigurationsCleared() {
 		edge := &sqlgraph.EdgeSpec{

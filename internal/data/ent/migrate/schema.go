@@ -237,6 +237,7 @@ var (
 		{Name: "description", Type: field.TypeString, Nullable: true, Comment: "Target group description"},
 		{Name: "auto_deploy_on_renewal", Type: field.TypeBool, Comment: "Auto-deploy certificates on renewal/issuance", Default: false},
 		{Name: "certificate_filters", Type: field.TypeJSON, Nullable: true, Comment: "Filters for auto-deployment"},
+		{Name: "config_overrides", Type: field.TypeJSON, Nullable: true, Comment: "Per-configuration provider config overrides, keyed by target configuration id"},
 	}
 	// DeployerTargetsTable holds the schema information for the "deployer_targets" table.
 	DeployerTargetsTable = &schema.Table{

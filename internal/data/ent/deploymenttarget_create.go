@@ -8,15 +8,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenttarget"
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/schema"
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/targetconfiguration"
-
 	"entgo.io/ent/dialect"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymentjob"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenttarget"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/schema"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/targetconfiguration"
 )
 
 // DeploymentTargetCreate is the builder for creating a DeploymentTarget entity.
@@ -148,6 +147,12 @@ func (_c *DeploymentTargetCreate) SetNillableAutoDeployOnRenewal(v *bool) *Deplo
 // SetCertificateFilters sets the "certificate_filters" field.
 func (_c *DeploymentTargetCreate) SetCertificateFilters(v []schema.CertificateFilter) *DeploymentTargetCreate {
 	_c.mutation.SetCertificateFilters(v)
+	return _c
+}
+
+// SetConfigOverrides sets the "config_overrides" field.
+func (_c *DeploymentTargetCreate) SetConfigOverrides(v map[string]map[string]interface{}) *DeploymentTargetCreate {
+	_c.mutation.SetConfigOverrides(v)
 	return _c
 }
 
@@ -328,6 +333,10 @@ func (_c *DeploymentTargetCreate) createSpec() (*DeploymentTarget, *sqlgraph.Cre
 	if value, ok := _c.mutation.CertificateFilters(); ok {
 		_spec.SetField(deploymenttarget.FieldCertificateFilters, field.TypeJSON, value)
 		_node.CertificateFilters = value
+	}
+	if value, ok := _c.mutation.ConfigOverrides(); ok {
+		_spec.SetField(deploymenttarget.FieldConfigOverrides, field.TypeJSON, value)
+		_node.ConfigOverrides = value
 	}
 	if nodes := _c.mutation.ConfigurationsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -557,6 +566,24 @@ func (u *DeploymentTargetUpsert) ClearCertificateFilters() *DeploymentTargetUpse
 	return u
 }
 
+// SetConfigOverrides sets the "config_overrides" field.
+func (u *DeploymentTargetUpsert) SetConfigOverrides(v map[string]map[string]interface{}) *DeploymentTargetUpsert {
+	u.Set(deploymenttarget.FieldConfigOverrides, v)
+	return u
+}
+
+// UpdateConfigOverrides sets the "config_overrides" field to the value that was provided on create.
+func (u *DeploymentTargetUpsert) UpdateConfigOverrides() *DeploymentTargetUpsert {
+	u.SetExcluded(deploymenttarget.FieldConfigOverrides)
+	return u
+}
+
+// ClearConfigOverrides clears the value of the "config_overrides" field.
+func (u *DeploymentTargetUpsert) ClearConfigOverrides() *DeploymentTargetUpsert {
+	u.SetNull(deploymenttarget.FieldConfigOverrides)
+	return u
+}
+
 // UpdateNewValues updates the mutable fields using the new values that were set on create except the ID field.
 // Using this option is equivalent to using:
 //
@@ -776,6 +803,27 @@ func (u *DeploymentTargetUpsertOne) UpdateCertificateFilters() *DeploymentTarget
 func (u *DeploymentTargetUpsertOne) ClearCertificateFilters() *DeploymentTargetUpsertOne {
 	return u.Update(func(s *DeploymentTargetUpsert) {
 		s.ClearCertificateFilters()
+	})
+}
+
+// SetConfigOverrides sets the "config_overrides" field.
+func (u *DeploymentTargetUpsertOne) SetConfigOverrides(v map[string]map[string]interface{}) *DeploymentTargetUpsertOne {
+	return u.Update(func(s *DeploymentTargetUpsert) {
+		s.SetConfigOverrides(v)
+	})
+}
+
+// UpdateConfigOverrides sets the "config_overrides" field to the value that was provided on create.
+func (u *DeploymentTargetUpsertOne) UpdateConfigOverrides() *DeploymentTargetUpsertOne {
+	return u.Update(func(s *DeploymentTargetUpsert) {
+		s.UpdateConfigOverrides()
+	})
+}
+
+// ClearConfigOverrides clears the value of the "config_overrides" field.
+func (u *DeploymentTargetUpsertOne) ClearConfigOverrides() *DeploymentTargetUpsertOne {
+	return u.Update(func(s *DeploymentTargetUpsert) {
+		s.ClearConfigOverrides()
 	})
 }
 
@@ -1165,6 +1213,27 @@ func (u *DeploymentTargetUpsertBulk) UpdateCertificateFilters() *DeploymentTarge
 func (u *DeploymentTargetUpsertBulk) ClearCertificateFilters() *DeploymentTargetUpsertBulk {
 	return u.Update(func(s *DeploymentTargetUpsert) {
 		s.ClearCertificateFilters()
+	})
+}
+
+// SetConfigOverrides sets the "config_overrides" field.
+func (u *DeploymentTargetUpsertBulk) SetConfigOverrides(v map[string]map[string]interface{}) *DeploymentTargetUpsertBulk {
+	return u.Update(func(s *DeploymentTargetUpsert) {
+		s.SetConfigOverrides(v)
+	})
+}
+
+// UpdateConfigOverrides sets the "config_overrides" field to the value that was provided on create.
+func (u *DeploymentTargetUpsertBulk) UpdateConfigOverrides() *DeploymentTargetUpsertBulk {
+	return u.Update(func(s *DeploymentTargetUpsert) {
+		s.UpdateConfigOverrides()
+	})
+}
+
+// ClearConfigOverrides clears the value of the "config_overrides" field.
+func (u *DeploymentTargetUpsertBulk) ClearConfigOverrides() *DeploymentTargetUpsertBulk {
+	return u.Update(func(s *DeploymentTargetUpsert) {
+		s.ClearConfigOverrides()
 	})
 }
 

@@ -50,9 +50,12 @@ message EntityImportResult {
 
 service BackupService {
   rpc ExportBackup(ExportBackupRequest) returns (ExportBackupResponse) {
-    option (google.api.http) = { get: "/v1/backup/export" };
+    option (google.api.http) = {get: "/v1/backup/export"};
   }
   rpc ImportBackup(ImportBackupRequest) returns (ImportBackupResponse) {
-    option (google.api.http) = { post: "/v1/backup/import" body: "*" };
+    option (google.api.http) = {
+      post: "/v1/backup/import"
+      body: "*"
+    };
   }
 }

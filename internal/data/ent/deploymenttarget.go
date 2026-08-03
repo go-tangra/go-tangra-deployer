@@ -8,11 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenttarget"
-	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/schema"
-
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/deploymenttarget"
+	"github.com/go-tangra/go-tangra-deployer/internal/data/ent/schema"
 )
 
 // DeploymentTarget is the model entity for the DeploymentTarget schema.
@@ -41,6 +40,8 @@ type DeploymentTarget struct {
 	AutoDeployOnRenewal bool `json:"auto_deploy_on_renewal,omitempty"`
 	// Filters for auto-deployment
 	CertificateFilters []schema.CertificateFilter `json:"certificate_filters,omitempty"`
+	// Per-configuration provider config overrides, keyed by target configuration id
+	ConfigOverrides map[string]map[string]interface{} `json:"config_overrides,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the DeploymentTargetQuery when eager-loading is set.
 	Edges        DeploymentTargetEdges `json:"edges"`
@@ -81,7 +82,7 @@ func (*DeploymentTarget) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case deploymenttarget.FieldCertificateFilters:
+		case deploymenttarget.FieldCertificateFilters, deploymenttarget.FieldConfigOverrides:
 			values[i] = new([]byte)
 		case deploymenttarget.FieldAutoDeployOnRenewal:
 			values[i] = new(sql.NullBool)
@@ -180,6 +181,14 @@ func (_m *DeploymentTarget) assignValues(columns []string, values []any) error {
 					return fmt.Errorf("unmarshal field certificate_filters: %w", err)
 				}
 			}
+		case deploymenttarget.FieldConfigOverrides:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field config_overrides", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.ConfigOverrides); err != nil {
+					return fmt.Errorf("unmarshal field config_overrides: %w", err)
+				}
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -267,6 +276,9 @@ func (_m *DeploymentTarget) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("certificate_filters=")
 	builder.WriteString(fmt.Sprintf("%v", _m.CertificateFilters))
+	builder.WriteString(", ")
+	builder.WriteString("config_overrides=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ConfigOverrides))
 	builder.WriteByte(')')
 	return builder.String()
 }
