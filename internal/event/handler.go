@@ -84,7 +84,9 @@ func (h *Handler) handleCertificateIssued(ctx context.Context, event *Certificat
 
 		// Create child jobs for each configuration
 		for _, config := range configs {
-			childJob, err := h.jobRepo.CreateChildJob(ctx, event.TenantID, parentJob.ID, config.ID,
+			// target.ID must flow to the child: the child is what calls the
+			// provider, and it needs the target to resolve config overrides.
+			childJob, err := h.jobRepo.CreateChildJob(ctx, event.TenantID, parentJob.ID, target.ID, config.ID,
 				event.CertificateID, event.SerialNumber, triggerType, 3)
 			if err != nil {
 				h.log.Errorf("Failed to create child job for configuration %s: %v", config.ID, err)

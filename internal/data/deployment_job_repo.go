@@ -62,7 +62,11 @@ func (r *DeploymentJobRepo) CreateParentJob(ctx context.Context, tenantID uint32
 }
 
 // CreateChildJob creates a child job for a parent job
-func (r *DeploymentJobRepo) CreateChildJob(ctx context.Context, tenantID uint32, parentJobID, targetConfigurationID, certificateID, certificateSerial string,
+// deploymentTargetID must be the parent's target. The child is the job that
+// actually calls the provider, so without it the deploy path cannot resolve the
+// target's per-configuration config overrides and silently uses the
+// configuration's own config — deploying to the wrong Cloudflare zone, say.
+func (r *DeploymentJobRepo) CreateChildJob(ctx context.Context, tenantID uint32, parentJobID, deploymentTargetID, targetConfigurationID, certificateID, certificateSerial string,
 	triggeredBy deploymentjob.TriggeredBy, maxRetries int32) (*ent.DeploymentJob, error) {
 
 	id := uuid.New().String()
@@ -82,6 +86,9 @@ func (r *DeploymentJobRepo) CreateChildJob(ctx context.Context, tenantID uint32,
 
 	if certificateSerial != "" {
 		builder.SetCertificateSerial(certificateSerial)
+	}
+	if deploymentTargetID != "" {
+		builder.SetDeploymentTargetID(deploymentTargetID)
 	}
 
 	entity, err := builder.Save(ctx)
@@ -439,8 +446,8 @@ func (r *DeploymentJobRepo) Cancel(ctx context.Context, id string, cancelChildJo
 				childJob.Status == deploymentjob.StatusJOB_STATUS_PROCESSING ||
 				childJob.Status == deploymentjob.StatusJOB_STATUS_RETRYING {
 				if _, err := r.UpdateStatus(ctx, childJob.ID, deploymentjob.StatusJOB_STATUS_CANCELLED, "Cancelled by parent job", childJob.Progress); err != nil {
-				r.log.Warnf("Failed to cancel child job %s: %v", childJob.ID, err)
-			}
+					r.log.Warnf("Failed to cancel child job %s: %v", childJob.ID, err)
+				}
 			}
 		}
 	}

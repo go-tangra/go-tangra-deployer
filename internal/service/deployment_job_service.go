@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -118,7 +117,7 @@ func (s *DeploymentJobService) createTargetGroupJob(ctx context.Context, targetI
 
 	// Create child jobs for each configuration
 	for _, config := range configs {
-		_, err := s.jobRepo.CreateChildJob(ctx, targetTenantID, parentJob.ID, config.ID, certID, serial, triggerType, maxRetries)
+		_, err := s.jobRepo.CreateChildJob(ctx, targetTenantID, parentJob.ID, deref(parentJob.DeploymentTargetID), config.ID, certID, serial, triggerType, maxRetries)
 		if err != nil {
 			s.log.Errorf("Failed to create child job for configuration %s: %v", config.ID, err)
 			// Continue creating other child jobs
@@ -382,7 +381,7 @@ func (s *DeploymentJobService) RetryJob(ctx context.Context, req *deployerV1.Ret
 		// Pending / Processing / Retrying: never. Force does not help
 		// here because there is (or will shortly be) an executor
 		// already working this row.
-		return nil, deployerV1.ErrorConflict(fmt.Sprintf("cannot retry job in status %s — wait for the in-flight run to terminate first", job.Status))
+		return nil, deployerV1.ErrorConflict("cannot retry job in status %s — wait for the in-flight run to terminate first", job.Status)
 	}
 
 	oldStatus := string(job.Status)
@@ -429,4 +428,12 @@ func (s *DeploymentJobService) RetryJob(ctx context.Context, req *deployerV1.Ret
 	return &deployerV1.RetryJobResponse{
 		Job: s.jobRepo.ToProto(job),
 	}, nil
+}
+
+// deref returns the pointed-to string, or "" when nil.
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

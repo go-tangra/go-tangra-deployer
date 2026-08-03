@@ -233,7 +233,7 @@ func (s *DeploymentService) DeployToTarget(ctx context.Context, req *deployerV1.
 
 	// Create child jobs for each configuration
 	for _, config := range configs {
-		_, err := s.jobRepo.CreateChildJob(ctx, tenantID, parentJob.ID, config.ID,
+		_, err := s.jobRepo.CreateChildJob(ctx, tenantID, parentJob.ID, req.GetDeploymentTargetId(), config.ID,
 			req.GetCertificateId(), "", triggeredBy, 3)
 		if err != nil {
 			s.log.Errorf("Failed to create child job for configuration %s: %v", config.ID, err)
