@@ -1,0 +1,94 @@
+openapi: 3.1.0
+info:
+  title: Deployer API
+  version: 0.1.0
+  description: >
+    Certificate deployment: distribute lcm-issued certificates to infrastructure
+    endpoints via pluggable providers, on demand and on certificate events.
+    Gateway-proxied under /api/deployer. Every route declares an
+    x-freya-permission (or x-freya-public); credentials are never returned.
+servers:
+  - url: /
+components:
+  parameters:
+    csrf:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema: { type: string, maxLength: 128 }
+    id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, maxLength: 64 }
+    jobId:
+      name: job_id
+      in: path
+      required: true
+      schema: { type: string, maxLength: 64 }
+  schemas:
+    Error:
+      type: object
+      properties:
+        reason: { type: string }
+        detail: { type: object }
+paths:
+  /api/deployer/v1/providers:
+    get: { operationId: listProviders, x-freya-permission: 'configurations:read', responses: { '200': { description: provider catalogue } } }
+
+  /api/deployer/v1/configurations:
+    get: { operationId: listConfigurations, x-freya-permission: 'configurations:read', responses: { '200': { description: list } } }
+    post: { operationId: createConfiguration, x-freya-permission: 'configurations:manage', parameters: [{ $ref: '#/components/parameters/csrf' }], responses: { '201': { description: created } } }
+  /api/deployer/v1/configurations/validate:
+    post: { operationId: validateCredentials, x-freya-permission: 'configurations:manage', x-freya-timeout-seconds: 30, parameters: [{ $ref: '#/components/parameters/csrf' }], responses: { '200': { description: 'validation result' } } }
+  /api/deployer/v1/configurations/{id}:
+    get: { operationId: getConfiguration, x-freya-permission: 'configurations:read', parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: configuration }, '404': { description: not_found } } }
+    put: { operationId: updateConfiguration, x-freya-permission: 'configurations:manage', parameters: [{ $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/id' }], responses: { '200': { description: updated } } }
+  /api/deployer/v1/configurations/{id}/remove:
+    post: { operationId: deleteConfiguration, x-freya-permission: 'configurations:manage', parameters: [{ $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/id' }], responses: { '204': { description: deleted } } }
+
+  /api/deployer/v1/targets:
+    get: { operationId: listTargets, x-freya-permission: 'targets:read', responses: { '200': { description: list } } }
+    post: { operationId: createTarget, x-freya-permission: 'targets:manage', parameters: [{ $ref: '#/components/parameters/csrf' }], responses: { '201': { description: created } } }
+  /api/deployer/v1/targets/{id}:
+    get: { operationId: getTarget, x-freya-permission: 'targets:read', parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: target }, '404': { description: not_found } } }
+    put: { operationId: updateTarget, x-freya-permission: 'targets:manage', parameters: [{ $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/id' }], responses: { '200': { description: updated } } }
+  /api/deployer/v1/targets/{id}/remove:
+    post: { operationId: deleteTarget, x-freya-permission: 'targets:manage', parameters: [{ $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/id' }], responses: { '204': { description: deleted } } }
+  /api/deployer/v1/targets/{id}/configurations:
+    get: { operationId: listTargetConfigurations, x-freya-permission: 'targets:read', parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: list } } }
+    post: { operationId: attachConfigurations, x-freya-permission: 'targets:manage', parameters: [{ $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/id' }], responses: { '200': { description: attached } } }
+  /api/deployer/v1/targets/{id}/configurations/remove:
+    post: { operationId: detachConfigurations, x-freya-permission: 'targets:manage', parameters: [{ $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/id' }], responses: { '200': { description: detached } } }
+
+  /api/deployer/v1/deploy:
+    post: { operationId: deploy, x-freya-permission: 'deploy:execute', x-freya-timeout-seconds: 30, parameters: [{ $ref: '#/components/parameters/csrf' }], responses: { '202': { description: 'accepted; outcome over SSE' } } }
+  /api/deployer/v1/deploy/target:
+    post: { operationId: deployToTarget, x-freya-permission: 'deploy:execute', x-freya-timeout-seconds: 30, parameters: [{ $ref: '#/components/parameters/csrf' }], responses: { '202': { description: accepted } } }
+  /api/deployer/v1/deploy/configurations:
+    post: { operationId: deployToConfigurations, x-freya-permission: 'deploy:execute', x-freya-timeout-seconds: 30, parameters: [{ $ref: '#/components/parameters/csrf' }], responses: { '202': { description: accepted } } }
+  /api/deployer/v1/deploy/{job_id}/verify:
+    post: { operationId: verifyDeployment, x-freya-permission: 'deploy:execute', x-freya-timeout-seconds: 60, parameters: [{ $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/jobId' }], responses: { '200': { description: 'verify result' } } }
+  /api/deployer/v1/deploy/{job_id}/rollback:
+    post: { operationId: rollbackDeployment, x-freya-permission: 'deploy:execute', x-freya-timeout-seconds: 60, parameters: [{ $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/jobId' }], responses: { '200': { description: 'rollback result' } } }
+
+  /api/deployer/v1/jobs:
+    get: { operationId: listJobs, x-freya-permission: 'jobs:read', responses: { '200': { description: list } } }
+  /api/deployer/v1/jobs/{id}:
+    get: { operationId: getJob, x-freya-permission: 'jobs:read', parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: job }, '404': { description: not_found } } }
+  /api/deployer/v1/jobs/{id}/result:
+    get: { operationId: getJobResult, x-freya-permission: 'jobs:read', parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: 'result + history' } } }
+  /api/deployer/v1/jobs/{id}/cancel:
+    post: { operationId: cancelJob, x-freya-permission: 'jobs:manage', parameters: [{ $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/id' }], responses: { '200': { description: cancelled } } }
+  /api/deployer/v1/jobs/{id}/retry:
+    post: { operationId: retryJob, x-freya-permission: 'jobs:manage', parameters: [{ $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/id' }], responses: { '200': { description: retried } } }
+
+  /api/deployer/v1/statistics:
+    get: { operationId: getStatistics, x-freya-permission: 'stats:read', responses: { '200': { description: statistics } } }
+  /api/deployer/v1/statistics/tenant:
+    get: { operationId: getTenantStatistics, x-freya-permission: 'stats:read', responses: { '200': { description: 'tenant statistics' } } }
+
+  /api/deployer/v1/backup/export:
+    post: { operationId: exportBackup, x-freya-permission: 'backup:manage', parameters: [{ $ref: '#/components/parameters/csrf' }], responses: { '200': { description: export } } }
+  /api/deployer/v1/backup/import:
+    post: { operationId: importBackup, x-freya-permission: 'backup:manage', parameters: [{ $ref: '#/components/parameters/csrf' }], responses: { '200': { description: imported } } }
