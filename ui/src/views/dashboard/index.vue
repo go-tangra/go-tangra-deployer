@@ -4,7 +4,7 @@ import { useTargets } from '@/stores/targets'
 import { useConfigurations } from '@/stores/configurations'
 import { useJobs } from '@/stores/jobs'
 import { useStats } from '@/stores/stats'
-import StatsCard from '@/components/StatsCard.vue'
+import { UiPage, UiCard, UiStatGrid, UiStatTile, UiBarList, UiDataTable, type BarItem, type Column } from '@freya/ui'
 
 // The /statistics endpoint is a later increment (US5); until then the dashboard
 // derives its figures from the tenant's targets, configurations and recent jobs.
@@ -45,84 +45,24 @@ const byProvider = computed(() => {
   return Object.entries(m).sort((a, b) => b[1] - a[1])
 })
 
-const statusColor: Record<string, string> = {
-  completed: 'success',
-  failed: 'error',
-  partial: 'warning',
-  processing: 'info',
-  retrying: 'warning',
-  cancelled: 'grey',
-  pending: 'grey',
-}
+const statusColor: Record<string, NonNullable<BarItem['color']>> = { completed: 'success', failed: 'error', partial: 'warning', processing: 'info', retrying: 'warning', cancelled: 'neutral', pending: 'neutral' }
+const statusBars = computed<BarItem[]>(() => Object.entries(byStatus.value).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value, color: statusColor[label] ?? 'primary' })))
+const providerBars = computed<BarItem[]>(() => byProvider.value.map(([label, value]) => ({ label, value, color: 'primary' })))
+const errorRows = computed(() => recentErrors.value.map((e) => ({ ...e, id: e.job_id })))
+const errorColumns: Column<(typeof errorRows.value)[number]>[] = [{ key: 'at', label: 'When', format: (e) => new Date(e.at).toLocaleString() }, { key: 'certificate_id', label: 'Certificate' }, { key: 'message', label: 'Message' }]
 </script>
-
 <template>
-  <div>
-    <h1 class="text-h5 mb-4">Deployer</h1>
-    <v-row>
-      <v-col cols="12" sm="6" md="3">
-        <StatsCard title="Targets" :value="targets.items.length" icon="mdi-target" color="primary" />
-      </v-col>
-      <v-col cols="12" sm="6" md="3">
-        <StatsCard title="Configurations" :value="configs.items.length" icon="mdi-cog-outline" color="info" />
-      </v-col>
-      <v-col cols="12" sm="6" md="3">
-        <StatsCard title="Auto-deploy targets" :value="autoDeploy" icon="mdi-autorenew" color="success" />
-      </v-col>
-      <v-col cols="12" sm="6" md="3">
-        <StatsCard title="Recent success rate" :value="successRate" icon="mdi-check-decagram" color="teal" subtitle="last 24h" />
-      </v-col>
-    </v-row>
-
-    <v-row class="mt-2">
-      <v-col cols="12" md="6">
-        <v-card>
-          <v-card-title class="text-subtitle-1">Jobs by status</v-card-title>
-          <v-card-text>
-            <div v-for="(n, s) in byStatus" :key="s" class="d-flex align-center mb-2">
-              <v-chip size="x-small" :color="statusColor[s]" variant="flat" class="me-3" style="min-width: 92px; justify-content: center">{{ s }}</v-chip>
-              <v-progress-linear :model-value="jobs.items.length ? (n / jobs.items.length) * 100 : 0" height="8" rounded :color="statusColor[s]" />
-              <span class="ms-3 text-body-2">{{ n }}</span>
-            </div>
-            <div v-if="!jobs.items.length" class="text-medium-emphasis">No jobs yet.</div>
-          </v-card-text>
-        </v-card>
-      </v-col>
-      <v-col cols="12" md="6">
-        <v-card>
-          <v-card-title class="text-subtitle-1">Configurations by provider</v-card-title>
-          <v-card-text>
-            <div v-for="[prov, n] in byProvider" :key="prov" class="d-flex align-center mb-2">
-              <v-chip size="x-small" variant="tonal" class="me-3" style="min-width: 92px; justify-content: center">{{ prov }}</v-chip>
-              <v-progress-linear :model-value="configs.items.length ? (n / configs.items.length) * 100 : 0" height="8" rounded color="primary" />
-              <span class="ms-3 text-body-2">{{ n }}</span>
-            </div>
-            <div v-if="!byProvider.length" class="text-medium-emphasis">No configurations yet.</div>
-          </v-card-text>
-        </v-card>
-      </v-col>
-    </v-row>
-
-    <v-row v-if="recentErrors.length" class="mt-2">
-      <v-col cols="12">
-        <v-card>
-          <v-card-title class="text-subtitle-1">Recent errors</v-card-title>
-          <v-card-text>
-            <v-table density="compact">
-              <thead>
-                <tr><th>When</th><th>Certificate</th><th>Message</th></tr>
-              </thead>
-              <tbody>
-                <tr v-for="e in recentErrors" :key="e.job_id">
-                  <td class="text-medium-emphasis">{{ new Date(e.at).toLocaleString() }}</td>
-                  <td>{{ e.certificate_id }}</td>
-                  <td>{{ e.message }}</td>
-                </tr>
-              </tbody>
-            </v-table>
-          </v-card-text>
-        </v-card>
-      </v-col>
-    </v-row>
-  </div>
+  <UiPage title="Deployer">
+    <UiStatGrid class="mb-4" :cols="4">
+      <UiStatTile title="Targets" :value="targets.items.length" icon="mdi-target" color="primary" />
+      <UiStatTile title="Configurations" :value="configs.items.length" icon="mdi-cog-outline" color="info" />
+      <UiStatTile title="Auto-deploy targets" :value="autoDeploy" icon="mdi-autorenew" color="success" />
+      <UiStatTile title="Recent success rate" :value="successRate" icon="mdi-check-decagram" color="accent" subtitle="last 24h" />
+    </UiStatGrid>
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <UiCard title="Jobs by status"><UiBarList :items="statusBars" empty-title="No jobs yet" /></UiCard>
+      <UiCard title="Configurations by provider"><UiBarList :items="providerBars" empty-title="No configurations yet" /></UiCard>
+      <UiCard v-if="errorRows.length" title="Recent errors" class="lg:col-span-2" :padded="false"><UiDataTable :items="errorRows" :columns="errorColumns" caption="Recent errors" /></UiCard>
+    </div>
+  </UiPage>
 </template>

@@ -101,3 +101,11 @@ configurations (credentials only when `include_credentials` is set — as the
 already-sealed blob, never plaintext) and job metadata, versioned by schema.
 `POST /api/deployer/v1/backup/import` recreates them (mode `skip` or
 `overwrite`), preserving entity ids so sealed credentials unseal unchanged.
+
+## UI
+
+The remote under `services/deployer/ui` is built on the shared kit `@freya/ui` (FlyonUI + Zod,
+see `docs/frontend.md`): forms validate through Zod schemas in `src/schemas/`, the
+shell provides the theme and shared singletons, and `npm run lint` runs
+`check-no-legacy`. Rebuild the image after UI changes; the Dockerfile builds `ui/kit`
+first.
