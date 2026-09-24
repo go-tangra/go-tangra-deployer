@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { nonEmpty, optionalString, jsonObject } from '@freya/ui/forms'
+import { nonEmpty, optionalString, jsonObject } from '@go-tangra/ui/forms'
 
 /** POST/PUT /configurations payload. Credentials are write-only: sent when given, never echoed. */
 export const configurationSchema = z.object({

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { nonEmpty, optionalString, jsonObject } from '@freya/ui/forms'
+import { nonEmpty, optionalString, jsonObject } from '@go-tangra/ui/forms'
 
 /** One AND-matched certificate filter; blank rules are dropped. */
 const regexRule = optionalString(500).pipe(

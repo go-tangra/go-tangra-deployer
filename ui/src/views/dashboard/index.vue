@@ -4,7 +4,7 @@ import { useTargets } from '@/stores/targets'
 import { useConfigurations } from '@/stores/configurations'
 import { useJobs } from '@/stores/jobs'
 import { useStats } from '@/stores/stats'
-import { UiPage, UiCard, UiStatGrid, UiStatTile, UiBarList, UiDataTable, type BarItem, type Column } from '@freya/ui'
+import { UiPage, UiCard, UiStatGrid, UiStatTile, UiBarList, UiDataTable, type BarItem, type Column } from '@go-tangra/ui'
 
 // The /statistics endpoint is a later increment (US5); until then the dashboard
 // derives its figures from the tenant's targets, configurations and recent jobs.
