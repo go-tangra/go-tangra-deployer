@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/go-freya/freya/services/deployer/internal/store"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
 
 // MaxPatternLen bounds a single filter pattern; longer patterns never compile.

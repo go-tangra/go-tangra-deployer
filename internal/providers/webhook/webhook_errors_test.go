@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-freya/freya/services/deployer/internal/provider"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 )
 
 // TestDeployWebhookMissingURL covers Deploy's url guard.

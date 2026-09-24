@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/go-freya/freya/services/deployer/internal/store"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
 
 // fakeLocator is a test double for the Locator interface. It returns the

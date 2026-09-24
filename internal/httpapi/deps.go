@@ -4,13 +4,13 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/go-freya/freya/services/deployer/internal/authz"
-	"github.com/go-freya/freya/services/deployer/internal/backup"
-	"github.com/go-freya/freya/services/deployer/internal/configs"
-	"github.com/go-freya/freya/services/deployer/internal/deploy"
-	"github.com/go-freya/freya/services/deployer/internal/jobs"
-	"github.com/go-freya/freya/services/deployer/internal/stats"
-	"github.com/go-freya/freya/services/deployer/internal/targets"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/backup"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/configs"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/deploy"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/jobs"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/stats"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/targets"
 )
 
 // Deps wire the deployer HTTP handlers.

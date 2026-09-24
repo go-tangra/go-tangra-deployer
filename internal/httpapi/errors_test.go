@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-freya/freya/services/deployer/internal/store"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
 
 // A well-formed but absent UUID (passes the OpenAPI id/job_id maxLength check but

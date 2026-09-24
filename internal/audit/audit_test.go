@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-freya/freya/services/deployer/internal/audit"
-	"github.com/go-freya/freya/services/deployer/internal/store"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/audit"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
 
 // fakeStore captures the audit rows written by the batch writer.

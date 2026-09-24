@@ -19,9 +19,9 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/go-freya/freya/services/deployer/internal/repo"
-	"github.com/go-freya/freya/services/deployer/internal/repo/repodb"
-	"github.com/go-freya/freya/services/deployer/internal/store"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo/repodb"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
 
 const (

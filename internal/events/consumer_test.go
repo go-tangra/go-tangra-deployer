@@ -4,13 +4,13 @@ import (
 	"context"
 	"testing"
 
-	"github.com/go-freya/freya/services/deployer/internal/authz"
-	"github.com/go-freya/freya/services/deployer/internal/events"
-	"github.com/go-freya/freya/services/deployer/internal/memstore"
-	"github.com/go-freya/freya/services/deployer/internal/provider"
-	"github.com/go-freya/freya/services/deployer/internal/repo"
-	"github.com/go-freya/freya/services/deployer/internal/store"
-	"github.com/go-freya/freya/services/deployer/internal/targets"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/events"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/memstore"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/targets"
 )
 
 type fakeCerts struct{ cn string }

@@ -8,9 +8,9 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	deployerv1 "github.com/go-freya/freya/services/deployer/api/proto/deployer/v1"
-	"github.com/go-freya/freya/services/deployer/internal/configs"
-	"github.com/go-freya/freya/services/deployer/internal/deploy"
+	deployerv1 "github.com/go-tangra/go-tangra-deployer/v4/api/proto/deployer/v1"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/configs"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/deploy"
 )
 
 // ---- TargetConfigurationService

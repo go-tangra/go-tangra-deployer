@@ -7,13 +7,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-freya/freya/services/deployer/internal/authz"
-	"github.com/go-freya/freya/services/deployer/internal/configs"
-	"github.com/go-freya/freya/services/deployer/internal/memstore"
-	"github.com/go-freya/freya/services/deployer/internal/sealed"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/configs"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/memstore"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/sealed"
 
 	// Register the dummy provider so validation and the catalogue have an entry.
-	_ "github.com/go-freya/freya/services/deployer/internal/providers/dummy"
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/dummy"
 )
 
 // plaintextSecret is the credential value that must NEVER surface through a read

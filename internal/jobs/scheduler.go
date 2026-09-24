@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-freya/freya/services/deployer/internal/provider"
-	"github.com/go-freya/freya/services/deployer/internal/store"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
 
 // Run starts the worker pool + cleanup goroutine until ctx ends. It claims due

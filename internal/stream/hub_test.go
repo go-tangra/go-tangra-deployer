@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-freya/freya/services/deployer/internal/stream"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/stream"
 )
 
 const hubTenant = "11111111-1111-1111-1111-111111111111"

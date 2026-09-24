@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-freya/freya/services/deployer/internal/provider"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 
-	_ "github.com/go-freya/freya/services/deployer/internal/providers/bigip"
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/bigip"
 )
 
 const bigipPass = "p@ss-secret"

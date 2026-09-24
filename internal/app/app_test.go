@@ -23,13 +23,13 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/go-freya/freya"
-	"github.com/go-freya/freya/services/auth/pkg/authclient"
+	"github.com/go-tangra/go-tangra-auth/sdk/v4/pkg/authclient"
+	"github.com/go-tangra/go-tangra/v4"
 
-	"github.com/go-freya/freya/services/deployer/internal/app"
-	"github.com/go-freya/freya/services/deployer/internal/config"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/app"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/config"
 
-	_ "github.com/go-freya/freya/services/deployer/internal/providers/all"
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/all"
 )
 
 const appTenant = "11111111-1111-1111-1111-111111111111"

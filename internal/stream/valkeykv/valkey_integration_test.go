@@ -17,7 +17,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/go-freya/freya/services/deployer/internal/stream/valkeykv"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/stream/valkeykv"
 )
 
 func startValkey(t *testing.T) string {

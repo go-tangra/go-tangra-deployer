@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-freya/freya/services/deployer/internal/store"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
 
 // EventType is the closed audit vocabulary (data-model.md).

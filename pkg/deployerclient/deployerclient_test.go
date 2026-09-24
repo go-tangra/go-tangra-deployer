@@ -14,8 +14,8 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	deployerv1 "github.com/go-freya/freya/services/deployer/api/proto/deployer/v1"
-	"github.com/go-freya/freya/services/deployer/pkg/deployerclient"
+	deployerv1 "github.com/go-tangra/go-tangra-deployer/v4/api/proto/deployer/v1"
+	"github.com/go-tangra/go-tangra-deployer/v4/pkg/deployerclient"
 )
 
 // stubConfigServer is a canned in-process implementation of

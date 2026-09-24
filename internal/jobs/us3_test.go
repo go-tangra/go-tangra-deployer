@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/go-freya/freya/services/deployer/internal/configs"
-	"github.com/go-freya/freya/services/deployer/internal/jobs"
-	"github.com/go-freya/freya/services/deployer/internal/store"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/configs"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/jobs"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
 
 // US3: a completed job exposes its result and per-action history.

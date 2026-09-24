@@ -7,9 +7,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/go-freya/freya/services/deployer/internal/authz"
-	"github.com/go-freya/freya/services/deployer/internal/repo"
-	"github.com/go-freya/freya/services/deployer/internal/store"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
 
 // Errors.

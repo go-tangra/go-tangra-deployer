@@ -5,10 +5,10 @@
 package all
 
 import (
-	_ "github.com/go-freya/freya/services/deployer/internal/providers/awsacm"
-	_ "github.com/go-freya/freya/services/deployer/internal/providers/bigip"
-	_ "github.com/go-freya/freya/services/deployer/internal/providers/cloudflare"
-	_ "github.com/go-freya/freya/services/deployer/internal/providers/dummy"
-	_ "github.com/go-freya/freya/services/deployer/internal/providers/fortigate"
-	_ "github.com/go-freya/freya/services/deployer/internal/providers/webhook"
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/awsacm"
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/bigip"
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/cloudflare"
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/dummy"
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/fortigate"
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/webhook"
 )

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-freya/freya/services/deployer/internal/stream"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/stream"
 )
 
 // TestMemoryStreamSemantics exercises the in-process Client used in place of

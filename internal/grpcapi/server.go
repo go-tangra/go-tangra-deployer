@@ -14,11 +14,11 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/go-freya/freya/authn"
-	deployerv1 "github.com/go-freya/freya/services/deployer/api/proto/deployer/v1"
-	"github.com/go-freya/freya/services/deployer/internal/authz"
-	"github.com/go-freya/freya/services/deployer/internal/configs"
-	"github.com/go-freya/freya/services/deployer/internal/deploy"
+	deployerv1 "github.com/go-tangra/go-tangra-deployer/v4/api/proto/deployer/v1"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/configs"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/deploy"
+	"github.com/go-tangra/go-tangra/v4/authn"
 )
 
 var uuidRE = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)

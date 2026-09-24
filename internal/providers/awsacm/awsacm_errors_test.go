@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-freya/freya/services/deployer/internal/provider"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 )
 
 // TestValidateMissingSecretOnly exercises the credsFrom branch where the access

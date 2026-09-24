@@ -14,9 +14,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	lcmv1 "github.com/go-freya/freya/services/lcm/api/proto/lcm/v1"
+	lcmv1 "github.com/go-tangra/go-tangra-lcm/sdk/v4/api/proto/lcm/v1"
 
-	"github.com/go-freya/freya/services/deployer/internal/provider"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 )
 
 // ErrNotFound is returned when lcm has no such certificate.

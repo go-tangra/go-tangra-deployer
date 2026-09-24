@@ -7,14 +7,14 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	deployerv1 "github.com/go-freya/freya/services/deployer/api/proto/deployer/v1"
-	"github.com/go-freya/freya/services/deployer/internal/authz"
-	"github.com/go-freya/freya/services/deployer/internal/configs"
-	"github.com/go-freya/freya/services/deployer/internal/deploy"
-	"github.com/go-freya/freya/services/deployer/internal/memstore"
-	"github.com/go-freya/freya/services/deployer/internal/sealed"
+	deployerv1 "github.com/go-tangra/go-tangra-deployer/v4/api/proto/deployer/v1"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/configs"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/deploy"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/memstore"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/sealed"
 
-	_ "github.com/go-freya/freya/services/deployer/internal/providers/dummy"
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/dummy"
 )
 
 const tenant = "11111111-1111-1111-1111-111111111111"

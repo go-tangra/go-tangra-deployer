@@ -3,9 +3,9 @@ package all_test
 import (
 	"testing"
 
-	"github.com/go-freya/freya/services/deployer/internal/provider"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 
-	_ "github.com/go-freya/freya/services/deployer/internal/providers/all"
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/all"
 )
 
 // TestCatalogueRegistered asserts every shipped provider self-registers with the

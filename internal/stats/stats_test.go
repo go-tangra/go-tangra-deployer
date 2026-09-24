@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-freya/freya/services/deployer/internal/authz"
-	"github.com/go-freya/freya/services/deployer/internal/memstore"
-	"github.com/go-freya/freya/services/deployer/internal/stats"
-	"github.com/go-freya/freya/services/deployer/internal/store"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/memstore"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/stats"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
 
 const tenantA = "11111111-1111-1111-1111-111111111111"

@@ -14,7 +14,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	deployerv1 "github.com/go-freya/freya/services/deployer/api/proto/deployer/v1"
+	deployerv1 "github.com/go-tangra/go-tangra-deployer/v4/api/proto/deployer/v1"
 )
 
 // Client calls the deployer.v1 API over a caller-provided gRPC connection.

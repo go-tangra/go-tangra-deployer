@@ -5,17 +5,17 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/go-freya/freya/services/deployer/internal/authz"
-	"github.com/go-freya/freya/services/deployer/internal/configs"
-	"github.com/go-freya/freya/services/deployer/internal/deploy"
-	"github.com/go-freya/freya/services/deployer/internal/memstore"
-	"github.com/go-freya/freya/services/deployer/internal/repo"
-	"github.com/go-freya/freya/services/deployer/internal/sealed"
-	"github.com/go-freya/freya/services/deployer/internal/store"
-	"github.com/go-freya/freya/services/deployer/internal/targets"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/configs"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/deploy"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/memstore"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/sealed"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/targets"
 
 	// Register the dummy provider so real configurations can be created.
-	_ "github.com/go-freya/freya/services/deployer/internal/providers/dummy"
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/dummy"
 )
 
 const certID = "cert-123"

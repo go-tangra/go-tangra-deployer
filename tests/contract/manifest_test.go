@@ -3,7 +3,7 @@ package contract
 import (
 	"testing"
 
-	"github.com/go-freya/freya/services/deployer/pkg/deployermanifest"
+	"github.com/go-tangra/go-tangra-deployer/v4/pkg/deployermanifest"
 )
 
 func TestManifestDerivesRoutesAndPermissions(t *testing.T) {

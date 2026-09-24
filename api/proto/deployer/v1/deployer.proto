@@ -10,7 +10,7 @@ package deployer.v1;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/go-freya/freya/services/deployer/api/proto/deployer/v1;deployerv1";
+option go_package = "github.com/go-tangra/go-tangra-deployer/v4/api/proto/deployer/v1;deployerv1";
 
 // TargetConfigurationService manages deployment endpoints (provider + config +
 // sealed credentials) for other modules.

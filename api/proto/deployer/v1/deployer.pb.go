@@ -524,7 +524,7 @@ const file_deployer_v1_deployer_proto_rawDesc = "" +
 	"\x03Get\x12$.deployer.v1.GetConfigurationRequest\x1a\x1a.deployer.v1.Configuration\x12W\n" +
 	"\x04List\x12&.deployer.v1.ListConfigurationsRequest\x1a'.deployer.v1.ListConfigurationsResponse2V\n" +
 	"\x11DeploymentService\x12A\n" +
-	"\x06Deploy\x12\x1a.deployer.v1.DeployRequest\x1a\x1b.deployer.v1.DeployResponseBNZLgithub.com/go-freya/freya/services/deployer/api/proto/deployer/v1;deployerv1b\x06proto3"
+	"\x06Deploy\x12\x1a.deployer.v1.DeployRequest\x1a\x1b.deployer.v1.DeployResponseBMZKgithub.com/go-tangra/go-tangra-deployer/v4/api/proto/deployer/v1;deployerv1b\x06proto3"
 
 var (
 	file_deployer_v1_deployer_proto_rawDescOnce sync.Once

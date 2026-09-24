@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-freya/freya/services/deployer/internal/provider"
-	"github.com/go-freya/freya/services/deployer/internal/repo"
-	"github.com/go-freya/freya/services/deployer/internal/store"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
 
 // Module is the deployer's event-source name; events it publishes carry it so

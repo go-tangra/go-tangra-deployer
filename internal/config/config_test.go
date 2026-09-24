@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-freya/freya/services/deployer/internal/config"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/config"
 )
 
 // valid returns a fully populated deployer configuration that passes Validate in

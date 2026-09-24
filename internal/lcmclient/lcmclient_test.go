@@ -10,9 +10,9 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	lcmv1 "github.com/go-freya/freya/services/lcm/api/proto/lcm/v1"
+	lcmv1 "github.com/go-tangra/go-tangra-lcm/sdk/v4/api/proto/lcm/v1"
 
-	"github.com/go-freya/freya/services/deployer/internal/lcmclient"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/lcmclient"
 )
 
 // fakeCerts is a fake lcm.v1.Certificates client.

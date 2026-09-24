@@ -3,10 +3,10 @@ package httpapi
 import (
 	"net/http"
 
-	"github.com/go-freya/freya/services/deployer/internal/configs"
-	"github.com/go-freya/freya/services/deployer/internal/repo"
-	"github.com/go-freya/freya/services/deployer/internal/store"
-	"github.com/go-freya/freya/services/deployer/internal/targets"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/configs"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/targets"
 )
 
 // Register mounts the deployer HTTP routes (declared in the OpenAPI document).

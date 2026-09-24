@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-freya/freya/services/deployer/internal/repo"
-	"github.com/go-freya/freya/services/deployer/internal/store"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
 
 // ErrNotFound is returned when a row is absent.

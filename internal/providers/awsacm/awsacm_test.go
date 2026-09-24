@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-freya/freya/services/deployer/internal/provider"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 
-	_ "github.com/go-freya/freya/services/deployer/internal/providers/awsacm"
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/awsacm"
 )
 
 const secret = "wJalrXUtnFEMI-super-secret-key"

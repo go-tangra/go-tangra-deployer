@@ -3,7 +3,7 @@ package httpapi
 import (
 	"net/http"
 
-	"github.com/go-freya/freya/services/deployer/internal/backup"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/backup"
 )
 
 // registerStatsBackup mounts the US5 statistics and backup routes. The gateway

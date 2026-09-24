@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-freya/freya/services/deployer/internal/provider"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 
-	_ "github.com/go-freya/freya/services/deployer/internal/providers/cloudflare"
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/cloudflare"
 )
 
 const errToken = "cf-secret-XYZ-token"
