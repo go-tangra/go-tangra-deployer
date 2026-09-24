@@ -1,11 +1,9 @@
-# Frontend
-frontend/node_modules/
-frontend/dist/
-frontend/.__mf__temp/
-
-# Embedded frontend build artifacts (populated by CI/Docker build)
-cmd/server/assets/frontend-dist/*
-!cmd/server/assets/frontend-dist/.gitkeep
-
-# Claude Code
-CLAUDE.md
+ui/node_modules/
+ui/dist/
+ui/test-results/
+ui/playwright-report/
+ui/.mf/
+.artifacts/
+coverage.out
+bin/
+/deployersvc

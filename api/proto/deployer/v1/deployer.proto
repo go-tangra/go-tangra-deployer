@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+// deployer.v1 is the service-to-service API of the certificate deployment
+// module. It is NOT proxied by the gateway: callers are authenticated platform
+// services on the Freya SPIFFE mTLS channel, policed by the module's
+// deploy/policy.yaml. The tenant comes from the request and the actor from the
+// verified SPIFFE identity. Provider credentials are sealed at rest and never
+// returned.
+package deployer.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/go-tangra/go-tangra-deployer/v4/api/proto/deployer/v1;deployerv1";
+
+// TargetConfigurationService manages deployment endpoints (provider + config +
+// sealed credentials) for other modules.
+service TargetConfigurationService {
+  rpc Create(CreateConfigurationRequest) returns (Configuration);
+  rpc Get(GetConfigurationRequest) returns (Configuration);
+  rpc List(ListConfigurationsRequest) returns (ListConfigurationsResponse);
+}
+
+// DeploymentService lets a module trigger a deployment of an lcm-issued
+// certificate to a configuration (a direct job the worker pool runs async).
+service DeploymentService {
+  rpc Deploy(DeployRequest) returns (DeployResponse);
+}
+
+message Configuration {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string provider_type = 4;
+  string status = 5;
+  bool has_credentials = 6;                       // credentials are never returned
+  google.protobuf.Timestamp last_deployment_at = 7;
+}
+
+message CreateConfigurationRequest {
+  string tenant_id = 1;
+  string name = 2;
+  string description = 3;
+  string provider_type = 4;
+  string config_json = 5;       // provider config as a JSON object
+  string credentials_json = 6;  // sealed at rest; never returned
+}
+
+message GetConfigurationRequest {
+  string tenant_id = 1;
+  string id = 2;
+}
+
+message ListConfigurationsRequest {
+  string tenant_id = 1;
+  string provider_type = 2;   // optional filter
+  string status = 3;          // optional filter
+}
+
+message ListConfigurationsResponse {
+  repeated Configuration configurations = 1;
+}
+
+message DeployRequest {
+  string tenant_id = 1;
+  string certificate_id = 2;
+  string configuration_id = 3;
+  string trigger = 4;          // manual | event | auto_renewal (default manual)
+}
+
+message DeployResponse {
+  string job_id = 1;
+  string status = 2;           // processing
+}
