@@ -15,7 +15,7 @@ deployersvc bootstrap -config <cfg>           # apply migrations and exit
 ```
 
 In the containerized platform stack it comes up with one command; see
-`deploy/stack/README.md`. The service:
+`deploy/stack/README.md` in go-tangra/go-tangra. The service:
 
 - enrolls for its SVID (`spiffe://<td>/svc/deployer`) over lcm's enrollment gRPC,
 - migrates its TimescaleDB schema (per-tenant row-level security),
@@ -104,8 +104,8 @@ already-sealed blob, never plaintext) and job metadata, versioned by schema.
 
 ## UI
 
-The remote under `services/deployer/ui` is built on the shared kit `@freya/ui` (FlyonUI + Zod,
-see `docs/frontend.md`): forms validate through Zod schemas in `src/schemas/`, the
+The remote under `ui/` is built on the shared kit `@go-tangra/ui` (FlyonUI + Zod),
+installed from GitHub Packages: forms validate through Zod schemas in `src/schemas/`, the
 shell provides the theme and shared singletons, and `npm run lint` runs
-`check-no-legacy`. Rebuild the image after UI changes; the Dockerfile builds `ui/kit`
-first.
+`go-tangra-ui-check-no-legacy`. Rebuild the image after UI changes; the Dockerfile builds
+the remote and embeds it into `deployersvc` (`-tags ui`).
