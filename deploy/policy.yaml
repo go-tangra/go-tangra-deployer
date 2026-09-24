@@ -1,0 +1,10 @@
+# Freya service-to-service policy for the deployer: the gateway forwards browser
+# traffic and probes health; the deployer.v1 gRPC surface is called by other
+# modules directly (none yet). The deployer itself calls lcm/auth as a client.
+version: deployer-dev-1
+rules:
+  - id: gateway-forwards
+    from: ["spiffe://example.org/svc/gateway"]
+    to: ["deployer"]
+    operations: ["*"]
+    effect: allow
