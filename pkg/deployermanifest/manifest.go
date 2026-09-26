@@ -12,6 +12,7 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 
+	"github.com/go-tangra/go-tangra-auth/sdk/v4/pkg/authclient"
 	"github.com/go-tangra/go-tangra-deployer/v4/api/openapi"
 	"github.com/go-tangra/go-tangra-portal/sdk/v4/pkg/gatewayclient"
 )
@@ -73,6 +74,24 @@ var Nav = []gatewayclient.NavEntry{
 	{Title: "Targets", Path: "/deployer/targets", Icon: "mdi-target", Order: 410, Requires: "targets:read"},
 	{Title: "Configurations", Path: "/deployer/configurations", Icon: "mdi-cog-outline", Order: 420, Requires: "configurations:read"},
 	{Title: "Jobs", Path: "/deployer/jobs", Icon: "mdi-progress-clock", Order: 430, Requires: "jobs:read"},
+}
+
+// Roles are the module roles auth provides in every tenant (feature 019,
+// research D9); administrators assign them or clone them into custom roles.
+var Roles = []authclient.ModuleRole{
+	{Slug: "administrator", DisplayName: DisplayName + " administrator", Description: "Every deployer permission, including configurations, targets and backups", Permissions: PermissionRefs()},
+	{Slug: "operator", DisplayName: DisplayName + " operator", Description: "Deploy certificates to configured targets and run deployment jobs", Permissions: []string{"configurations:read", "targets:read", "jobs:read", "jobs:manage", "deploy:execute"}},
+	{Slug: "viewer", DisplayName: DisplayName + " viewer", Description: "Read configurations, targets, deployment jobs and statistics", Permissions: []string{"configurations:read", "targets:read", "jobs:read", "stats:read"}},
+}
+
+// Registration is what the deployer registers with auth at start and every
+// five minutes: its permissions, module roles and built-in role grants.
+func Registration() authclient.Registration {
+	perms := make([]authclient.Permission, 0, len(Permissions))
+	for _, p := range Permissions {
+		perms = append(perms, authclient.Permission{Resource: p.Resource, Action: p.Action, Description: p.Description})
+	}
+	return authclient.Registration{Module: Module, DisplayName: DisplayName, Permissions: perms, Roles: Roles, BuiltinGrants: Grants}
 }
 
 // PermissionRefs lists "resource:action" for every declared permission.

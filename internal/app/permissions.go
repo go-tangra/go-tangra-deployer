@@ -2,59 +2,71 @@ package app
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
-	authv1 "github.com/go-tangra/go-tangra-auth/sdk/v4/api/proto/auth/v1"
+	"google.golang.org/grpc"
+
 	"github.com/go-tangra/go-tangra-deployer/v4/pkg/deployermanifest"
 )
 
-// SeedPermissions registers the module's permissions with the auth service for
-// every tenant it serves and grants them to the built-in roles
-// (contracts/manifest.md; idempotent). The gateway registers the permissions
-// from the manifest for routing; only the deployer knows the role grants, so it
-// pushes them to auth here.
+// Registration cadence: retry quickly until auth accepts, then refresh so
+// tenants created later receive the roles and grants.
+const (
+	registerRetry  = 5 * time.Second
+	registerPeriod = 5 * time.Minute
+)
+
+// SeedPermissions registers the module with the auth service
+// (auth.v1.Authorization/RegisterPermissions, feature 019): its permissions,
+// module roles and built-in role grants for every tenant (idempotent). The
+// gateway also registers the permissions from the manifest; only the deployer
+// knows the roles and grants.
 func (a *App) SeedPermissions(ctx context.Context) error {
 	conn, err := a.Freya.Client(ctx, "auth") // pooled; owned by the Freya app
 	if err != nil {
 		return err
 	}
-	req := &authv1.RegisterPermissionsRequest{}
-	for _, p := range deployermanifest.Permissions {
-		req.Permissions = append(req.Permissions, &authv1.PermissionDef{Resource: p.Resource, Action: p.Action, Description: p.Description})
-	}
-	for _, slug := range []string{"owner", "admin", "member", "auditor", "operator"} {
-		req.BuiltinGrants = append(req.BuiltinGrants, &authv1.BuiltinGrant{Role: slug, Permissions: deployermanifest.Grants[slug]})
-	}
+	return register(ctx, conn, a.Log)
+}
+
+// register sends the registration over conn; the auth SDK validates it and
+// logs skipped grants and rejected roles.
+func register(ctx context.Context, conn grpc.ClientConnInterface, log *slog.Logger) error {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	_, err = authv1.NewAuthorizationClient(conn).RegisterPermissions(ctx, req)
+	_, err := deployermanifest.Registration().Register(ctx, conn, log)
 	return err
 }
 
-// seedLoop seeds at start (retrying until it succeeds) and then every five
-// minutes so tenants created later receive the grants.
+// seedLoop registers at start (retrying until it succeeds) and then every
+// five minutes.
 func (a *App) seedLoop(ctx context.Context) {
+	registrationLoop(ctx, a.SeedPermissions, a.Log, registerRetry, registerPeriod)
+}
+
+func registrationLoop(ctx context.Context, seed func(context.Context) error, log *slog.Logger, retry, period time.Duration) {
 	for ctx.Err() == nil {
-		if err := a.SeedPermissions(ctx); err == nil {
+		err := seed(ctx)
+		if err == nil {
 			break
-		} else {
-			a.Log.Warn("permission seeding failed; retrying", "err", err)
 		}
+		log.Warn("auth registration failed; retrying", "err", err)
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(5 * time.Second):
+		case <-time.After(retry):
 		}
 	}
-	t := time.NewTicker(5 * time.Minute)
+	t := time.NewTicker(period)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if err := a.SeedPermissions(ctx); err != nil {
-				a.Log.Warn("permission seeding", "err", err)
+			if err := seed(ctx); err != nil {
+				log.Warn("auth registration", "err", err)
 			}
 		}
 	}
