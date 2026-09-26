@@ -30,7 +30,9 @@ go-tangra-auth  <---->  go-tangra-portal (gateway)  <---->  go-tangra-lcm
 - Built on `github.com/go-tangra/go-tangra/v4` (mTLS transports, identity,
   service policy, audit, observability).
 - Verifies platform tokens and checks permissions through the auth SDK
-  (`github.com/go-tangra/go-tangra-auth/sdk/v4`).
+  (`github.com/go-tangra/go-tangra-auth/sdk/v4`), and registers its
+  permissions, module roles and built-in role grants with auth (see
+  [Permissions and module roles](#permissions-and-module-roles)).
 - Registers with the gateway through the portal SDK
   (`github.com/go-tangra/go-tangra-portal/sdk/v4`), which fronts the browser API
   (`/api/deployer`) and the federated UI remote.
@@ -41,6 +43,24 @@ go-tangra-auth  <---->  go-tangra-portal (gateway)  <---->  go-tangra-lcm
 
 The repository holds one Go module, `github.com/go-tangra/go-tangra-deployer/v4`.
 Other services call it through `pkg/deployerclient` and the `deployer.v1` protos.
+
+## Permissions and module roles
+
+The deployer registers with auth as module `deployer` (auth SDK
+`authclient.Registration`, feature 019) at start, retrying every 5 s until
+auth accepts, then every five minutes: its permissions, the module roles
+(`pkg/deployermanifest.Roles`) and the built-in role grants
+(`pkg/deployermanifest.Grants`). Module roles are locked in auth;
+administrators assign them or clone them into custom roles:
+
+| Role | Display name | Permissions |
+|---|---|---|
+| `administrator` | Deployer administrator | all nine deployer permissions |
+| `operator` | Deployer operator | configurations:read, targets:read, jobs:read, jobs:manage, deploy:execute |
+| `viewer` | Deployer viewer | configurations:read, targets:read, jobs:read, stats:read |
+
+Skipped built-in grants (warn) and rejected roles (error) are logged as
+`auth registration: ...`.
 
 ## Layout
 
