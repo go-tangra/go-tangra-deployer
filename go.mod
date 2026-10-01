@@ -8,7 +8,7 @@ require (
 	github.com/getkin/kin-openapi v0.149.0
 	github.com/go-tangra/go-tangra-auth/sdk/v4 v4.1.0
 	github.com/go-tangra/go-tangra-lcm/sdk/v4 v4.1.0
-	github.com/go-tangra/go-tangra-portal/sdk/v4 v4.0.0
+	github.com/go-tangra/go-tangra-portal/sdk/v4 v4.1.0
 	github.com/go-tangra/go-tangra/v4 v4.3.1
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/pressly/goose/v3 v3.28.0
