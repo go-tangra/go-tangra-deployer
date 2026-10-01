@@ -3,8 +3,11 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
+	"github.com/go-tangra/go-tangra/v4/listquery"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -76,6 +79,33 @@ func ListConfigurations(ctx context.Context, tx pgx.Tx, tenantID, providerType, 
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// PageConfigurations returns one page of the filtered configurations in req's
+// order (ConfigList), the total and req clamped to the last page.
+func PageConfigurations(ctx context.Context, tx pgx.Tx, tenantID, providerType, status string, req listquery.Request) ([]TargetConfiguration, int, listquery.Request, error) {
+	req = ListRequest(req, ConfigList)
+	const where = "tenant_id=$1 AND ($2='' OR provider_type=$2) AND ($3='' OR status=$3)"
+	var total int
+	if err := tx.QueryRow(ctx, "SELECT count(*) FROM deployer_configs WHERE "+where, tenantID, providerType, status).Scan(&total); err != nil {
+		return nil, 0, req, err
+	}
+	req = req.Clamp(total)
+	rows, err := tx.Query(ctx, fmt.Sprintf("SELECT %s FROM deployer_configs WHERE %s ORDER BY %s LIMIT %d OFFSET %d",
+		configCols, where, req.OrderBy(ConfigList), req.Limit(), req.Offset()), tenantID, providerType, status)
+	if err != nil {
+		return nil, 0, req, err
+	}
+	defer rows.Close()
+	out := []TargetConfiguration{}
+	for rows.Next() {
+		c, err := scanConfig(rows)
+		if err != nil {
+			return nil, 0, req, err
+		}
+		out = append(out, c)
+	}
+	return out, total, req, rows.Err()
 }
 
 // UpdateConfiguration rewrites the mutable columns.
@@ -175,6 +205,32 @@ func ListTargets(ctx context.Context, tx pgx.Tx, tenantID string, onlyAuto bool)
 	return out, rows.Err()
 }
 
+// PageTargets returns one page of a tenant's targets in req's order
+// (TargetList), the total and req clamped to the last page.
+func PageTargets(ctx context.Context, tx pgx.Tx, tenantID string, req listquery.Request) ([]DeploymentTarget, int, listquery.Request, error) {
+	req = ListRequest(req, TargetList)
+	var total int
+	if err := tx.QueryRow(ctx, "SELECT count(*) FROM deployer_targets WHERE tenant_id=$1", tenantID).Scan(&total); err != nil {
+		return nil, 0, req, err
+	}
+	req = req.Clamp(total)
+	rows, err := tx.Query(ctx, fmt.Sprintf("SELECT %s FROM deployer_targets WHERE tenant_id=$1 ORDER BY %s LIMIT %d OFFSET %d",
+		targetCols, req.OrderBy(TargetList), req.Limit(), req.Offset()), tenantID)
+	if err != nil {
+		return nil, 0, req, err
+	}
+	defer rows.Close()
+	out := []DeploymentTarget{}
+	for rows.Next() {
+		t, err := scanTarget(rows)
+		if err != nil {
+			return nil, 0, req, err
+		}
+		out = append(out, t)
+	}
+	return out, total, req, rows.Err()
+}
+
 // UpdateTarget rewrites the mutable columns.
 func UpdateTarget(ctx context.Context, tx pgx.Tx, t DeploymentTarget) error {
 	ct, err := tx.Exec(ctx, `UPDATE deployer_targets SET name=$3, description=$4, auto_deploy=$5,
@@ -243,6 +299,29 @@ func ListTargetConfigurationIDs(ctx context.Context, tx pgx.Tx, tenantID, target
 	return out, rows.Err()
 }
 
+// TargetConfigurationIDsFor returns the attached configuration ids of several
+// targets in one query (target id → sorted ids; targets without links absent).
+func TargetConfigurationIDsFor(ctx context.Context, tx pgx.Tx, tenantID string, targetIDs []string) (map[string][]string, error) {
+	out := map[string][]string{}
+	if len(targetIDs) == 0 {
+		return out, nil
+	}
+	rows, err := tx.Query(ctx, `SELECT target_id, configuration_id FROM deployer_target_configs_link
+		WHERE tenant_id=$1 AND target_id = ANY($2::uuid[]) ORDER BY target_id, configuration_id`, tenantID, targetIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tid, cid string
+		if err := rows.Scan(&tid, &cid); err != nil {
+			return nil, err
+		}
+		out[tid] = append(out[tid], cid)
+	}
+	return out, rows.Err()
+}
+
 // ---- jobs ----
 
 const jobCols = "id, tenant_id, deployment_target_id, target_configuration_id, parent_job_id, certificate_id, certificate_serial, status, status_message, progress, retry_count, max_retries, triggered_by, result, lease_until, started_at, completed_at, next_retry_at, created_at, updated_at"
@@ -297,20 +376,96 @@ func scanJobs(rows pgx.Rows) ([]DeploymentJob, error) {
 	return out, rows.Err()
 }
 
-// ListJobs applies the common filters (nil/empty ignored) newest-first.
-func ListJobs(ctx context.Context, tx pgx.Tx, tenantID, status, trigger, certID, parentID string, limit int) ([]DeploymentJob, error) {
+// JobConds are the job list filters (empty values are ignored). JobType and
+// TargetID are applied in SQL like the others, so counts and limits see them.
+type JobConds struct {
+	Status        string
+	TriggeredBy   string
+	CertificateID string
+	ParentJobID   string
+	JobType       string // parent | child | direct; any other value matches nothing
+	TargetID      string
+}
+
+// where returns the WHERE clause body and its arguments ($1 is the tenant).
+func (c JobConds) where(tenantID string) (string, []any) {
+	conds := []string{"tenant_id=$1"}
+	args := []any{tenantID}
+	add := func(cond string, v any) {
+		args = append(args, v)
+		conds = append(conds, fmt.Sprintf(cond, len(args)))
+	}
+	if c.Status != "" {
+		add("status=$%d", c.Status)
+	}
+	if c.TriggeredBy != "" {
+		add("triggered_by=$%d", c.TriggeredBy)
+	}
+	if c.CertificateID != "" {
+		add("certificate_id=$%d", c.CertificateID)
+	}
+	if c.ParentJobID != "" {
+		add("parent_job_id=$%d::uuid", c.ParentJobID)
+	}
+	if c.TargetID != "" {
+		add("deployment_target_id=$%d::uuid", c.TargetID)
+	}
+	switch c.JobType {
+	case "":
+	case JobTypeChild:
+		conds = append(conds, "parent_job_id IS NOT NULL")
+	case JobTypeParent:
+		conds = append(conds, "parent_job_id IS NULL AND deployment_target_id IS NOT NULL")
+	case JobTypeDirect:
+		conds = append(conds, "parent_job_id IS NULL AND deployment_target_id IS NULL")
+	default:
+		conds = append(conds, "false")
+	}
+	return strings.Join(conds, " AND "), args
+}
+
+// ListJobs applies the filters newest-first, at most limit rows (default 50,
+// at most 200) — the unpaged internal path (statistics, backup).
+func ListJobs(ctx context.Context, tx pgx.Tx, tenantID string, c JobConds, limit int) ([]DeploymentJob, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := tx.Query(ctx, "SELECT "+jobCols+` FROM deployer_jobs
-		WHERE tenant_id=$1 AND ($2='' OR status=$2) AND ($3='' OR triggered_by=$3) AND ($4='' OR certificate_id=$4)
-		AND ($5='' OR parent_job_id=$5::uuid) ORDER BY created_at DESC LIMIT $6`,
-		tenantID, status, trigger, certID, parentID, limit)
+	where, args := c.where(tenantID)
+	rows, err := tx.Query(ctx, fmt.Sprintf("SELECT %s FROM deployer_jobs WHERE %s ORDER BY created_at DESC LIMIT %d", jobCols, where, limit), args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	return scanJobs(rows)
+}
+
+// PageJobs returns one page of the filtered jobs in req's order (JobList), the
+// total matching the filters and req clamped to the last page.
+func PageJobs(ctx context.Context, tx pgx.Tx, tenantID string, c JobConds, req listquery.Request) ([]DeploymentJob, int, listquery.Request, error) {
+	return pageJobs(ctx, tx, tenantID, c, req, JobList)
+}
+
+// PageChildJobs returns one page of a parent's children (ChildJobList).
+func PageChildJobs(ctx context.Context, tx pgx.Tx, tenantID, parentID string, req listquery.Request) ([]DeploymentJob, int, listquery.Request, error) {
+	return pageJobs(ctx, tx, tenantID, JobConds{ParentJobID: parentID}, req, ChildJobList)
+}
+
+func pageJobs(ctx context.Context, tx pgx.Tx, tenantID string, c JobConds, req listquery.Request, spec listquery.Spec) ([]DeploymentJob, int, listquery.Request, error) {
+	req = ListRequest(req, spec)
+	where, args := c.where(tenantID)
+	var total int
+	if err := tx.QueryRow(ctx, "SELECT count(*) FROM deployer_jobs WHERE "+where, args...).Scan(&total); err != nil {
+		return nil, 0, req, err
+	}
+	req = req.Clamp(total)
+	rows, err := tx.Query(ctx, fmt.Sprintf("SELECT %s FROM deployer_jobs WHERE %s ORDER BY %s LIMIT %d OFFSET %d",
+		jobCols, where, req.OrderBy(spec), req.Limit(), req.Offset()), args...)
+	if err != nil {
+		return nil, 0, req, err
+	}
+	defer rows.Close()
+	out, err := scanJobs(rows)
+	return out, total, req, err
 }
 
 // UpdateJob rewrites the mutable columns.
@@ -381,6 +536,33 @@ func ListHistory(ctx context.Context, tx pgx.Tx, tenantID, jobID string) ([]Depl
 		out = append(out, h)
 	}
 	return out, rows.Err()
+}
+
+// PageHistory returns one page of a job's history in req's order
+// (HistoryList), the total and req clamped to the last page.
+func PageHistory(ctx context.Context, tx pgx.Tx, tenantID, jobID string, req listquery.Request) ([]DeploymentHistory, int, listquery.Request, error) {
+	req = ListRequest(req, HistoryList)
+	var total int
+	if err := tx.QueryRow(ctx, "SELECT count(*) FROM deployer_history WHERE tenant_id=$1 AND job_id=$2", tenantID, jobID).Scan(&total); err != nil {
+		return nil, 0, req, err
+	}
+	req = req.Clamp(total)
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id, tenant_id, job_id, action, result, message, duration_ms, details, created_at
+		FROM deployer_history WHERE tenant_id=$1 AND job_id=$2 ORDER BY %s LIMIT %d OFFSET %d`,
+		req.OrderBy(HistoryList), req.Limit(), req.Offset()), tenantID, jobID)
+	if err != nil {
+		return nil, 0, req, err
+	}
+	defer rows.Close()
+	out := []DeploymentHistory{}
+	for rows.Next() {
+		var h DeploymentHistory
+		if err := rows.Scan(&h.ID, &h.TenantID, &h.JobID, &h.Action, &h.Result, &h.Message, &h.DurationMS, &h.Details, &h.CreatedAt); err != nil {
+			return nil, 0, req, err
+		}
+		out = append(out, h)
+	}
+	return out, total, req, rows.Err()
 }
 
 // ---- audit ----

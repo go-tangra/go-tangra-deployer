@@ -10,6 +10,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/go-tangra/go-tangra/v4/listquery"
+
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
@@ -145,6 +147,24 @@ func (s *Service) List(ctx context.Context, subj authz.Subjects, providerType, s
 		out = append(out, view(c))
 	}
 	return out, nil
+}
+
+// Page returns one page of the tenant's configurations (filtered, in req's
+// store.ConfigList order) for the HTTP table; the page is the one actually
+// returned (clamped to the last page). List stays the unpaged gRPC path.
+func (s *Service) Page(ctx context.Context, subj authz.Subjects, providerType, status string, req listquery.Request) (listquery.Page[View], error) {
+	if err := s.az.Check(ctx, subj, authz.Configuration, "", authz.Read); err != nil {
+		return listquery.Page[View]{}, err
+	}
+	rows, total, applied, err := s.st.PageConfigurations(ctx, subj.TenantID, repo.ConfigFilter{ProviderType: providerType, Status: status}, req)
+	if err != nil {
+		return listquery.Page[View]{}, err
+	}
+	out := make([]View, 0, len(rows))
+	for _, c := range rows {
+		out = append(out, view(c))
+	}
+	return listquery.NewPage(out, total, applied), nil
 }
 
 // Update changes a configuration; empty Credentials keep the stored value.

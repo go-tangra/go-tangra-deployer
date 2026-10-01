@@ -2,6 +2,7 @@ package grpcapi
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -110,5 +111,25 @@ func TestDeployUnknownConfigNotFound(t *testing.T) {
 	_, err := ds.Deploy(context.Background(), &deployerv1.DeployRequest{TenantId: tenant, CertificateId: "c", ConfigurationId: "22222222-2222-2222-2222-222222222222"})
 	if status.Code(err) != codes.NotFound {
 		t.Fatalf("code = %v, want NotFound", status.Code(err))
+	}
+}
+
+// TestConfigurationListUnpaged (specs 032): the gRPC list used by portal and
+// lcm is not paged — every configuration comes back, filters unchanged.
+func TestConfigurationListUnpaged(t *testing.T) {
+	cs, _ := kit(t)
+	withFakeCaller(t, "spiffe://example.org/svc/warden", true)
+	ctx := context.Background()
+	for i := 0; i < 60; i++ {
+		if _, err := cs.Create(ctx, &deployerv1.CreateConfigurationRequest{TenantId: tenant, Name: "ep-" + strconv.Itoa(i), ProviderType: "dummy"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list, err := cs.List(ctx, &deployerv1.ListConfigurationsRequest{TenantId: tenant})
+	if err != nil || len(list.GetConfigurations()) != 60 {
+		t.Fatalf("list = %d, %v", len(list.GetConfigurations()), err)
+	}
+	if list, err = cs.List(ctx, &deployerv1.ListConfigurationsRequest{TenantId: tenant, ProviderType: "dummy", Status: "active"}); err != nil || len(list.GetConfigurations()) != 60 {
+		t.Fatalf("filtered list = %d, %v", len(list.GetConfigurations()), err)
 	}
 }

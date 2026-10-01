@@ -29,12 +29,16 @@ func (s *Server) Register(d Deps) {
 			failSvc(w, err)
 			return
 		}
-		items, err := d.Configs.List(r.Context(), subj, r.URL.Query().Get("provider_type"), r.URL.Query().Get("status"))
+		req, ok := parseList(w, r, store.ConfigList)
+		if !ok {
+			return
+		}
+		page, err := d.Configs.Page(r.Context(), subj, r.URL.Query().Get("provider_type"), r.URL.Query().Get("status"), req)
 		if err != nil {
 			failSvc(w, err)
 			return
 		}
-		WriteJSON(w, http.StatusOK, map[string]any{"items": items})
+		WriteJSON(w, http.StatusOK, page)
 	})
 	s.MustHandle("POST", p+"/configurations", func(w http.ResponseWriter, r *http.Request) {
 		subj, err := subjects(r)
@@ -202,12 +206,16 @@ func (s *Server) Register(d Deps) {
 			failSvc(w, err)
 			return
 		}
-		items, err := d.Targets.List(r.Context(), subj)
+		req, ok := parseList(w, r, store.TargetList)
+		if !ok {
+			return
+		}
+		page, err := d.Targets.Page(r.Context(), subj, req)
 		if err != nil {
 			failSvc(w, err)
 			return
 		}
-		WriteJSON(w, http.StatusOK, map[string]any{"items": items})
+		WriteJSON(w, http.StatusOK, page)
 	})
 	s.MustHandle("POST", p+"/targets", func(w http.ResponseWriter, r *http.Request) {
 		subj, err := subjects(r)
@@ -340,16 +348,54 @@ func (s *Server) Register(d Deps) {
 			failSvc(w, err)
 			return
 		}
+		req, ok := parseList(w, r, store.JobList)
+		if !ok {
+			return
+		}
 		q := r.URL.Query()
-		items, err := d.Jobs.List(r.Context(), subj, repo.JobFilter{
+		page, err := d.Jobs.Page(r.Context(), subj, repo.JobFilter{
 			Status: q.Get("status"), TriggeredBy: q.Get("triggered_by"), CertificateID: q.Get("certificate_id"),
-			JobType: q.Get("job_type"), ParentJobID: q.Get("parent_job_id"),
-		})
+			JobType: q.Get("job_type"), ParentJobID: q.Get("parent_job_id"), TargetID: q.Get("target_id"),
+		}, req)
 		if err != nil {
 			failSvc(w, err)
 			return
 		}
-		WriteJSON(w, http.StatusOK, map[string]any{"items": items})
+		WriteJSON(w, http.StatusOK, page)
+	})
+	s.MustHandle("GET", p+"/jobs/{id}/children", func(w http.ResponseWriter, r *http.Request) {
+		subj, err := subjects(r)
+		if err != nil {
+			failSvc(w, err)
+			return
+		}
+		req, ok := parseList(w, r, store.ChildJobList)
+		if !ok {
+			return
+		}
+		page, err := d.Jobs.PageChildren(r.Context(), subj, r.PathValue("id"), req)
+		if err != nil {
+			failSvc(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, page)
+	})
+	s.MustHandle("GET", p+"/jobs/{id}/history", func(w http.ResponseWriter, r *http.Request) {
+		subj, err := subjects(r)
+		if err != nil {
+			failSvc(w, err)
+			return
+		}
+		req, ok := parseList(w, r, store.HistoryList)
+		if !ok {
+			return
+		}
+		page, err := d.Jobs.PageHistory(r.Context(), subj, r.PathValue("id"), req)
+		if err != nil {
+			failSvc(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, page)
 	})
 	s.MustHandle("GET", p+"/jobs/{id}", func(w http.ResponseWriter, r *http.Request) {
 		subj, err := subjects(r)

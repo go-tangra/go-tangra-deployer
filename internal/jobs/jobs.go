@@ -11,6 +11,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/go-tangra/go-tangra/v4/listquery"
+
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
@@ -126,6 +128,7 @@ func (s *Service) Get(ctx context.Context, subj authz.Subjects, id string) (View
 
 // HistoryEntry is one deployment-history record as returned to clients.
 type HistoryEntry struct {
+	ID         string    `json:"id,omitempty"`
 	Action     string    `json:"action"`
 	Result     string    `json:"result"`
 	Message    string    `json:"message,omitempty"`
@@ -160,10 +163,7 @@ func (s *Service) GetResult(ctx context.Context, subj authz.Subjects, id string)
 		return Result{}, err
 	}
 	for _, h := range rows {
-		res.History = append(res.History, HistoryEntry{
-			Action: h.Action, Result: h.Result, Message: h.Message,
-			DurationMS: h.DurationMS, CreatedAt: h.CreatedAt,
-		})
+		res.History = append(res.History, historyEntry(h))
 	}
 	if j.JobType() == store.JobTypeParent {
 		kids, err := s.st.ListChildJobs(ctx, subj.TenantID, id)
@@ -271,6 +271,66 @@ func (s *Service) List(ctx context.Context, subj authz.Subjects, f repo.JobFilte
 		out = append(out, view(j))
 	}
 	return out, nil
+}
+
+// Page returns one page of the tenant's jobs (filtered in SQL, req's
+// store.JobList order) for the jobs table and dashboard.
+func (s *Service) Page(ctx context.Context, subj authz.Subjects, f repo.JobFilter, req listquery.Request) (listquery.Page[View], error) {
+	if err := s.az.Check(ctx, subj, authz.Job, "", authz.Read); err != nil {
+		return listquery.Page[View]{}, err
+	}
+	rows, total, applied, err := s.st.PageJobs(ctx, subj.TenantID, f, req)
+	if err != nil {
+		return listquery.Page[View]{}, err
+	}
+	return listquery.NewPage(views(rows), total, applied), nil
+}
+
+// PageChildren returns one page of a job's child jobs (store.ChildJobList).
+func (s *Service) PageChildren(ctx context.Context, subj authz.Subjects, id string, req listquery.Request) (listquery.Page[View], error) {
+	if err := s.az.Check(ctx, subj, authz.Job, id, authz.Read); err != nil {
+		return listquery.Page[View]{}, nf(err)
+	}
+	if _, err := s.st.GetJob(ctx, subj.TenantID, id); err != nil {
+		return listquery.Page[View]{}, nf(err)
+	}
+	rows, total, applied, err := s.st.PageChildJobs(ctx, subj.TenantID, id, req)
+	if err != nil {
+		return listquery.Page[View]{}, err
+	}
+	return listquery.NewPage(views(rows), total, applied), nil
+}
+
+// PageHistory returns one page of a job's deployment history
+// (store.HistoryList).
+func (s *Service) PageHistory(ctx context.Context, subj authz.Subjects, id string, req listquery.Request) (listquery.Page[HistoryEntry], error) {
+	if err := s.az.Check(ctx, subj, authz.Job, id, authz.Read); err != nil {
+		return listquery.Page[HistoryEntry]{}, nf(err)
+	}
+	if _, err := s.st.GetJob(ctx, subj.TenantID, id); err != nil {
+		return listquery.Page[HistoryEntry]{}, nf(err)
+	}
+	rows, total, applied, err := s.st.PageHistory(ctx, subj.TenantID, id, req)
+	if err != nil {
+		return listquery.Page[HistoryEntry]{}, err
+	}
+	out := make([]HistoryEntry, 0, len(rows))
+	for _, h := range rows {
+		out = append(out, historyEntry(h))
+	}
+	return listquery.NewPage(out, total, applied), nil
+}
+
+func views(rows []store.DeploymentJob) []View {
+	out := make([]View, 0, len(rows))
+	for _, j := range rows {
+		out = append(out, view(j))
+	}
+	return out
+}
+
+func historyEntry(h store.DeploymentHistory) HistoryEntry {
+	return HistoryEntry{ID: h.ID, Action: h.Action, Result: h.Result, Message: h.Message, DurationMS: h.DurationMS, CreatedAt: h.CreatedAt}
 }
 
 // Create stores a job (used by the deploy and event paths).

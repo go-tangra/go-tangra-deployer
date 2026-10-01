@@ -6,6 +6,9 @@ package targets
 import (
 	"context"
 	"errors"
+	"time"
+
+	"github.com/go-tangra/go-tangra/v4/listquery"
 
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
@@ -46,17 +49,23 @@ type View struct {
 	AutoDeploy         bool                      `json:"auto_deploy"`
 	CertificateFilters []store.CertificateFilter `json:"certificate_filters"`
 	ConfigurationIDs   []string                  `json:"configuration_ids"`
+	CreatedAt          time.Time                 `json:"created_at,omitzero"`
 }
 
 func (s *Service) view(ctx context.Context, tenantID string, t store.DeploymentTarget) View {
 	ids, _ := s.st.ListTargetConfigurationIDs(ctx, tenantID, t.ID)
+	return toView(t, ids)
+}
+
+func toView(t store.DeploymentTarget, ids []string) View {
 	if t.CertificateFilters == nil {
 		t.CertificateFilters = []store.CertificateFilter{}
 	}
 	if ids == nil {
 		ids = []string{}
 	}
-	return View{ID: t.ID, Name: t.Name, Description: t.Description, AutoDeploy: t.AutoDeploy, CertificateFilters: t.CertificateFilters, ConfigurationIDs: ids}
+	return View{ID: t.ID, Name: t.Name, Description: t.Description, AutoDeploy: t.AutoDeploy, CertificateFilters: t.CertificateFilters,
+		ConfigurationIDs: ids, CreatedAt: t.CreatedAt}
 }
 
 // Create stores a target.
@@ -93,7 +102,7 @@ func (s *Service) Get(ctx context.Context, subj authz.Subjects, id string) (View
 	return s.view(ctx, subj.TenantID, t), nil
 }
 
-// List returns the tenant's targets.
+// List returns all the tenant's targets.
 func (s *Service) List(ctx context.Context, subj authz.Subjects) ([]View, error) {
 	if err := s.az.Check(ctx, subj, authz.Target, "", authz.Read); err != nil {
 		return nil, err
@@ -102,9 +111,40 @@ func (s *Service) List(ctx context.Context, subj authz.Subjects) ([]View, error)
 	if err != nil {
 		return nil, err
 	}
+	return s.views(ctx, subj.TenantID, rows)
+}
+
+// Page returns one page of the tenant's targets (req's store.TargetList
+// order) for the HTTP table; the page is the one actually returned.
+func (s *Service) Page(ctx context.Context, subj authz.Subjects, req listquery.Request) (listquery.Page[View], error) {
+	if err := s.az.Check(ctx, subj, authz.Target, "", authz.Read); err != nil {
+		return listquery.Page[View]{}, err
+	}
+	rows, total, applied, err := s.st.PageTargets(ctx, subj.TenantID, req)
+	if err != nil {
+		return listquery.Page[View]{}, err
+	}
+	out, err := s.views(ctx, subj.TenantID, rows)
+	if err != nil {
+		return listquery.Page[View]{}, err
+	}
+	return listquery.NewPage(out, total, applied), nil
+}
+
+// views builds the views with the attached configuration ids batch-loaded in
+// one query (no per-target lookup).
+func (s *Service) views(ctx context.Context, tenantID string, rows []store.DeploymentTarget) ([]View, error) {
+	ids := make([]string, 0, len(rows))
+	for _, t := range rows {
+		ids = append(ids, t.ID)
+	}
+	links, err := s.st.TargetConfigurationIDsFor(ctx, tenantID, ids)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]View, 0, len(rows))
 	for _, t := range rows {
-		out = append(out, s.view(ctx, subj.TenantID, t))
+		out = append(out, toView(t, links[t.ID]))
 	}
 	return out, nil
 }
