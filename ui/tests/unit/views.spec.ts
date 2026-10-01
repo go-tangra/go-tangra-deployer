@@ -104,7 +104,7 @@ describe('deployer views on the kit', () => {
   })
 
   it('jobs: table with progress and detail drawer with history', async () => {
-    fetchMock((url) => (url.includes('/result') ? { id: 'j1', certificate_id: 'cert-1', status: 'failed', type: 'direct', progress: 50, retry_count: 1, max_retries: 3, triggered_by: 'manual', created_at: '2026-01-01T00:00:00Z', history: [{ action: 'deploy', result: 'failure', duration_ms: 120, created_at: '2026-01-01T00:00:00Z', message: 'ssh timeout' }] } : { items: [{ id: 'j1', certificate_id: 'cert-1', status: 'failed', type: 'direct', progress: 50, retry_count: 1, max_retries: 3, triggered_by: 'manual', created_at: '2026-01-01T00:00:00Z' }] }))
+    fetchMock((url) => (url.includes('/history') ? { items: [{ id: 'h1', action: 'deploy', result: 'failure', duration_ms: 120, created_at: '2026-01-01T00:00:00Z', message: 'ssh timeout' }], total: 1, page: 1, page_size: 10, sort: 'created_at', order: 'desc' } : { total: 1, page: 1, page_size: 25, sort: 'created_at', order: 'desc', items: [{ id: 'j1', certificate_id: 'cert-1', status: 'failed', type: 'direct', progress: 50, retry_count: 1, max_retries: 3, triggered_by: 'manual', created_at: '2026-01-01T00:00:00Z' }] }))
     const w = mount(Jobs, { global, attachTo: document.body })
     await flushPromises()
     expect(w.find('[data-test="job-row-j1"] progress').attributes('value')).toBe('50')

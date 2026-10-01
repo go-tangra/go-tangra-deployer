@@ -7,6 +7,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/go-tangra/go-tangra/v4/listquery"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
@@ -115,29 +116,8 @@ func (d *DB) GetJob(ctx context.Context, tid, id string) (out store.DeploymentJo
 	return
 }
 func (d *DB) ListJobs(ctx context.Context, tid string, f repo.JobFilter) (out []store.DeploymentJob, err error) {
-	err = d.tenant(ctx, tid, func(tx pgx.Tx) error {
-		out, err = store.ListJobs(ctx, tx, tid, f.Status, f.TriggeredBy, f.CertificateID, f.ParentJobID, f.Limit)
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-	// job_type and target_id are computed/derived, not SQL columns, so filter
-	// them here to match the repo.JobFilter contract (and the memstore fake).
-	if f.JobType != "" || f.TargetID != "" {
-		kept := out[:0]
-		for _, j := range out {
-			if f.JobType != "" && j.JobType() != f.JobType {
-				continue
-			}
-			if f.TargetID != "" && (j.DeploymentTargetID == nil || *j.DeploymentTargetID != f.TargetID) {
-				continue
-			}
-			kept = append(kept, j)
-		}
-		out = kept
-	}
-	return out, nil
+	err = d.tenant(ctx, tid, func(tx pgx.Tx) error { out, err = store.ListJobs(ctx, tx, tid, f.Conds(), f.Limit); return err })
+	return
 }
 func (d *DB) ListChildJobs(ctx context.Context, tid, parentID string) (out []store.DeploymentJob, err error) {
 	err = d.tenant(ctx, tid, func(tx pgx.Tx) error { out, err = store.ListChildJobs(ctx, tx, tid, parentID); return err })
@@ -184,6 +164,45 @@ func (d *DB) Exists(ctx context.Context, tid, resourceType, id string) (ok bool,
 // TenantIDs lists every tenant with deployer data (system scope).
 func (d *DB) TenantIDs(ctx context.Context) (out []string, err error) {
 	err = d.system(ctx, func(tx pgx.Tx) error { out, err = store.TenantIDs(ctx, tx); return err })
+	return
+}
+
+// --- paged lists ---
+
+func (d *DB) PageConfigurations(ctx context.Context, tid string, f repo.ConfigFilter, req listquery.Request) (out []store.TargetConfiguration, total int, applied listquery.Request, err error) {
+	err = d.tenant(ctx, tid, func(tx pgx.Tx) error {
+		out, total, applied, err = store.PageConfigurations(ctx, tx, tid, f.ProviderType, f.Status, req)
+		return err
+	})
+	return
+}
+func (d *DB) PageTargets(ctx context.Context, tid string, req listquery.Request) (out []store.DeploymentTarget, total int, applied listquery.Request, err error) {
+	err = d.tenant(ctx, tid, func(tx pgx.Tx) error { out, total, applied, err = store.PageTargets(ctx, tx, tid, req); return err })
+	return
+}
+func (d *DB) PageJobs(ctx context.Context, tid string, f repo.JobFilter, req listquery.Request) (out []store.DeploymentJob, total int, applied listquery.Request, err error) {
+	err = d.tenant(ctx, tid, func(tx pgx.Tx) error {
+		out, total, applied, err = store.PageJobs(ctx, tx, tid, f.Conds(), req)
+		return err
+	})
+	return
+}
+func (d *DB) PageChildJobs(ctx context.Context, tid, parentID string, req listquery.Request) (out []store.DeploymentJob, total int, applied listquery.Request, err error) {
+	err = d.tenant(ctx, tid, func(tx pgx.Tx) error {
+		out, total, applied, err = store.PageChildJobs(ctx, tx, tid, parentID, req)
+		return err
+	})
+	return
+}
+func (d *DB) PageHistory(ctx context.Context, tid, jobID string, req listquery.Request) (out []store.DeploymentHistory, total int, applied listquery.Request, err error) {
+	err = d.tenant(ctx, tid, func(tx pgx.Tx) error {
+		out, total, applied, err = store.PageHistory(ctx, tx, tid, jobID, req)
+		return err
+	})
+	return
+}
+func (d *DB) TargetConfigurationIDsFor(ctx context.Context, tid string, targetIDs []string) (out map[string][]string, err error) {
+	err = d.tenant(ctx, tid, func(tx pgx.Tx) error { out, err = store.TargetConfigurationIDsFor(ctx, tx, tid, targetIDs); return err })
 	return
 }
 

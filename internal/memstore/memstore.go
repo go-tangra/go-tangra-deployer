@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-tangra/go-tangra/v4/listquery"
+
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
@@ -65,6 +67,9 @@ func (m *Mem) InsertConfiguration(_ context.Context, c store.TargetConfiguration
 		if x.TenantID == c.TenantID && x.Name == c.Name {
 			return errors.New("memstore: duplicate configuration name")
 		}
+	}
+	if c.CreatedAt.IsZero() {
+		c.CreatedAt = m.Now()
 	}
 	m.configs[c.ID] = c
 	return nil
@@ -150,6 +155,9 @@ func (m *Mem) InsertTarget(_ context.Context, t store.DeploymentTarget) error {
 		if x.TenantID == t.TenantID && x.Name == t.Name {
 			return errors.New("memstore: duplicate target name")
 		}
+	}
+	if t.CreatedAt.IsZero() {
+		t.CreatedAt = m.Now()
 	}
 	m.targets[t.ID] = t
 	return nil
@@ -260,6 +268,9 @@ func (m *Mem) InsertJob(_ context.Context, j store.DeploymentJob) error {
 	if err := m.fail(); err != nil {
 		return err
 	}
+	if j.CreatedAt.IsZero() {
+		j.CreatedAt = m.Now()
+	}
 	m.jobs[j.ID] = j
 	return nil
 }
@@ -282,19 +293,7 @@ func (m *Mem) ListJobs(_ context.Context, tenantID string, f repo.JobFilter) ([]
 		if j.TenantID != tenantID {
 			continue
 		}
-		if f.Status != "" && j.Status != f.Status {
-			continue
-		}
-		if f.TriggeredBy != "" && j.TriggeredBy != f.TriggeredBy {
-			continue
-		}
-		if f.CertificateID != "" && j.CertificateID != f.CertificateID {
-			continue
-		}
-		if f.JobType != "" && j.JobType() != f.JobType {
-			continue
-		}
-		if f.ParentJobID != "" && (j.ParentJobID == nil || *j.ParentJobID != f.ParentJobID) {
+		if !matchJob(j, f) {
 			continue
 		}
 		out = append(out, j)
@@ -304,6 +303,20 @@ func (m *Mem) ListJobs(_ context.Context, tenantID string, f repo.JobFilter) ([]
 		out = out[:f.Limit]
 	}
 	return out, nil
+}
+
+// matchJob applies the JobFilter fields the DB store applies in SQL.
+func matchJob(j store.DeploymentJob, f repo.JobFilter) bool {
+	switch {
+	case f.Status != "" && j.Status != f.Status,
+		f.TriggeredBy != "" && j.TriggeredBy != f.TriggeredBy,
+		f.CertificateID != "" && j.CertificateID != f.CertificateID,
+		f.JobType != "" && j.JobType() != f.JobType,
+		f.ParentJobID != "" && (j.ParentJobID == nil || *j.ParentJobID != f.ParentJobID),
+		f.TargetID != "" && (j.DeploymentTargetID == nil || *j.DeploymentTargetID != f.TargetID):
+		return false
+	}
+	return true
 }
 
 func (m *Mem) ListChildJobs(_ context.Context, tenantID, parentID string) ([]store.DeploymentJob, error) {
@@ -373,6 +386,9 @@ func (m *Mem) ClaimDueJobs(_ context.Context, now time.Time, lease time.Duration
 func (m *Mem) InsertHistory(_ context.Context, h store.DeploymentHistory) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if h.CreatedAt.IsZero() {
+		h.CreatedAt = m.Now()
+	}
 	m.history = append(m.history, h)
 	return nil
 }
@@ -436,5 +452,149 @@ func (m *Mem) TenantIDs(_ context.Context) ([]string, error) {
 		out = append(out, id)
 	}
 	sort.Strings(out)
+	return out, nil
+}
+
+// --- paged lists (same fields and semantics as the SQL Specs) ---
+
+func configKey(c store.TargetConfiguration, field string) any {
+	switch field {
+	case "provider_type":
+		return c.ProviderType
+	case "status":
+		return c.Status
+	case "created_at":
+		return c.CreatedAt
+	default:
+		return c.Name
+	}
+}
+
+func targetKey(t store.DeploymentTarget, field string) any {
+	if field == "created_at" {
+		return t.CreatedAt
+	}
+	return t.Name
+}
+
+func jobKey(j store.DeploymentJob, field string) any {
+	switch field {
+	case "status":
+		return j.Status
+	case "job_type":
+		return j.JobType()
+	case "completed_at":
+		if j.CompletedAt == nil {
+			return nil
+		}
+		return *j.CompletedAt
+	default:
+		return j.CreatedAt
+	}
+}
+
+func page[T any](items []T, req listquery.Request, spec listquery.Spec, key func(T, string) any, tie func(T) string) ([]T, int, listquery.Request) {
+	req = store.ListRequest(req, spec)
+	listquery.SortSlice(items, req, key, tie)
+	win, total, applied := listquery.Window(items, req)
+	return append(make([]T, 0, len(win)), win...), total, applied
+}
+
+// PageConfigurations implements repo.Store.
+func (m *Mem) PageConfigurations(_ context.Context, tenantID string, f repo.ConfigFilter, req listquery.Request) ([]store.TargetConfiguration, int, listquery.Request, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.fail(); err != nil {
+		return nil, 0, req, err
+	}
+	var all []store.TargetConfiguration
+	for _, c := range m.configs {
+		if c.TenantID == tenantID && (f.ProviderType == "" || c.ProviderType == f.ProviderType) && (f.Status == "" || c.Status == f.Status) {
+			all = append(all, c)
+		}
+	}
+	out, total, applied := page(all, req, store.ConfigList, configKey, func(c store.TargetConfiguration) string { return c.ID })
+	return out, total, applied, nil
+}
+
+// PageTargets implements repo.Store.
+func (m *Mem) PageTargets(_ context.Context, tenantID string, req listquery.Request) ([]store.DeploymentTarget, int, listquery.Request, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.fail(); err != nil {
+		return nil, 0, req, err
+	}
+	var all []store.DeploymentTarget
+	for _, t := range m.targets {
+		if t.TenantID == tenantID {
+			all = append(all, t)
+		}
+	}
+	out, total, applied := page(all, req, store.TargetList, targetKey, func(t store.DeploymentTarget) string { return t.ID })
+	return out, total, applied, nil
+}
+
+// PageJobs implements repo.Store.
+func (m *Mem) PageJobs(_ context.Context, tenantID string, f repo.JobFilter, req listquery.Request) ([]store.DeploymentJob, int, listquery.Request, error) {
+	return m.pageJobs(tenantID, f, req, store.JobList)
+}
+
+// PageChildJobs implements repo.Store.
+func (m *Mem) PageChildJobs(_ context.Context, tenantID, parentID string, req listquery.Request) ([]store.DeploymentJob, int, listquery.Request, error) {
+	return m.pageJobs(tenantID, repo.JobFilter{ParentJobID: parentID}, req, store.ChildJobList)
+}
+
+func (m *Mem) pageJobs(tenantID string, f repo.JobFilter, req listquery.Request, spec listquery.Spec) ([]store.DeploymentJob, int, listquery.Request, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.fail(); err != nil {
+		return nil, 0, req, err
+	}
+	var all []store.DeploymentJob
+	for _, j := range m.jobs {
+		if j.TenantID == tenantID && matchJob(j, f) {
+			all = append(all, j)
+		}
+	}
+	out, total, applied := page(all, req, spec, jobKey, func(j store.DeploymentJob) string { return j.ID })
+	return out, total, applied, nil
+}
+
+// PageHistory implements repo.Store.
+func (m *Mem) PageHistory(_ context.Context, tenantID, jobID string, req listquery.Request) ([]store.DeploymentHistory, int, listquery.Request, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.fail(); err != nil {
+		return nil, 0, req, err
+	}
+	var all []store.DeploymentHistory
+	for _, h := range m.history {
+		if h.TenantID == tenantID && h.JobID == jobID {
+			all = append(all, h)
+		}
+	}
+	out, total, applied := page(all, req, store.HistoryList,
+		func(h store.DeploymentHistory, _ string) any { return h.CreatedAt },
+		func(h store.DeploymentHistory) string { return h.ID })
+	return out, total, applied, nil
+}
+
+// TargetConfigurationIDsFor implements repo.Store.
+func (m *Mem) TargetConfigurationIDsFor(_ context.Context, tenantID string, targetIDs []string) (map[string][]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.fail(); err != nil {
+		return nil, err
+	}
+	out := map[string][]string{}
+	for _, tid := range targetIDs {
+		if t, ok := m.targets[tid]; !ok || t.TenantID != tenantID {
+			continue
+		}
+		for cid := range m.links[tid] {
+			out[tid] = append(out[tid], cid)
+		}
+		sort.Strings(out[tid])
+	}
 	return out, nil
 }

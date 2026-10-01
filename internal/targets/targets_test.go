@@ -3,7 +3,10 @@ package targets_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+
+	"github.com/go-tangra/go-tangra/v4/listquery"
 
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/configs"
@@ -205,5 +208,79 @@ func TestUnknownTargetIsNotFound(t *testing.T) {
 
 	if _, err := ts.Get(ctx, subj, "00000000-0000-0000-0000-000000000000"); !errors.Is(err, targets.ErrNotFound) {
 		t.Errorf("Get(unknown): err = %v, want ErrNotFound", err)
+	}
+}
+
+// countingStore counts per-target configuration-id lookups.
+type countingStore struct {
+	*memstore.Mem
+	single, batch int
+}
+
+func (c *countingStore) ListTargetConfigurationIDs(ctx context.Context, tid, id string) ([]string, error) {
+	c.single++
+	return c.Mem.ListTargetConfigurationIDs(ctx, tid, id)
+}
+
+func (c *countingStore) TargetConfigurationIDsFor(ctx context.Context, tid string, ids []string) (map[string][]string, error) {
+	c.batch++
+	return c.Mem.TargetConfigurationIDsFor(ctx, tid, ids)
+}
+
+// TestPageNoNPlusOne (specs 032): the target list loads every row's
+// configuration ids in one batch call, not one lookup per target.
+func TestPageNoNPlusOne(t *testing.T) {
+	ctx := context.Background()
+	mem := memstore.New()
+	cs := &countingStore{Mem: mem}
+	env, _ := sealed.NewEnvelope(make([]byte, 32))
+	az := authz.New(mem)
+	ts, cfgs := targets.New(cs, az), configs.New(mem, env, az)
+	subj := adminSubject()
+	cfg := makeConfig(t, cfgs, subj, "ep")
+	for i := 0; i < 12; i++ {
+		v, err := ts.Create(ctx, subj, targets.Input{Name: fmt.Sprintf("t%02d", i)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i%2 == 0 {
+			if err := ts.Attach(ctx, subj, v.ID, []string{cfg}, nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	cs.single, cs.batch = 0, 0
+	page, err := ts.Page(ctx, subj, listquery.Request{Page: 1, PageSize: 10, Sort: "name", Order: listquery.Desc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cs.single != 0 || cs.batch != 1 {
+		t.Fatalf("lookups: %d single, %d batch", cs.single, cs.batch)
+	}
+	if page.Total != 12 || len(page.Items) != 10 || page.Items[0].Name != "t11" || page.Sort != "name" || page.Order != listquery.Desc {
+		t.Fatalf("page: total %d items %d first %q", page.Total, len(page.Items), page.Items[0].Name)
+	}
+	for _, v := range page.Items {
+		var n int
+		if _, err := fmt.Sscanf(v.Name, "t%d", &n); err != nil {
+			t.Fatal(err)
+		}
+		if (n%2 == 0) != (len(v.ConfigurationIDs) == 1) {
+			t.Fatalf("%s: ids %v", v.Name, v.ConfigurationIDs)
+		}
+	}
+	cs.single, cs.batch = 0, 0
+	all, err := ts.List(ctx, subj)
+	if err != nil || len(all) != 12 || cs.single != 0 || cs.batch != 1 {
+		t.Fatalf("List: %d rows, %d single, %d batch, %v", len(all), cs.single, cs.batch, err)
+	}
+	// Store errors surface.
+	mem.FailNext = errors.New("boom")
+	if _, err := ts.Page(ctx, subj, listquery.Request{}); err == nil {
+		t.Fatal("page error swallowed")
+	}
+	mem.FailNext = errors.New("boom")
+	if _, err := ts.List(ctx, subj); err == nil {
+		t.Fatal("list batch error swallowed")
 	}
 }

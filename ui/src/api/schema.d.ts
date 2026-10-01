@@ -276,6 +276,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/deployer/v1/jobs/{id}/children": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listJobChildren"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/deployer/v1/jobs/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listJobHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/deployer/v1/jobs/{id}/result": {
         parameters: {
             query?: never;
@@ -396,12 +428,130 @@ export interface components {
             reason?: string;
             detail?: Record<string, never>;
         };
+        Uuid: string;
+        Configuration: {
+            id: string;
+            name: string;
+            description: string;
+            provider_type: string;
+            config: {
+                [key: string]: unknown;
+            };
+            has_credentials: boolean;
+            status: string;
+            status_message: string;
+            /** Format: date-time */
+            last_deployment_at?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ConfigurationPage: {
+            items: components["schemas"]["Configuration"][];
+            total: number;
+            /** @description the page returned (a page beyond the end answers the last page) */
+            page: number;
+            page_size: number;
+            /** @enum {string} */
+            sort: "name" | "provider_type" | "status" | "created_at";
+            /** @enum {string} */
+            order: "asc" | "desc";
+        };
+        CertificateFilter: {
+            [key: string]: unknown;
+        };
+        Target: {
+            id: string;
+            name: string;
+            description: string;
+            auto_deploy: boolean;
+            certificate_filters: components["schemas"]["CertificateFilter"][];
+            configuration_ids: string[];
+            /** Format: date-time */
+            created_at?: string;
+        };
+        TargetPage: {
+            items: components["schemas"]["Target"][];
+            total: number;
+            /** @description the page returned (a page beyond the end answers the last page) */
+            page: number;
+            page_size: number;
+            /** @enum {string} */
+            sort: "name" | "created_at";
+            /** @enum {string} */
+            order: "asc" | "desc";
+        };
+        Job: {
+            id: string;
+            /** @enum {string} */
+            type: "parent" | "child" | "direct";
+            deployment_target_id?: string;
+            target_configuration_id?: string;
+            parent_job_id?: string;
+            certificate_id: string;
+            certificate_serial?: string;
+            status: string;
+            status_message?: string;
+            progress: number;
+            retry_count: number;
+            max_retries: number;
+            triggered_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            completed_at?: string;
+        };
+        JobPage: {
+            items: components["schemas"]["Job"][];
+            total: number;
+            /** @description the page returned (a page beyond the end answers the last page) */
+            page: number;
+            page_size: number;
+            /** @enum {string} */
+            sort: "created_at" | "status" | "job_type" | "completed_at";
+            /** @enum {string} */
+            order: "asc" | "desc";
+        };
+        ChildJobPage: {
+            items: components["schemas"]["Job"][];
+            total: number;
+            page: number;
+            page_size: number;
+            /** @enum {string} */
+            sort: "created_at";
+            /** @enum {string} */
+            order: "asc" | "desc";
+        };
+        HistoryEntry: {
+            id?: string;
+            action: string;
+            result: string;
+            message?: string;
+            duration_ms: number;
+            /** Format: date-time */
+            created_at: string;
+        };
+        HistoryPage: {
+            items: components["schemas"]["HistoryEntry"][];
+            total: number;
+            page: number;
+            page_size: number;
+            /** @enum {string} */
+            sort: "created_at";
+            /** @enum {string} */
+            order: "asc" | "desc";
+        };
     };
     responses: never;
     parameters: {
         csrf: string;
         id: string;
         jobId: string;
+        page: number;
+        pageSize: number;
+        /** @description sort direction; defaults to the chosen field's default direction */
+        order: "asc" | "desc";
     };
     requestBodies: never;
     headers: never;
@@ -429,19 +579,39 @@ export interface operations {
     };
     listConfigurations: {
         parameters: {
-            query?: never;
+            query?: {
+                page?: components["parameters"]["page"];
+                page_size?: components["parameters"]["pageSize"];
+                /** @description default name (asc) */
+                sort?: "name" | "provider_type" | "status" | "created_at";
+                /** @description sort direction; defaults to the chosen field's default direction */
+                order?: components["parameters"]["order"];
+                provider_type?: string;
+                status?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description list */
+            /** @description page of configurations */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ConfigurationPage"];
+                };
+            };
+            /** @description invalid list parameter (detail.param) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
         };
     };
@@ -558,19 +728,37 @@ export interface operations {
     };
     listTargets: {
         parameters: {
-            query?: never;
+            query?: {
+                page?: components["parameters"]["page"];
+                page_size?: components["parameters"]["pageSize"];
+                /** @description default name (asc) */
+                sort?: "name" | "created_at";
+                /** @description sort direction; defaults to the chosen field's default direction */
+                order?: components["parameters"]["order"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description list */
+            /** @description page of targets */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["TargetPage"];
+                };
+            };
+            /** @description invalid list parameter (detail.param) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
         };
     };
@@ -835,19 +1023,43 @@ export interface operations {
     };
     listJobs: {
         parameters: {
-            query?: never;
+            query?: {
+                page?: components["parameters"]["page"];
+                page_size?: components["parameters"]["pageSize"];
+                /** @description default created_at (desc) */
+                sort?: "created_at" | "status" | "job_type" | "completed_at";
+                /** @description sort direction; defaults to the chosen field's default direction */
+                order?: components["parameters"]["order"];
+                status?: string;
+                triggered_by?: string;
+                certificate_id?: string;
+                job_type?: "parent" | "child" | "direct";
+                parent_job_id?: components["schemas"]["Uuid"];
+                target_id?: components["schemas"]["Uuid"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description list */
+            /** @description page of jobs (newest first by default) */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["JobPage"];
+                };
+            };
+            /** @description invalid list parameter (detail.param) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
         };
     };
@@ -875,6 +1087,96 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    listJobChildren: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                page_size?: components["parameters"]["pageSize"];
+                /** @description default created_at (desc) */
+                sort?: "created_at";
+                /** @description sort direction; defaults to the chosen field's default direction */
+                order?: components["parameters"]["order"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description page of a parent job's child jobs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChildJobPage"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid list parameter (detail.param) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listJobHistory: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                page_size?: components["parameters"]["pageSize"];
+                /** @description default created_at (desc) */
+                sort?: "created_at";
+                /** @description sort direction; defaults to the chosen field's default direction */
+                order?: components["parameters"]["order"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description page of a job's deployment history */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryPage"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description invalid list parameter (detail.param) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
         };
     };

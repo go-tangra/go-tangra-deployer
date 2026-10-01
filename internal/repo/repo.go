@@ -8,6 +8,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/go-tangra/go-tangra/v4/listquery"
+
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
 
@@ -62,6 +64,20 @@ type Store interface {
 	// by the admin system-wide statistics to iterate tenants.
 	TenantIDs(ctx context.Context) ([]string, error)
 
+	// Paged lists (HTTP tables, specs/032-server-side-tables). Each returns one
+	// page in req's order (store.ConfigList, TargetList, JobList, ChildJobList,
+	// HistoryList; a zero req takes the defaults), the total matching the
+	// filter and req clamped to the last page. The unpaged List* methods above
+	// keep serving internal callers and gRPC.
+	PageConfigurations(ctx context.Context, tenantID string, f ConfigFilter, req listquery.Request) ([]store.TargetConfiguration, int, listquery.Request, error)
+	PageTargets(ctx context.Context, tenantID string, req listquery.Request) ([]store.DeploymentTarget, int, listquery.Request, error)
+	PageJobs(ctx context.Context, tenantID string, f JobFilter, req listquery.Request) ([]store.DeploymentJob, int, listquery.Request, error)
+	PageChildJobs(ctx context.Context, tenantID, parentID string, req listquery.Request) ([]store.DeploymentJob, int, listquery.Request, error)
+	PageHistory(ctx context.Context, tenantID, jobID string, req listquery.Request) ([]store.DeploymentHistory, int, listquery.Request, error)
+	// TargetConfigurationIDsFor batch-loads the attached configuration ids of
+	// several targets (one query; targets without links are absent).
+	TargetConfigurationIDsFor(ctx context.Context, tenantID string, targetIDs []string) (map[string][]string, error)
+
 	Close()
 }
 
@@ -71,7 +87,8 @@ type ConfigFilter struct {
 	Status       string
 }
 
-// JobFilter selects jobs.
+// JobFilter selects jobs. ListJobs and PageJobs apply Status, TriggeredBy,
+// CertificateID, ParentJobID, JobType and TargetID; Limit bounds ListJobs only.
 type JobFilter struct {
 	TargetID        string
 	ConfigurationID string
@@ -84,4 +101,10 @@ type JobFilter struct {
 	Until           time.Time
 	Limit           int
 	CursorID        string
+}
+
+// Conds is the store form of the filter.
+func (f JobFilter) Conds() store.JobConds {
+	return store.JobConds{Status: f.Status, TriggeredBy: f.TriggeredBy, CertificateID: f.CertificateID,
+		ParentJobID: f.ParentJobID, JobType: f.JobType, TargetID: f.TargetID}
 }

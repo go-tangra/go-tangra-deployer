@@ -1,41 +1,30 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import type { ListParams, ListQueryOptions } from '@go-tangra/ui'
 import { api } from '@/api/client'
 import type { Target, TargetInput } from '@/api/types'
+import { pagedList } from '@/stores/paged'
+
+/** Sortable fields of GET /targets (server Spec store.TargetList). */
+export const TARGET_SORTS = ['name', 'created_at'] as const
+export const TARGET_LIST: ListQueryOptions = { sortable: [...TARGET_SORTS], defaultSort: { key: 'name', dir: 'asc' }, defaultSize: 25 }
+const FIRST_PAGE: ListParams = { page: 1, page_size: 25, sort: 'name', order: 'asc' }
 
 export const useTargets = defineStore('deployer-targets', () => {
-  const items = ref<Target[]>([])
-  const loading = ref(false)
-  const error = ref('')
-
-  async function list(): Promise<void> {
-    loading.value = true
-    error.value = ''
-    try {
-      const res = await api<{ items: Target[] }>('GET', 'targets')
-      items.value = res.items ?? []
-    } catch (e) {
-      error.value = (e as Error).message
-    } finally {
-      loading.value = false
-    }
-  }
+  const paged = pagedList<Target, Record<string, string | undefined>>('targets', FIRST_PAGE)
 
   async function create(input: TargetInput): Promise<Target> {
-    const t = await api<Target>('POST', 'targets', input)
-    items.value = [t, ...items.value]
-    return t
+    return api<Target>('POST', 'targets', input)
   }
 
   async function update(id: string, input: TargetInput): Promise<Target> {
     const t = await api<Target>('PUT', 'targets/' + id, input)
-    items.value = items.value.map((x) => (x.id === id ? t : x))
+    paged.items.value = paged.items.value.map((x) => (x.id === id ? t : x))
     return t
   }
 
   async function remove(id: string): Promise<void> {
     await api('POST', 'targets/' + id + '/remove')
-    items.value = items.value.filter((x) => x.id !== id)
+    paged.items.value = paged.items.value.filter((x) => x.id !== id)
   }
 
   async function attach(id: string, configurationIds: string[], overrides?: Record<string, Record<string, unknown>>): Promise<void> {
@@ -46,5 +35,5 @@ export const useTargets = defineStore('deployer-targets', () => {
     await api('POST', 'targets/' + id + '/configurations/remove', { configuration_ids: configurationIds })
   }
 
-  return { items, loading, error, list, create, update, remove, attach, detach }
+  return { ...paged, create, update, remove, attach, detach }
 })

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { UiPage, UiAlert, UiCard, UiButton, UiDataTable, UiStatusChip, UiDrawer, UiForm, UiInput, UiTextarea, UiSwitch, UiCheckbox, UiSection, useConfirm, type Column } from '@go-tangra/ui'
+import { computed, onMounted, ref, watch } from 'vue'
+import { UiPage, UiAlert, UiCard, UiButton, UiDataTable, UiStatusChip, UiDrawer, UiForm, UiInput, UiTextarea, UiSwitch, UiCheckbox, UiSection, useConfirm, useListQuery, type Column } from '@go-tangra/ui'
 import { useZodForm } from '@go-tangra/ui/forms'
-import { useTargets } from '@/stores/targets'
+import { TARGET_LIST, useTargets } from '@/stores/targets'
 import { useConfigurations } from '@/stores/configurations'
 import { describe } from '@/api/client'
 import { targetSchema } from '@/schemas'
@@ -14,9 +14,16 @@ const confirm = useConfirm()
 const drawer = ref(false)
 const selected = ref<Target | null>(null)
 const error = ref('')
+// Server paging and sorting (page / size / sort in the URL: ?targets.page=…).
+const lq = useListQuery('targets', TARGET_LIST)
+async function load(): Promise<void> {
+  const res = await store.list({}, lq.query.value)
+  if (res?.page) lq.clampTo(res.page) // a page beyond the end answers the last page
+}
+watch(lq.query, () => void load())
 onMounted(() => {
-  void store.list()
-  void configs.list()
+  void load()
+  void configs.loadOptions() // every configuration, for the attachment picker
 })
 
 const form = useZodForm(targetSchema, {
@@ -33,7 +40,7 @@ const form = useZodForm(targetSchema, {
   },
   onSuccess: () => {
     drawer.value = false
-    void store.list()
+    void load()
   },
 })
 const filters = computed(() => (form.values.certificate_filters ?? []) as Record<string, string>[])
@@ -58,16 +65,18 @@ async function remove(): Promise<void> {
   try {
     await store.remove(selected.value.id)
     drawer.value = false
-    void store.list()
+    void load()
   } catch (e) {
     error.value = describe(e)
   }
 }
+// Only the server's sort fields (TARGET_LIST) are sortable.
 const columns: Column<Target>[] = [
   { key: 'name', label: 'Name', sortable: true },
   { key: 'auto_deploy', label: 'Auto-deploy', width: 'sm', format: (t) => (t.auto_deploy ? 'on' : 'off') },
   { key: 'filters', label: 'Filters', align: 'end', format: (t) => String(t.certificate_filters?.length || 0) },
   { key: 'configurations', label: 'Configurations', align: 'end', format: (t) => String(t.configuration_ids?.length || 0) },
+  { key: 'created_at', label: 'Created', sortable: true, defaultDir: 'desc', hideOnStack: true, format: (t) => (t.created_at ? new Date(t.created_at).toLocaleString() : '') },
 ]
 const filterErr = (i: number, k: string) => form.errors.value[`certificate_filters.${i}.${k}`]
 </script>
@@ -77,7 +86,7 @@ const filterErr = (i: number, k: string) => form.errors.value[`certificate_filte
     <template #actions><UiButton icon="mdi-plus" data-test="target-new" @click="open(null)">New target</UiButton></template>
     <UiAlert v-if="store.error" kind="error" class="mb-3">{{ store.error }}</UiAlert>
     <UiCard :padded="false">
-      <UiDataTable :items="store.items" :columns="columns" :loading="store.loading" caption="Targets" empty-title="No targets yet" clickable :row-attrs="(t) => ({ 'data-test': 'target-row-' + t.id })" data-test="targets-table" @row-click="open">
+      <UiDataTable :items="store.items" :columns="columns" :loading="store.loading" :total="store.total" :page="lq.page.value" :page-size="lq.pageSize.value" :sort="lq.sort.value" caption="Targets" empty-title="No targets yet" clickable :row-attrs="(t) => ({ 'data-test': 'target-row-' + t.id })" data-test="targets-table" @row-click="open" @update:page="lq.setPage" @update:page-size="lq.setPageSize" @update:sort="lq.setSort">
         <template #cell-auto_deploy="{ row }"><UiStatusChip :status="row.auto_deploy ? 'on' : 'off'" :colors="{ on: 'success', off: 'neutral' }" /></template>
       </UiDataTable>
     </UiCard>
@@ -101,8 +110,8 @@ const filterErr = (i: number, k: string) => form.errors.value[`certificate_filte
             <UiButton size="sm" variant="soft" icon="mdi-plus" @click="addFilter">Add filter</UiButton>
           </UiSection>
           <UiSection title="Attached configurations">
-            <p v-if="!configs.items.length" class="text-sm text-base-content/70">No configurations yet.</p>
-            <UiCheckbox v-for="c in configs.items" :id="'cfg-' + c.id" :key="c.id" :model-value="attached.includes(c.id)" :label="c.name + ' (' + c.provider_type + ')'" data-test="target-configs" @update:model-value="toggleConfig(c.id, $event)" />
+            <p v-if="!configs.options.length" class="text-sm text-base-content/70">No configurations yet.</p>
+            <UiCheckbox v-for="c in configs.options" :id="'cfg-' + c.id" :key="c.id" :model-value="attached.includes(c.id)" :label="c.name + ' (' + c.provider_type + ')'" data-test="target-configs" @update:model-value="toggleConfig(c.id, $event)" />
             <UiTextarea v-bind="form.field('overrides')" label="Per-config overrides (JSON: {configId: {...}})" :rows="3" hint="Config overlay only — never credentials. Applied to newly attached configs." class="mt-2" />
           </UiSection>
         </div>

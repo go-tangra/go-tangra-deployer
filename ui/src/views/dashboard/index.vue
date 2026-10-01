@@ -6,23 +6,29 @@ import { useJobs } from '@/stores/jobs'
 import { useStats } from '@/stores/stats'
 import { UiPage, UiCard, UiStatGrid, UiStatTile, UiBarList, UiDataTable, type BarItem, type Column } from '@go-tangra/ui'
 
-// The /statistics endpoint is a later increment (US5); until then the dashboard
-// derives its figures from the tenant's targets, configurations and recent jobs.
+// Figures come from the tenant statistics snapshot; when it is unavailable the
+// dashboard falls back to the list totals and the most recent page of jobs
+// (the lists are server-paged, so their rows are one page, not everything).
 const targets = useTargets()
 const configs = useConfigurations()
 const jobs = useJobs()
 const stats = useStats()
 
+// Explicit first pages: the stores are shared with the list views, whose
+// filter and page must not leak into the dashboard fallback.
 onMounted(() => {
-  void targets.list()
-  void configs.list()
-  void jobs.list()
+  void targets.list({}, { page: 1, page_size: 25, sort: 'name', order: 'asc' })
+  void configs.list({}, { page: 1, page_size: 25, sort: 'name', order: 'asc' })
+  void jobs.list({}, { page: 1, page_size: 25, sort: 'created_at', order: 'desc' })
   void stats.load()
 })
 
-const autoDeploy = computed(() => targets.items.filter((t) => t.auto_deploy).length)
+const targetsTotal = computed(() => stats.snapshot?.targets_total ?? targets.total)
+const configsTotal = computed(() => stats.snapshot?.configurations_total ?? configs.total)
+const autoDeploy = computed(() => stats.snapshot?.auto_deploy_targets ?? targets.items.filter((t) => t.auto_deploy).length)
 
 const byStatus = computed(() => {
+  if (stats.snapshot?.jobs_by_status) return stats.snapshot.jobs_by_status
   const m: Record<string, number> = {}
   for (const j of jobs.items) m[j.status] = (m[j.status] ?? 0) + 1
   return m
@@ -40,8 +46,11 @@ const successRate = computed(() => {
 const recentErrors = computed(() => stats.snapshot?.recent_errors ?? [])
 
 const byProvider = computed(() => {
-  const m: Record<string, number> = {}
-  for (const c of configs.items) m[c.provider_type] = (m[c.provider_type] ?? 0) + 1
+  let m: Record<string, number> = stats.snapshot?.configurations_by_provider ?? {}
+  if (!stats.snapshot) {
+    m = {}
+    for (const c of configs.items) m[c.provider_type] = (m[c.provider_type] ?? 0) + 1
+  }
   return Object.entries(m).sort((a, b) => b[1] - a[1])
 })
 
@@ -54,8 +63,8 @@ const errorColumns: Column<(typeof errorRows.value)[number]>[] = [{ key: 'at', l
 <template>
   <UiPage title="Deployer">
     <UiStatGrid class="mb-4" :cols="4">
-      <UiStatTile title="Targets" :value="targets.items.length" icon="mdi-target" color="primary" />
-      <UiStatTile title="Configurations" :value="configs.items.length" icon="mdi-cog-outline" color="info" />
+      <UiStatTile title="Targets" :value="targetsTotal" icon="mdi-target" color="primary" />
+      <UiStatTile title="Configurations" :value="configsTotal" icon="mdi-cog-outline" color="info" />
       <UiStatTile title="Auto-deploy targets" :value="autoDeploy" icon="mdi-autorenew" color="success" />
       <UiStatTile title="Recent success rate" :value="successRate" icon="mdi-check-decagram" color="accent" subtitle="last 24h" />
     </UiStatGrid>

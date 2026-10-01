@@ -26,18 +26,158 @@ components:
       in: path
       required: true
       schema: { type: string, maxLength: 64 }
+    # List contract (go-tangra specs/032-server-side-tables, contracts/http-list.md).
+    page:
+      name: page
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 2147483647 }
+    pageSize:
+      name: page_size
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 200 }
+    order:
+      name: order
+      in: query
+      required: false
+      description: 'sort direction; defaults to the chosen field''s default direction'
+      schema: { type: string, enum: [asc, desc] }
   schemas:
     Error:
       type: object
       properties:
         reason: { type: string }
         detail: { type: object }
+    Uuid:
+      type: string
+      pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+    Configuration:
+      type: object
+      required: [id, name, description, provider_type, config, has_credentials, status, status_message, created_at, updated_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        provider_type: { type: string }
+        config: { type: object, additionalProperties: true }
+        has_credentials: { type: boolean }
+        status: { type: string }
+        status_message: { type: string }
+        last_deployment_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ConfigurationPage:
+      type: object
+      required: [items, total, page, page_size, sort, order]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Configuration' } }
+        total: { type: integer }
+        page: { type: integer, description: 'the page returned (a page beyond the end answers the last page)' }
+        page_size: { type: integer }
+        sort: { type: string, enum: [name, provider_type, status, created_at] }
+        order: { type: string, enum: [asc, desc] }
+    CertificateFilter:
+      type: object
+      additionalProperties: true
+    Target:
+      type: object
+      required: [id, name, description, auto_deploy, certificate_filters, configuration_ids]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        auto_deploy: { type: boolean }
+        certificate_filters: { type: array, items: { $ref: '#/components/schemas/CertificateFilter' } }
+        configuration_ids: { type: array, items: { type: string } }
+        created_at: { type: string, format: date-time }
+    TargetPage:
+      type: object
+      required: [items, total, page, page_size, sort, order]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Target' } }
+        total: { type: integer }
+        page: { type: integer, description: 'the page returned (a page beyond the end answers the last page)' }
+        page_size: { type: integer }
+        sort: { type: string, enum: [name, created_at] }
+        order: { type: string, enum: [asc, desc] }
+    Job:
+      type: object
+      required: [id, type, certificate_id, status, progress, retry_count, max_retries, triggered_by, created_at]
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [parent, child, direct] }
+        deployment_target_id: { type: string }
+        target_configuration_id: { type: string }
+        parent_job_id: { type: string }
+        certificate_id: { type: string }
+        certificate_serial: { type: string }
+        status: { type: string }
+        status_message: { type: string }
+        progress: { type: integer }
+        retry_count: { type: integer }
+        max_retries: { type: integer }
+        triggered_by: { type: string }
+        created_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time }
+    JobPage:
+      type: object
+      required: [items, total, page, page_size, sort, order]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Job' } }
+        total: { type: integer }
+        page: { type: integer, description: 'the page returned (a page beyond the end answers the last page)' }
+        page_size: { type: integer }
+        sort: { type: string, enum: [created_at, status, job_type, completed_at] }
+        order: { type: string, enum: [asc, desc] }
+    ChildJobPage:
+      type: object
+      required: [items, total, page, page_size, sort, order]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Job' } }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+        sort: { type: string, enum: [created_at] }
+        order: { type: string, enum: [asc, desc] }
+    HistoryEntry:
+      type: object
+      required: [action, result, duration_ms, created_at]
+      properties:
+        id: { type: string }
+        action: { type: string }
+        result: { type: string }
+        message: { type: string }
+        duration_ms: { type: integer }
+        created_at: { type: string, format: date-time }
+    HistoryPage:
+      type: object
+      required: [items, total, page, page_size, sort, order]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/HistoryEntry' } }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+        sort: { type: string, enum: [created_at] }
+        order: { type: string, enum: [asc, desc] }
 paths:
   /api/deployer/v1/providers:
     get: { operationId: listProviders, x-freya-permission: 'configurations:read', responses: { '200': { description: provider catalogue } } }
 
   /api/deployer/v1/configurations:
-    get: { operationId: listConfigurations, x-freya-permission: 'configurations:read', responses: { '200': { description: list } } }
+    get:
+      operationId: listConfigurations
+      x-freya-permission: 'configurations:read'
+      parameters:
+        - { $ref: '#/components/parameters/page' }
+        - { $ref: '#/components/parameters/pageSize' }
+        - { name: sort, in: query, description: 'default name (asc)', schema: { type: string, enum: [name, provider_type, status, created_at] } }
+        - { $ref: '#/components/parameters/order' }
+        - { name: provider_type, in: query, schema: { type: string, maxLength: 64 } }
+        - { name: status, in: query, schema: { type: string, maxLength: 32 } }
+      responses:
+        '200': { description: 'page of configurations', content: { application/json: { schema: { $ref: '#/components/schemas/ConfigurationPage' } } } }
+        '422': { description: 'invalid list parameter (detail.param)', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
     post: { operationId: createConfiguration, x-freya-permission: 'configurations:manage', parameters: [{ $ref: '#/components/parameters/csrf' }], responses: { '201': { description: created } } }
   /api/deployer/v1/configurations/validate:
     post: { operationId: validateCredentials, x-freya-permission: 'configurations:manage', x-freya-timeout-seconds: 30, parameters: [{ $ref: '#/components/parameters/csrf' }], responses: { '200': { description: 'validation result' } } }
@@ -48,7 +188,17 @@ paths:
     post: { operationId: deleteConfiguration, x-freya-permission: 'configurations:manage', parameters: [{ $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/id' }], responses: { '204': { description: deleted } } }
 
   /api/deployer/v1/targets:
-    get: { operationId: listTargets, x-freya-permission: 'targets:read', responses: { '200': { description: list } } }
+    get:
+      operationId: listTargets
+      x-freya-permission: 'targets:read'
+      parameters:
+        - { $ref: '#/components/parameters/page' }
+        - { $ref: '#/components/parameters/pageSize' }
+        - { name: sort, in: query, description: 'default name (asc)', schema: { type: string, enum: [name, created_at] } }
+        - { $ref: '#/components/parameters/order' }
+      responses:
+        '200': { description: 'page of targets', content: { application/json: { schema: { $ref: '#/components/schemas/TargetPage' } } } }
+        '422': { description: 'invalid list parameter (detail.param)', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
     post: { operationId: createTarget, x-freya-permission: 'targets:manage', parameters: [{ $ref: '#/components/parameters/csrf' }], responses: { '201': { description: created } } }
   /api/deployer/v1/targets/{id}:
     get: { operationId: getTarget, x-freya-permission: 'targets:read', parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: target }, '404': { description: not_found } } }
@@ -73,9 +223,53 @@ paths:
     post: { operationId: rollbackDeployment, x-freya-permission: 'deploy:execute', x-freya-timeout-seconds: 60, parameters: [{ $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/jobId' }], responses: { '200': { description: 'rollback result' } } }
 
   /api/deployer/v1/jobs:
-    get: { operationId: listJobs, x-freya-permission: 'jobs:read', responses: { '200': { description: list } } }
+    get:
+      operationId: listJobs
+      x-freya-permission: 'jobs:read'
+      parameters:
+        - { $ref: '#/components/parameters/page' }
+        - { $ref: '#/components/parameters/pageSize' }
+        - { name: sort, in: query, description: 'default created_at (desc)', schema: { type: string, enum: [created_at, status, job_type, completed_at] } }
+        - { $ref: '#/components/parameters/order' }
+        - { name: status, in: query, schema: { type: string, maxLength: 32 } }
+        - { name: triggered_by, in: query, schema: { type: string, maxLength: 32 } }
+        - { name: certificate_id, in: query, schema: { type: string, maxLength: 64 } }
+        - { name: job_type, in: query, schema: { type: string, enum: [parent, child, direct] } }
+        - { name: parent_job_id, in: query, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: target_id, in: query, schema: { $ref: '#/components/schemas/Uuid' } }
+      responses:
+        '200': { description: 'page of jobs (newest first by default)', content: { application/json: { schema: { $ref: '#/components/schemas/JobPage' } } } }
+        '422': { description: 'invalid list parameter (detail.param)', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /api/deployer/v1/jobs/{id}:
     get: { operationId: getJob, x-freya-permission: 'jobs:read', parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: job }, '404': { description: not_found } } }
+  /api/deployer/v1/jobs/{id}/children:
+    get:
+      operationId: listJobChildren
+      x-freya-permission: 'jobs:read'
+      parameters:
+        - { $ref: '#/components/parameters/id' }
+        - { $ref: '#/components/parameters/page' }
+        - { $ref: '#/components/parameters/pageSize' }
+        - { name: sort, in: query, description: 'default created_at (desc)', schema: { type: string, enum: [created_at] } }
+        - { $ref: '#/components/parameters/order' }
+      responses:
+        '200': { description: 'page of a parent job''s child jobs', content: { application/json: { schema: { $ref: '#/components/schemas/ChildJobPage' } } } }
+        '404': { description: not_found }
+        '422': { description: 'invalid list parameter (detail.param)', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/deployer/v1/jobs/{id}/history:
+    get:
+      operationId: listJobHistory
+      x-freya-permission: 'jobs:read'
+      parameters:
+        - { $ref: '#/components/parameters/id' }
+        - { $ref: '#/components/parameters/page' }
+        - { $ref: '#/components/parameters/pageSize' }
+        - { name: sort, in: query, description: 'default created_at (desc)', schema: { type: string, enum: [created_at] } }
+        - { $ref: '#/components/parameters/order' }
+      responses:
+        '200': { description: 'page of a job''s deployment history', content: { application/json: { schema: { $ref: '#/components/schemas/HistoryPage' } } } }
+        '404': { description: not_found }
+        '422': { description: 'invalid list parameter (detail.param)', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /api/deployer/v1/jobs/{id}/result:
     get: { operationId: getJobResult, x-freya-permission: 'jobs:read', parameters: [{ $ref: '#/components/parameters/id' }], responses: { '200': { description: 'result + history' } } }
   /api/deployer/v1/jobs/{id}/cancel:
