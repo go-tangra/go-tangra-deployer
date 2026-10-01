@@ -77,8 +77,8 @@ func TestDeployHappyPath(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, _ := provider.Get("cloudflare")
-	config := map[string]any{"zone_id": "zone123", "api_base": srv.URL}
+	p := Provider{apiBase: srv.URL}
+	config := map[string]any{"zone_id": "zone123"}
 	creds := map[string]any{"api_token": testToken}
 
 	var lastPct int
@@ -127,8 +127,8 @@ func TestDeployFailure(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, _ := provider.Get("cloudflare")
-	config := map[string]any{"zone_id": "zone123", "api_base": srv.URL}
+	p := Provider{apiBase: srv.URL}
+	config := map[string]any{"zone_id": "zone123"}
 	creds := map[string]any{"api_token": testToken}
 
 	res, err := p.Deploy(context.Background(), testCert(), config, creds, nil)
@@ -153,8 +153,8 @@ func TestVerifyHappyPath(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, _ := provider.Get("cloudflare")
-	config := map[string]any{"zone_id": "zone123", "api_base": srv.URL}
+	p := Provider{apiBase: srv.URL}
+	config := map[string]any{"zone_id": "zone123"}
 	creds := map[string]any{"api_token": testToken}
 
 	res, err := p.Verify(context.Background(), testCert(), config, creds)

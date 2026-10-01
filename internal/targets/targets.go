@@ -11,6 +11,7 @@ import (
 	"github.com/go-tangra/go-tangra/v4/listquery"
 
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
@@ -190,6 +191,9 @@ func (s *Service) Attach(ctx context.Context, subj authz.Subjects, id string, co
 	if err := rejectCredentialKeys(overrides); err != nil {
 		return err
 	}
+	if err := s.checkOverrides(ctx, subj.TenantID, overrides); err != nil {
+		return err
+	}
 	t, err := s.st.GetTarget(ctx, subj.TenantID, id)
 	if err != nil {
 		return mapNF(err)
@@ -218,6 +222,30 @@ func (s *Service) Detach(ctx context.Context, subj authz.Subjects, id string, co
 		return mapNF(err)
 	}
 	return mapNF(s.st.DetachConfigurations(ctx, subj.TenantID, id, configIDs))
+}
+
+// checkOverrides applies the save-time configuration policy to each override:
+// no redirect keys, no credential headers (provider.CheckConfig) and, when the
+// overridden configuration exists, its provider's own checks. The refusal
+// names the field, never the value.
+func (s *Service) checkOverrides(ctx context.Context, tenantID string, overrides map[string]map[string]any) error {
+	for cid, ov := range overrides {
+		var err error
+		if fe := provider.CheckConfig(ov); fe != nil {
+			err = fe
+		} else if c, gerr := s.st.GetConfiguration(ctx, tenantID, cid); gerr == nil {
+			err = provider.ValidateConfig(c.ProviderType, ov)
+		}
+		if err == nil {
+			continue
+		}
+		var fe *provider.FieldError
+		if errors.As(err, &fe) {
+			return invalid("config_overrides."+fe.Field, fe.Msg)
+		}
+		return invalid("config_overrides", "override rejected by the provider")
+	}
+	return nil
 }
 
 // rejectCredentialKeys refuses overrides containing credential-shaped keys.

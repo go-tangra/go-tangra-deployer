@@ -9,6 +9,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/go-tangra/go-tangra/v4/listquery"
@@ -62,6 +64,10 @@ type Service struct {
 	pub  Publisher
 	cfg  Config
 	now  func() time.Time
+	log  *slog.Logger
+	// warned remembers configuration ids already warned about disallowed
+	// stored settings (one WARN per configuration per process).
+	warned sync.Map
 }
 
 // New builds the service.
@@ -77,6 +83,9 @@ func New(st repo.Store, az *authz.Authorizer, cert CertFetcher, cred CredOpener,
 
 // SetClock injects the clock (tests).
 func (s *Service) SetClock(now func() time.Time) { s.now = now }
+
+// SetLogger sets the logger for deploy-time warnings (default slog.Default()).
+func (s *Service) SetLogger(l *slog.Logger) { s.log = l }
 
 // View is a job as returned to clients.
 type View struct {

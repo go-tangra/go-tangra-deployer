@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -26,7 +27,17 @@ import (
 func init() { provider.Register(Provider{}) }
 
 // Provider imports certificates into AWS Certificate Manager.
-type Provider struct{}
+//
+// endpoint is a test-only override of the ACM endpoint. It is deliberately
+// unexported and never read from a configuration: a stored configuration that
+// could set it would send the SigV4-signed request (and the session token) of
+// someone else's sealed credentials to an arbitrary host. The registered
+// provider always talks to the regional AWS endpoint. transport is likewise a
+// test-only hook (nil = the default transport).
+type Provider struct {
+	endpoint  string
+	transport http.RoundTripper
+}
 
 // Capabilities describes the ACM provider.
 func (Provider) Capabilities() provider.Capabilities {
@@ -68,11 +79,12 @@ func str(m map[string]any, k string) string {
 	return ""
 }
 
-// endpoint returns the ACM endpoint for the region, overridable via
-// config["endpoint"] so the signing/marshalling can be tested against a mock.
-func endpoint(config map[string]any, region string) string {
-	if e := str(config, "endpoint"); e != "" {
-		return e
+// endpointFor returns the ACM endpoint for the region. Only the test-only
+// Provider.endpoint can change it; config is never consulted (a stored
+// "endpoint" key is ignored, see provider.RedirectKeys).
+func (p Provider) endpointFor(region string) string {
+	if p.endpoint != "" {
+		return p.endpoint
 	}
 	return "https://acm." + region + ".amazonaws.com/"
 }
@@ -83,8 +95,38 @@ func (Provider) ValidateCredentials(_ context.Context, cr, config map[string]any
 	if _, err := credsFrom(cr); err != nil {
 		return err
 	}
-	if str(config, "region") == "" {
-		return fmt.Errorf("region is required")
+	_, err := regionFrom(config)
+	return err
+}
+
+// regionPattern is the AWS region shape (us-east-1, us-gov-west-1,
+// eu-isoe-west-1, ...). The region becomes part of the endpoint host, so a
+// value that is not a plain region (e.g. "evil.example/x?" or "x@evil#") must
+// never reach URL construction: it would move the signed request to another
+// host.
+var regionPattern = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]{1,2}$`)
+
+// regionFrom returns the configured region, refusing a missing or malformed
+// value.
+func regionFrom(config map[string]any) (string, error) {
+	region := str(config, "region")
+	if region == "" {
+		return "", fmt.Errorf("region is required")
+	}
+	if !regionPattern.MatchString(region) {
+		return "", fmt.Errorf("region is not a valid AWS region")
+	}
+	return region, nil
+}
+
+// ValidateConfig is the save-time check (provider.ConfigValidator): a region,
+// when given, must be a well-formed AWS region.
+func (Provider) ValidateConfig(config map[string]any) error {
+	if _, present := config["region"]; !present {
+		return nil
+	}
+	if !regionPattern.MatchString(str(config, "region")) {
+		return &provider.FieldError{Field: "config.region", Msg: "region is not a valid AWS region"}
 	}
 	return nil
 }
@@ -95,9 +137,9 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 	if err != nil {
 		return nil, err
 	}
-	region := str(config, "region")
-	if region == "" {
-		return nil, fmt.Errorf("region is required")
+	region, err := regionFrom(config)
+	if err != nil {
+		return nil, err
 	}
 	if cert.CertificatePEM == "" || cert.PrivateKeyPEM == "" {
 		return nil, fmt.Errorf("certificate and private key are required")
@@ -120,7 +162,7 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 	var out struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	if err := call(ctx, cr, region, endpoint(config, region), "ImportCertificate", body, &out); err != nil {
+	if err := p.call(ctx, cr, region, p.endpointFor(region), "ImportCertificate", body, &out); err != nil {
 		return &provider.Result{Success: false, Message: err.Error()}, nil
 	}
 	note(progress, 100, "imported")
@@ -137,7 +179,10 @@ func (p Provider) Verify(ctx context.Context, cert *provider.CertificateData, co
 	if err != nil {
 		return nil, err
 	}
-	region := str(config, "region")
+	region, err := regionFrom(config)
+	if err != nil {
+		return nil, err
+	}
 	arn := str(config, "certificate_arn")
 	if arn == "" {
 		return &provider.Result{Success: false, Message: "certificate_arn is required to verify"}, nil
@@ -148,7 +193,7 @@ func (p Provider) Verify(ctx context.Context, cert *provider.CertificateData, co
 			Status string `json:"Status"`
 		} `json:"Certificate"`
 	}
-	if err := call(ctx, cr, region, endpoint(config, region), "DescribeCertificate", map[string]string{"CertificateArn": arn}, &out); err != nil {
+	if err := p.call(ctx, cr, region, p.endpointFor(region), "DescribeCertificate", map[string]string{"CertificateArn": arn}, &out); err != nil {
 		return &provider.Result{Success: false, Message: err.Error()}, nil
 	}
 	ok := out.Certificate.Status == "ISSUED" || out.Certificate.Status == ""
@@ -168,7 +213,7 @@ func (Provider) Rollback(context.Context, *provider.CertificateData, map[string]
 // call signs and sends one ACM JSON API request (target CertificateManager.<op>)
 // and decodes a 2xx JSON body into out. Non-2xx yields a client-safe error that
 // never contains the credentials.
-func call(ctx context.Context, cr creds, region, ep, op string, in any, out any) error {
+func (p Provider) call(ctx context.Context, cr creds, region, ep, op string, in any, out any) error {
 	payload, err := json.Marshal(in)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
@@ -184,7 +229,7 @@ func call(ctx context.Context, cr creds, region, ep, op string, in any, out any)
 	}
 	signV4(req, payload, cr, region, "acm", time.Now().UTC())
 
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	resp, err := (&http.Client{Timeout: 30 * time.Second, Transport: p.transport}).Do(req)
 	if err != nil {
 		return fmt.Errorf("acm request failed: %w", err)
 	}

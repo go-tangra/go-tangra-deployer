@@ -178,6 +178,7 @@ func Build(ctx context.Context, cfg config.Config, o Options) (a *App, err error
 		Workers: cfg.Jobs.Workers, Interval: cfg.Interval(), Lease: cfg.Lease(), JobTimeout: cfg.JobTimeout(),
 		MaxRetries: cfg.Jobs.MaxRetries, RetryDelay: cfg.RetryDelay(), Backoff: cfg.Jobs.BackoffMultiplier, Cleanup: cfg.CleanupWindow(),
 	})
+	a.Jobs.SetLogger(a.Log)
 	a.workers = append(a.workers, func(c context.Context) { a.Jobs.Run(c, a.Log) })
 
 	// Auto-deploy: consume certificate.issued/renewed from the shared platform

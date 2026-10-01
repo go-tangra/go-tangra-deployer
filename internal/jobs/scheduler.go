@@ -194,18 +194,51 @@ func (s *Service) publish(ctx context.Context, tenantID, typ string, j store.Dep
 // serve multiple zones/partitions (spec US4). Direct jobs have no parent, so
 // no override applies. Overrides never carry credentials.
 func (s *Service) effectiveConfig(ctx context.Context, j store.DeploymentJob, conf store.TargetConfiguration) map[string]any {
+	return s.sanitize(conf, mergeConfig(conf.Config, s.override(ctx, j, conf)))
+}
+
+// override returns the parent target's override for conf, or nil.
+func (s *Service) override(ctx context.Context, j store.DeploymentJob, conf store.TargetConfiguration) map[string]any {
 	if j.ParentJobID == nil {
-		return mergeConfig(conf.Config, nil)
+		return nil
 	}
 	parent, err := s.st.GetJob(ctx, j.TenantID, *j.ParentJobID)
 	if err != nil || parent.DeploymentTargetID == nil {
-		return mergeConfig(conf.Config, nil)
+		return nil
 	}
 	tgt, err := s.st.GetTarget(ctx, j.TenantID, *parent.DeploymentTargetID)
 	if err != nil {
-		return mergeConfig(conf.Config, nil)
+		return nil
 	}
-	return mergeConfig(conf.Config, tgt.ConfigOverrides[conf.ID])
+	return tgt.ConfigOverrides[conf.ID]
+}
+
+// sanitize drops the redirect keys (provider.RedirectKeys) that rows stored
+// before they were refused may still carry — they must never steer sealed
+// credentials — and warns once per configuration about them and about
+// credential-like custom headers (names only, never values). Stored data is
+// not rewritten.
+func (s *Service) sanitize(conf store.TargetConfiguration, effective map[string]any) map[string]any {
+	ignored := provider.IgnoredKeys(effective)
+	headers := provider.AuthHeaders(effective)
+	if len(ignored) > 0 || len(headers) > 0 {
+		if _, seen := s.warned.LoadOrStore(conf.ID, struct{}{}); !seen {
+			s.logger().Warn("deployer: configuration carries settings that are no longer allowed",
+				"tenant_id", conf.TenantID, "configuration_id", conf.ID, "provider_type", conf.ProviderType,
+				"ignored_keys", ignored, "credential_header_names", headers)
+		}
+	}
+	if len(ignored) == 0 {
+		return effective
+	}
+	return provider.StripRedirectKeys(effective)
+}
+
+func (s *Service) logger() *slog.Logger {
+	if s.log != nil {
+		return s.log
+	}
+	return slog.Default()
 }
 
 // mergeConfig overlays override onto base (override wins). Neither carries creds.

@@ -62,6 +62,10 @@ components:
         provider_type: { type: string }
         config: { type: object, additionalProperties: true }
         has_credentials: { type: boolean }
+        ignored_config_keys:
+          type: array
+          items: { type: string }
+          description: 'Stored settings no longer honoured (endpoint, api_base): ignored at deploy time and refused on save. Names only.'
         status: { type: string }
         status_message: { type: string }
         last_deployment_at: { type: string, format: date-time }

@@ -10,7 +10,7 @@ import (
 
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 
-	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/cloudflare"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/providers/cloudflare"
 )
 
 const errToken = "cf-secret-XYZ-token"
@@ -57,9 +57,8 @@ func TestDeployUpdatesExisting(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, _ := provider.Get("cloudflare")
-	res, err := p.Deploy(context.Background(), errCert(),
-		map[string]any{"zone_id": "z", "api_base": srv.URL}, map[string]any{"api_token": errToken}, nil)
+	res, err := cloudflare.WithTestAPIBase(srv.URL).Deploy(context.Background(), errCert(),
+		map[string]any{"zone_id": "z"}, map[string]any{"api_token": errToken}, nil)
 	if err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
@@ -80,9 +79,8 @@ func TestDeployListError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, _ := provider.Get("cloudflare")
-	res, err := p.Deploy(context.Background(), errCert(),
-		map[string]any{"zone_id": "z", "api_base": srv.URL}, map[string]any{"api_token": errToken}, nil)
+	res, err := cloudflare.WithTestAPIBase(srv.URL).Deploy(context.Background(), errCert(),
+		map[string]any{"zone_id": "z"}, map[string]any{"api_token": errToken}, nil)
 	if err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
@@ -101,9 +99,8 @@ func TestDeployUnparseableResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, _ := provider.Get("cloudflare")
-	res, err := p.Deploy(context.Background(), errCert(),
-		map[string]any{"zone_id": "z", "api_base": srv.URL}, map[string]any{"api_token": errToken}, nil)
+	res, err := cloudflare.WithTestAPIBase(srv.URL).Deploy(context.Background(), errCert(),
+		map[string]any{"zone_id": "z"}, map[string]any{"api_token": errToken}, nil)
 	if err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
@@ -120,9 +117,8 @@ func TestDeployUnsuccessfulNoErrors(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, _ := provider.Get("cloudflare")
-	res, err := p.Deploy(context.Background(), errCert(),
-		map[string]any{"zone_id": "z", "api_base": srv.URL}, map[string]any{"api_token": errToken}, nil)
+	res, err := cloudflare.WithTestAPIBase(srv.URL).Deploy(context.Background(), errCert(),
+		map[string]any{"zone_id": "z"}, map[string]any{"api_token": errToken}, nil)
 	if err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
@@ -149,14 +145,13 @@ func TestVerifyValidationErrors(t *testing.T) {
 
 // TestVerifyNotFoundAndError covers the "not found" and transport-error Verify paths.
 func TestVerifyNotFoundAndError(t *testing.T) {
-	p, _ := provider.Get("cloudflare")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"success":true,"errors":[],"result":[]}`)
 	}))
 	defer srv.Close()
-	res, err := p.Verify(context.Background(), errCert(),
-		map[string]any{"zone_id": "z", "api_base": srv.URL}, map[string]any{"api_token": errToken})
+	res, err := cloudflare.WithTestAPIBase(srv.URL).Verify(context.Background(), errCert(),
+		map[string]any{"zone_id": "z"}, map[string]any{"api_token": errToken})
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
@@ -169,8 +164,8 @@ func TestVerifyNotFoundAndError(t *testing.T) {
 		_, _ = io.WriteString(w, `{"success":false,"errors":[{"code":9109,"message":"bad token"}]}`)
 	}))
 	defer srv2.Close()
-	res, err = p.Verify(context.Background(), errCert(),
-		map[string]any{"zone_id": "z", "api_base": srv2.URL}, map[string]any{"api_token": errToken})
+	res, err = cloudflare.WithTestAPIBase(srv2.URL).Verify(context.Background(), errCert(),
+		map[string]any{"zone_id": "z"}, map[string]any{"api_token": errToken})
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}

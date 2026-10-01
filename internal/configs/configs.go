@@ -61,23 +61,26 @@ type Input struct {
 
 // View is a configuration as returned to clients (credentials redacted).
 type View struct {
-	ID               string         `json:"id"`
-	Name             string         `json:"name"`
-	Description      string         `json:"description"`
-	ProviderType     string         `json:"provider_type"`
-	Config           map[string]any `json:"config"`
-	HasCredentials   bool           `json:"has_credentials"`
-	Status           string         `json:"status"`
-	StatusMessage    string         `json:"status_message"`
-	LastDeploymentAt *time.Time     `json:"last_deployment_at,omitempty"`
-	CreatedAt        time.Time      `json:"created_at"`
-	UpdatedAt        time.Time      `json:"updated_at"`
+	ID             string         `json:"id"`
+	Name           string         `json:"name"`
+	Description    string         `json:"description"`
+	ProviderType   string         `json:"provider_type"`
+	Config         map[string]any `json:"config"`
+	HasCredentials bool           `json:"has_credentials"`
+	// IgnoredConfigKeys names stored settings that are no longer honoured
+	// (provider.RedirectKeys): they are ignored at deploy time. Names only.
+	IgnoredConfigKeys []string   `json:"ignored_config_keys,omitempty"`
+	Status            string     `json:"status"`
+	StatusMessage     string     `json:"status_message"`
+	LastDeploymentAt  *time.Time `json:"last_deployment_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 func view(c store.TargetConfiguration) View {
 	return View{
 		ID: c.ID, Name: c.Name, Description: c.Description, ProviderType: c.ProviderType, Config: c.Config,
-		HasCredentials: len(c.CredentialsSealed) > 0, Status: c.Status, StatusMessage: c.StatusMessage,
+		HasCredentials: len(c.CredentialsSealed) > 0, IgnoredConfigKeys: provider.IgnoredKeys(c.Config), Status: c.Status, StatusMessage: c.StatusMessage,
 		LastDeploymentAt: c.LastDeploymentAt, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
 }
@@ -98,6 +101,9 @@ func (s *Service) Create(ctx context.Context, subj authz.Subjects, in Input) (Vi
 	}
 	if !provider.Exists(in.ProviderType) {
 		return View{}, invalid("provider_type", "unknown provider type")
+	}
+	if err := checkConfig(in.ProviderType, in.Config); err != nil {
+		return View{}, err
 	}
 	id := store.NewID()
 	sealedCreds, err := s.seal(id, in.Credentials)
@@ -181,6 +187,9 @@ func (s *Service) Update(ctx context.Context, subj authz.Subjects, id string, in
 	}
 	c.Description = in.Description
 	if in.Config != nil {
+		if err := checkConfig(c.ProviderType, in.Config); err != nil {
+			return View{}, err
+		}
 		c.Config = in.Config
 	}
 	if len(in.Credentials) > 0 {
@@ -216,6 +225,9 @@ func (s *Service) Validate(ctx context.Context, subj authz.Subjects, providerTyp
 	if err != nil {
 		return invalid("provider_type", "unknown provider type")
 	}
+	if err := checkConfig(providerType, config); err != nil {
+		return err
+	}
 	if verr := p.ValidateCredentials(ctx, creds, config); verr != nil {
 		return &ValidationError{Field: "credentials", Msg: "credentials rejected by the provider"}
 	}
@@ -237,6 +249,21 @@ func (s *Service) OpenCredentials(c store.TargetConfiguration) (map[string]any, 
 		return nil, err
 	}
 	return m, nil
+}
+
+// checkConfig applies the save-time configuration policy (provider.CheckConfig
+// plus the provider's own ConfigValidator) and maps a refusal to a
+// ValidationError naming the field. Values are never echoed.
+func checkConfig(providerType string, config map[string]any) error {
+	err := provider.ValidateConfig(providerType, config)
+	if err == nil {
+		return nil
+	}
+	var fe *provider.FieldError
+	if errors.As(err, &fe) {
+		return invalid(fe.Field, fe.Msg)
+	}
+	return invalid("config", "configuration rejected by the provider")
 }
 
 func (s *Service) seal(id string, creds map[string]any) ([]byte, error) {

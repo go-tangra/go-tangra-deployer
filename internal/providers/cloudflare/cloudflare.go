@@ -27,7 +27,16 @@ func init() { provider.Register(Provider{}) }
 const defaultAPIBase = "https://api.cloudflare.com/client/v4"
 
 // Provider uploads custom SSL certificates to a Cloudflare zone.
-type Provider struct{}
+//
+// apiBase is a test-only override of the API base URL. It is deliberately
+// unexported and never read from a configuration: a stored configuration that
+// could set it would send someone else's sealed API token to an arbitrary
+// host. The registered provider always talks to the real Cloudflare API.
+// transport is likewise a test-only hook (nil = the default transport).
+type Provider struct {
+	apiBase   string
+	transport http.RoundTripper
+}
 
 // Capabilities describes the Cloudflare provider.
 func (Provider) Capabilities() provider.Capabilities {
@@ -52,13 +61,16 @@ func note(p provider.ProgressFn, pct int, msg string) {
 	}
 }
 
-func httpClient() *http.Client { return &http.Client{Timeout: 60 * time.Second} }
+func (p Provider) httpClient() *http.Client {
+	return &http.Client{Timeout: 60 * time.Second, Transport: p.transport}
+}
 
-// apiBase returns the Cloudflare API base URL, overridable via config["api_base"]
-// so tests can target an httptest.Server. Falls back to the real API.
-func apiBase(config map[string]any) string {
-	if s, ok := config["api_base"].(string); ok && s != "" {
-		return s
+// base returns the Cloudflare API base URL. Only the test-only
+// Provider.apiBase can change it; config is never consulted (a stored
+// "api_base" key is ignored, see provider.RedirectKeys).
+func (p Provider) base() string {
+	if p.apiBase != "" {
+		return p.apiBase
 	}
 	return defaultAPIBase
 }
@@ -93,7 +105,7 @@ func (e cfEnvelope) clientError(status int) string {
 // standard envelope. It returns the envelope and a client-safe error. The
 // api_token is used only for the Authorization header and never appears in
 // returned errors.
-func call(ctx context.Context, method, url, apiToken string, body []byte) (cfEnvelope, error) {
+func (p Provider) call(ctx context.Context, method, url, apiToken string, body []byte) (cfEnvelope, error) {
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
@@ -105,7 +117,7 @@ func call(ctx context.Context, method, url, apiToken string, body []byte) (cfEnv
 	req.Header.Set("Authorization", "Bearer "+apiToken)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := httpClient().Do(req)
+	resp, err := p.httpClient().Do(req)
 	if err != nil {
 		return cfEnvelope{}, fmt.Errorf("cloudflare request failed: %w", err)
 	}
@@ -124,9 +136,9 @@ func call(ctx context.Context, method, url, apiToken string, body []byte) (cfEnv
 
 // findExistingCert returns the ID of a custom certificate whose hosts include
 // hostname, or "" when none exists.
-func findExistingCert(ctx context.Context, base, apiToken, zoneID, hostname string) (string, error) {
+func (p Provider) findExistingCert(ctx context.Context, base, apiToken, zoneID, hostname string) (string, error) {
 	url := fmt.Sprintf("%s/zones/%s/custom_certificates", base, zoneID)
-	env, err := call(ctx, http.MethodGet, url, apiToken, nil)
+	env, err := p.call(ctx, http.MethodGet, url, apiToken, nil)
 	if err != nil {
 		return "", err
 	}
@@ -149,7 +161,7 @@ func findExistingCert(ctx context.Context, base, apiToken, zoneID, hostname stri
 
 // putCert uploads (POST) a new certificate or updates (PATCH) an existing one,
 // returning the resulting certificate ID.
-func putCert(ctx context.Context, base, apiToken, zoneID, certID, certBundle, privateKey string) (string, error) {
+func (p Provider) putCert(ctx context.Context, base, apiToken, zoneID, certID, certBundle, privateKey string) (string, error) {
 	payload, err := json.Marshal(map[string]any{
 		"certificate":   certBundle,
 		"private_key":   privateKey,
@@ -164,7 +176,7 @@ func putCert(ctx context.Context, base, apiToken, zoneID, certID, certBundle, pr
 		method = http.MethodPatch
 		url = fmt.Sprintf("%s/zones/%s/custom_certificates/%s", base, zoneID, certID)
 	}
-	env, err := call(ctx, method, url, apiToken, payload)
+	env, err := p.call(ctx, method, url, apiToken, payload)
 	if err != nil {
 		return "", err
 	}
@@ -190,7 +202,7 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 	if cert == nil || cert.CertificatePEM == "" || cert.PrivateKeyPEM == "" {
 		return nil, fmt.Errorf("certificate and private key are required")
 	}
-	base := apiBase(config)
+	base := p.base()
 
 	note(progress, 10, "preparing certificate bundle")
 	certBundle := cert.CertificatePEM
@@ -199,7 +211,7 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 	}
 
 	note(progress, 30, "checking for existing certificate")
-	existingID, err := findExistingCert(ctx, base, apiToken, zoneID, cert.CommonName)
+	existingID, err := p.findExistingCert(ctx, base, apiToken, zoneID, cert.CommonName)
 	if err != nil {
 		return &provider.Result{Success: false, Message: err.Error()}, nil
 	}
@@ -209,7 +221,7 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 	} else {
 		note(progress, 50, "uploading new certificate")
 	}
-	resourceID, err := putCert(ctx, base, apiToken, zoneID, existingID, certBundle, cert.PrivateKeyPEM)
+	resourceID, err := p.putCert(ctx, base, apiToken, zoneID, existingID, certBundle, cert.PrivateKeyPEM)
 	if err != nil {
 		return &provider.Result{Success: false, Message: err.Error()}, nil
 	}
@@ -239,9 +251,9 @@ func (p Provider) Verify(ctx context.Context, cert *provider.CertificateData, co
 	if cert == nil {
 		return nil, fmt.Errorf("certificate data is required")
 	}
-	base := apiBase(config)
+	base := p.base()
 
-	certID, err := findExistingCert(ctx, base, apiToken, zoneID, cert.CommonName)
+	certID, err := p.findExistingCert(ctx, base, apiToken, zoneID, cert.CommonName)
 	if err != nil {
 		return &provider.Result{Success: false, Message: err.Error()}, nil
 	}
