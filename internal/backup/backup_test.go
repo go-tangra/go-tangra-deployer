@@ -2,6 +2,8 @@ package backup_test
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
@@ -131,5 +133,61 @@ func TestImportRejectsBadSchema(t *testing.T) {
 	_, err := svc.Import(context.Background(), subjB(), backup.Backup{SchemaVersion: 999}, backup.ModeSkip)
 	if err == nil {
 		t.Fatal("expected bad-schema error")
+	}
+}
+
+// TestImportAppliesConfigPolicy: an import is checked with the same save-time
+// rules as configuration create and target overrides; nothing is written when
+// it is refused.
+func TestImportAppliesConfigPolicy(t *testing.T) {
+	cfgID, credID, openID := store.NewID(), store.NewID(), store.NewID()
+	cases := []struct {
+		name  string
+		b     backup.Backup
+		field string
+	}{
+		{"redirect key in config", backup.Backup{Configurations: []backup.ConfigExport{
+			{ID: cfgID, Name: "a", ProviderType: "aws_acm", Config: map[string]any{"region": "us-east-1", "endpoint": "https://attacker.example"}},
+		}}, "configurations[0].config.endpoint"},
+		{"credential header", backup.Backup{Configurations: []backup.ConfigExport{
+			{ID: cfgID, Name: "a", ProviderType: "webhook", Config: map[string]any{"url": "https://h.example", "headers": map[string]any{"Authorization": "x"}}},
+		}}, "configurations[0].config.headers.Authorization"},
+		{"redirect key in override", backup.Backup{Targets: []backup.TargetExport{
+			{ID: store.NewID(), Name: "t", ConfigOverrides: map[string]map[string]any{cfgID: {"api_base": "https://attacker.example"}}},
+		}}, "targets[0].config_overrides.config.api_base"},
+		{"override moves destination of a config with credentials", backup.Backup{
+			Configurations: []backup.ConfigExport{{ID: credID, Name: "w", ProviderType: "webhook", Config: map[string]any{"url": "https://h.example"}, CredentialsSealed: []byte("SEALED")}},
+			Targets:        []backup.TargetExport{{ID: store.NewID(), Name: "t", ConfigOverrides: map[string]map[string]any{credID: {"url": "https://attacker.example"}}}},
+		}, "targets[0].config_overrides.config.url"},
+		{"override destination for an unknown config", backup.Backup{Targets: []backup.TargetExport{
+			{ID: store.NewID(), Name: "t", ConfigOverrides: map[string]map[string]any{store.NewID(): {"rollback_url": "https://attacker.example"}}},
+		}}, "targets[0].config_overrides.config.rollback_url"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := memstore.New()
+			c.b.SchemaVersion = backup.SchemaVersion
+			_, err := backup.New(m).Import(context.Background(), subjB(), c.b, backup.ModeSkip)
+			var ve *backup.ValidationError
+			if !errors.As(err, &ve) || ve.Field != c.field {
+				t.Fatalf("err = %v, want field %q", err, c.field)
+			}
+			if strings.Contains(ve.Error(), "attacker") {
+				t.Fatalf("error echoes the value: %v", ve)
+			}
+			if rows, _ := m.ListConfigurations(context.Background(), tenantB, repo.ConfigFilter{}); len(rows) != 0 {
+				t.Fatal("refused import wrote configurations")
+			}
+		})
+	}
+
+	// A destination override for an imported configuration without credentials is fine.
+	m := memstore.New()
+	b := backup.Backup{SchemaVersion: backup.SchemaVersion,
+		Configurations: []backup.ConfigExport{{ID: openID, Name: "w", ProviderType: "webhook", Config: map[string]any{"url": "https://h.example"}}},
+		Targets:        []backup.TargetExport{{ID: store.NewID(), Name: "t", ConfigOverrides: map[string]map[string]any{openID: {"url": "https://other.example"}}}},
+	}
+	if _, err := backup.New(m).Import(context.Background(), subjB(), b, backup.ModeSkip); err != nil {
+		t.Fatalf("valid import refused: %v", err)
 	}
 }

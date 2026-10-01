@@ -149,3 +149,55 @@ func TestLegacyOverrideRedirectKeysIgnored(t *testing.T) {
 		t.Fatalf("effective config = %v", got)
 	}
 }
+
+// TestLegacyOverrideDestinationIgnoredWithCredentials: an override stored
+// before the refusal that moves the destination of a configuration holding
+// sealed credentials is ignored at deploy time (one WARN, no values); for a
+// configuration without credentials it still applies.
+func TestLegacyOverrideDestinationIgnoredWithCredentials(t *testing.T) {
+	subj := adminSubj()
+	ctx := context.Background()
+	var logs bytes.Buffer
+
+	run := func(creds map[string]any) map[string]any {
+		m, cs, ds, js := newKit(t)
+		js.SetLogger(slog.New(slog.NewTextHandler(&logs, nil)))
+		cfg, err := cs.Create(ctx, subj, configs.Input{Name: "rec-" + store.NewID(), ProviderType: "test_recorder",
+			Config: map[string]any{"url": "https://hook.example/a"}, Credentials: creds})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tgtID := makeTarget(t, ctx, subj, m, cfg.ID, nil)
+		tgt, _ := m.GetTarget(ctx, subj.TenantID, tgtID)
+		tgt.ConfigOverrides = map[string]map[string]any{cfg.ID: {"url": attacker, "verify_url": attacker, "timeout_seconds": 5.0}}
+		if err := m.UpdateTarget(ctx, tgt); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 2; i++ {
+			if _, err := ds.DeployToTarget(ctx, subj, "cert-1", tgtID, ""); err != nil {
+				t.Fatal(err)
+			}
+			for j := 0; j < 3; j++ {
+				js.Once(ctx, nil)
+			}
+		}
+		return recorderProvider.last()
+	}
+
+	got := run(map[string]any{"token": "s3cr3t"})
+	if got["url"] != "https://hook.example/a" || got["verify_url"] != nil || got["timeout_seconds"] != 5.0 {
+		t.Fatalf("with credentials: effective config = %v", got)
+	}
+	out := logs.String()
+	if n := strings.Count(out, "tries to change the destination"); n != 1 {
+		t.Fatalf("want one warning, got %d:\n%s", n, out)
+	}
+	if strings.Contains(out, "attacker.example") || strings.Contains(out, "s3cr3t") {
+		t.Fatalf("warning leaks values:\n%s", out)
+	}
+
+	got = run(nil)
+	if got["url"] != attacker {
+		t.Fatalf("without credentials the override applies: %v", got)
+	}
+}

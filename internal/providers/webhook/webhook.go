@@ -68,6 +68,20 @@ type endpointResponse struct {
 	Details    map[string]any `json:"details,omitempty"`
 }
 
+// ValidateConfig is the save-time check (provider.ConfigValidator): every
+// destination URL present must be an absolute http(s) URL without user info.
+// http stays allowed for private endpoints.
+func (Provider) ValidateConfig(config map[string]any) error {
+	for _, k := range provider.DestinationKeys {
+		if v, ok := config[k]; ok {
+			if fe := provider.CheckDestinationURL(k, v); fe != nil {
+				return fe
+			}
+		}
+	}
+	return nil
+}
+
 func urlFrom(config map[string]any, key string) string {
 	if s, ok := config[key].(string); ok {
 		return s

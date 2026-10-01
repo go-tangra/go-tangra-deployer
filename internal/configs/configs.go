@@ -190,6 +190,14 @@ func (s *Service) Update(ctx context.Context, subj authz.Subjects, id string, in
 		if err := checkConfig(c.ProviderType, in.Config); err != nil {
 			return View{}, err
 		}
+		// Moving the destination of a configuration that holds sealed
+		// credentials would send them (and the private key) to the new host:
+		// the credentials must be re-entered in the same request.
+		if len(c.CredentialsSealed) > 0 && len(in.Credentials) == 0 {
+			if key, changed := provider.DestinationChange(c.Config, in.Config); changed {
+				return View{}, invalid("config."+key, "credentials must be re-entered when the destination changes")
+			}
+		}
 		c.Config = in.Config
 	}
 	if len(in.Credentials) > 0 {

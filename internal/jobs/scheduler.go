@@ -210,7 +210,18 @@ func (s *Service) override(ctx context.Context, j store.DeploymentJob, conf stor
 	if err != nil {
 		return nil
 	}
-	return tgt.ConfigOverrides[conf.ID]
+	ov := tgt.ConfigOverrides[conf.ID]
+	// Defense in depth for rows stored before the save-time refusal: an
+	// override never moves the destination of a configuration that holds
+	// sealed credentials.
+	if keys := provider.OverrideDestinationKeys(ov); len(keys) > 0 && len(conf.CredentialsSealed) > 0 {
+		if _, seen := s.warned.LoadOrStore("dest:"+tgt.ID+":"+conf.ID, struct{}{}); !seen {
+			s.logger().Warn("deployer: target override tries to change the destination of a configuration with credentials; ignored",
+				"tenant_id", conf.TenantID, "target_id", tgt.ID, "configuration_id", conf.ID, "ignored_keys", keys)
+		}
+		return provider.StripDestinationKeys(ov)
+	}
+	return ov
 }
 
 // sanitize drops the redirect keys (provider.RedirectKeys) that rows stored

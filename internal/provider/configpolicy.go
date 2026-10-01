@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -130,4 +131,103 @@ func clip(s string) string {
 		return s[:64]
 	}
 	return s
+}
+
+// DestinationKeys are configuration keys that name where a provider sends its
+// requests — and with them the sealed credentials and the private key (webhook
+// url / verify_url / rollback_url). Changing them on a configuration that holds
+// sealed credentials requires re-entering the credentials; a target override
+// may not set them for such a configuration.
+var DestinationKeys = []string{"url", "verify_url", "rollback_url"}
+
+// OverrideDestinationKeys returns the destination keys present in an override
+// (sorted). Names only.
+func OverrideDestinationKeys(ov map[string]any) []string {
+	var out []string
+	for _, k := range DestinationKeys {
+		if _, ok := ov[k]; ok {
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// StripDestinationKeys returns a copy of ov without the destination keys.
+func StripDestinationKeys(ov map[string]any) map[string]any {
+	out := make(map[string]any, len(ov))
+	for k, v := range ov {
+		out[k] = v
+	}
+	for _, k := range DestinationKeys {
+		delete(out, k)
+	}
+	return out
+}
+
+// CheckDestinationURL validates one destination URL: absolute http(s) with a
+// host and no embedded user info. http stays allowed (existing private
+// endpoints use it). The value is never echoed.
+func CheckDestinationURL(key string, v any) *FieldError {
+	s, ok := v.(string)
+	if !ok {
+		return &FieldError{Field: "config." + key, Msg: "must be a URL string"}
+	}
+	if s == "" && key != "url" {
+		return nil // optional; falls back to url
+	}
+	u, err := url.Parse(s)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Hostname() == "" {
+		return &FieldError{Field: "config." + key, Msg: "must be an absolute http:// or https:// URL"}
+	}
+	if u.User != nil {
+		return &FieldError{Field: "config." + key, Msg: "must not contain user info; use the sealed credentials"}
+	}
+	return nil
+}
+
+// DestinationChange reports the first destination key whose effective origin
+// (scheme, host, port) differs between the stored and the new configuration.
+// verify_url and rollback_url fall back to url, as the webhook provider does.
+func DestinationChange(stored, next map[string]any) (string, bool) {
+	for _, k := range DestinationKeys {
+		if origin(effectiveDest(stored, k)) != origin(effectiveDest(next, k)) {
+			return k, true
+		}
+	}
+	return "", false
+}
+
+func effectiveDest(m map[string]any, k string) string {
+	if s, _ := m[k].(string); s != "" {
+		return s
+	}
+	if k != "url" {
+		s, _ := m["url"].(string)
+		return s
+	}
+	return ""
+}
+
+// origin normalises a URL to scheme://host:port; unparsable values compare by
+// their raw text so any change still counts as a change.
+func origin(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "raw:" + raw
+	}
+	scheme := strings.ToLower(u.Scheme)
+	port := u.Port()
+	if port == "" {
+		switch scheme {
+		case "http":
+			port = "80"
+		case "https":
+			port = "443"
+		}
+	}
+	return scheme + "://" + strings.ToLower(u.Hostname()) + ":" + port + "|" + u.User.String()
 }

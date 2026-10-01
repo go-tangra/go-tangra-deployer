@@ -38,12 +38,15 @@ func subjects(r *http.Request) (authz.Subjects, error) {
 func failSvc(w http.ResponseWriter, err error) {
 	var ve *configs.ValidationError
 	var tve *targets.ValidationError
+	var bve *backup.ValidationError
 	switch {
 	case errors.As(err, &ve):
 		// The field and the fixed message are client-safe; values never are.
 		WriteDetail(w, ErrValidation, map[string]any{"field": ve.Field, "message": ve.Msg})
 	case errors.As(err, &tve):
 		WriteDetail(w, ErrValidation, map[string]any{"field": tve.Field, "message": tve.Msg})
+	case errors.As(err, &bve):
+		WriteDetail(w, ErrValidation, map[string]any{"field": bve.Field, "message": bve.Msg})
 	case errors.Is(err, authz.ErrForbidden):
 		WriteError(w, http.StatusForbidden, "forbidden")
 	case errors.Is(err, configs.ErrNotFound), errors.Is(err, jobs.ErrNotFound), errors.Is(err, deploy.ErrNotFound), errors.Is(err, targets.ErrNotFound):

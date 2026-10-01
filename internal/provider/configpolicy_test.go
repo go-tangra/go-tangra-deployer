@@ -97,3 +97,56 @@ func (validatingProvider) ValidateConfig(c map[string]any) error {
 	}
 	return nil
 }
+
+func TestDestinationChange(t *testing.T) {
+	base := map[string]any{"url": "https://hook.example/a"}
+	same := []map[string]any{
+		{"url": "https://hook.example/b?x=1"},
+		{"url": "https://HOOK.example:443/a"},
+		{"url": "https://hook.example/a", "verify_url": "https://hook.example/v", "rollback_url": ""},
+	}
+	for _, n := range same {
+		if k, ch := DestinationChange(base, n); ch {
+			t.Errorf("%v: reported change of %s", n, k)
+		}
+	}
+	diff := map[string]map[string]any{
+		"url":          {"url": "https://other.example/a"},
+		"verify_url":   {"url": "https://hook.example/a", "verify_url": "https://other.example/v"},
+		"rollback_url": {"url": "https://hook.example/a", "rollback_url": "http://hook.example/r"},
+	}
+	for want, n := range diff {
+		if k, ch := DestinationChange(base, n); !ch || k != want {
+			t.Errorf("%v: got %q %v, want %q", n, k, ch, want)
+		}
+	}
+	if k, ch := DestinationChange(base, map[string]any{"url": "https://u:p@hook.example/a"}); !ch || k != "url" {
+		t.Error("user info change not detected")
+	}
+	if k, ch := DestinationChange(base, map[string]any{}); !ch || k != "url" {
+		t.Error("removal not detected")
+	}
+}
+
+func TestCheckDestinationURL(t *testing.T) {
+	for _, v := range []any{"https://h.example/x", "http://10.0.0.1:8080/hook"} {
+		if fe := CheckDestinationURL("url", v); fe != nil {
+			t.Errorf("%v refused: %v", v, fe)
+		}
+	}
+	if fe := CheckDestinationURL("verify_url", ""); fe != nil {
+		t.Errorf("empty optional url refused: %v", fe)
+	}
+	for _, v := range []any{"", "ftp://h.example", "/rel", "https://", "https://u:p@h.example", 42, "://bad"} {
+		if fe := CheckDestinationURL("url", v); fe == nil || fe.Field != "config.url" {
+			t.Errorf("%v accepted: %v", v, fe)
+		}
+	}
+	ov := map[string]any{"url": "x", "rollback_url": "y", "timeout_seconds": 3}
+	if got := OverrideDestinationKeys(ov); len(got) != 2 || got[0] != "rollback_url" || got[1] != "url" {
+		t.Fatalf("OverrideDestinationKeys = %v", got)
+	}
+	if s := StripDestinationKeys(ov); len(s) != 1 || ov["url"] != "x" {
+		t.Fatalf("StripDestinationKeys = %v (input %v)", s, ov)
+	}
+}

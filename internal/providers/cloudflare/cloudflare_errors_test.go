@@ -29,13 +29,13 @@ func TestDeployValidationErrors(t *testing.T) {
 	p, _ := provider.Get("cloudflare")
 	ctx := context.Background()
 
-	if _, err := p.Deploy(ctx, errCert(), map[string]any{"zone_id": "z"}, map[string]any{}, nil); err == nil {
+	if _, err := p.Deploy(ctx, errCert(), map[string]any{"zone_id": "0123456789abcdef0123456789abcdef"}, map[string]any{}, nil); err == nil {
 		t.Fatal("expected api_token error")
 	}
 	if _, err := p.Deploy(ctx, errCert(), map[string]any{}, map[string]any{"api_token": errToken}, nil); err == nil {
 		t.Fatal("expected zone_id error")
 	}
-	if _, err := p.Deploy(ctx, &provider.CertificateData{}, map[string]any{"zone_id": "z"}, map[string]any{"api_token": errToken}, nil); err == nil {
+	if _, err := p.Deploy(ctx, &provider.CertificateData{}, map[string]any{"zone_id": "0123456789abcdef0123456789abcdef"}, map[string]any{"api_token": errToken}, nil); err == nil {
 		t.Fatal("expected certificate-material error")
 	}
 }
@@ -58,7 +58,7 @@ func TestDeployUpdatesExisting(t *testing.T) {
 	defer srv.Close()
 
 	res, err := cloudflare.WithTestAPIBase(srv.URL).Deploy(context.Background(), errCert(),
-		map[string]any{"zone_id": "z"}, map[string]any{"api_token": errToken}, nil)
+		map[string]any{"zone_id": "0123456789abcdef0123456789abcdef"}, map[string]any{"api_token": errToken}, nil)
 	if err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestDeployListError(t *testing.T) {
 	defer srv.Close()
 
 	res, err := cloudflare.WithTestAPIBase(srv.URL).Deploy(context.Background(), errCert(),
-		map[string]any{"zone_id": "z"}, map[string]any{"api_token": errToken}, nil)
+		map[string]any{"zone_id": "0123456789abcdef0123456789abcdef"}, map[string]any{"api_token": errToken}, nil)
 	if err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestDeployUnparseableResponse(t *testing.T) {
 	defer srv.Close()
 
 	res, err := cloudflare.WithTestAPIBase(srv.URL).Deploy(context.Background(), errCert(),
-		map[string]any{"zone_id": "z"}, map[string]any{"api_token": errToken}, nil)
+		map[string]any{"zone_id": "0123456789abcdef0123456789abcdef"}, map[string]any{"api_token": errToken}, nil)
 	if err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestDeployUnsuccessfulNoErrors(t *testing.T) {
 	defer srv.Close()
 
 	res, err := cloudflare.WithTestAPIBase(srv.URL).Deploy(context.Background(), errCert(),
-		map[string]any{"zone_id": "z"}, map[string]any{"api_token": errToken}, nil)
+		map[string]any{"zone_id": "0123456789abcdef0123456789abcdef"}, map[string]any{"api_token": errToken}, nil)
 	if err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
@@ -132,13 +132,13 @@ func TestVerifyValidationErrors(t *testing.T) {
 	p, _ := provider.Get("cloudflare")
 	ctx := context.Background()
 
-	if _, err := p.Verify(ctx, errCert(), map[string]any{"zone_id": "z"}, map[string]any{}); err == nil {
+	if _, err := p.Verify(ctx, errCert(), map[string]any{"zone_id": "0123456789abcdef0123456789abcdef"}, map[string]any{}); err == nil {
 		t.Fatal("expected api_token error")
 	}
 	if _, err := p.Verify(ctx, errCert(), map[string]any{}, map[string]any{"api_token": errToken}); err == nil {
 		t.Fatal("expected zone_id error")
 	}
-	if _, err := p.Verify(ctx, nil, map[string]any{"zone_id": "z"}, map[string]any{"api_token": errToken}); err == nil {
+	if _, err := p.Verify(ctx, nil, map[string]any{"zone_id": "0123456789abcdef0123456789abcdef"}, map[string]any{"api_token": errToken}); err == nil {
 		t.Fatal("expected nil-cert error")
 	}
 }
@@ -151,7 +151,7 @@ func TestVerifyNotFoundAndError(t *testing.T) {
 	}))
 	defer srv.Close()
 	res, err := cloudflare.WithTestAPIBase(srv.URL).Verify(context.Background(), errCert(),
-		map[string]any{"zone_id": "z"}, map[string]any{"api_token": errToken})
+		map[string]any{"zone_id": "0123456789abcdef0123456789abcdef"}, map[string]any{"api_token": errToken})
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestVerifyNotFoundAndError(t *testing.T) {
 	}))
 	defer srv2.Close()
 	res, err = cloudflare.WithTestAPIBase(srv2.URL).Verify(context.Background(), errCert(),
-		map[string]any{"zone_id": "z"}, map[string]any{"api_token": errToken})
+		map[string]any{"zone_id": "0123456789abcdef0123456789abcdef"}, map[string]any{"api_token": errToken})
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}

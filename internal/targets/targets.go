@@ -231,9 +231,15 @@ func (s *Service) Detach(ctx context.Context, subj authz.Subjects, id string, co
 func (s *Service) checkOverrides(ctx context.Context, tenantID string, overrides map[string]map[string]any) error {
 	for cid, ov := range overrides {
 		var err error
+		c, gerr := s.st.GetConfiguration(ctx, tenantID, cid)
 		if fe := provider.CheckConfig(ov); fe != nil {
 			err = fe
-		} else if c, gerr := s.st.GetConfiguration(ctx, tenantID, cid); gerr == nil {
+		} else if keys := provider.OverrideDestinationKeys(ov); len(keys) > 0 && (gerr != nil || len(c.CredentialsSealed) > 0) {
+			// An override must not move a configuration's sealed credentials
+			// (and the private key) to another destination. Unknown
+			// configurations fail closed.
+			err = &provider.FieldError{Field: "config." + keys[0], Msg: "an override cannot change the destination of a configuration with credentials"}
+		} else if gerr == nil {
 			err = provider.ValidateConfig(c.ProviderType, ov)
 		}
 		if err == nil {

@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
@@ -73,6 +74,35 @@ func (p Provider) base() string {
 		return p.apiBase
 	}
 	return defaultAPIBase
+}
+
+// zonePattern is the Cloudflare zone id shape (32 hex characters). The zone id
+// is interpolated into the request path, so anything else is refused before a
+// request is built.
+var zonePattern = regexp.MustCompile(`^[a-fA-F0-9]{32}$`)
+
+// zoneFrom returns the configured zone id, refusing a missing or malformed one.
+func zoneFrom(config map[string]any) (string, error) {
+	z := strFrom(config, "zone_id")
+	if z == "" {
+		return "", fmt.Errorf("zone_id is required")
+	}
+	if !zonePattern.MatchString(z) {
+		return "", fmt.Errorf("zone_id must be 32 hexadecimal characters")
+	}
+	return z, nil
+}
+
+// ValidateConfig is the save-time check (provider.ConfigValidator): a zone id,
+// when given, must be 32 hexadecimal characters.
+func (Provider) ValidateConfig(config map[string]any) error {
+	if _, present := config["zone_id"]; !present {
+		return nil
+	}
+	if !zonePattern.MatchString(strFrom(config, "zone_id")) {
+		return &provider.FieldError{Field: "config.zone_id", Msg: "zone_id must be 32 hexadecimal characters"}
+	}
+	return nil
 }
 
 func strFrom(m map[string]any, key string) string {
@@ -195,9 +225,9 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 	if apiToken == "" {
 		return nil, fmt.Errorf("api_token is required")
 	}
-	zoneID := strFrom(config, "zone_id")
-	if zoneID == "" {
-		return nil, fmt.Errorf("zone_id is required")
+	zoneID, err := zoneFrom(config)
+	if err != nil {
+		return nil, err
 	}
 	if cert == nil || cert.CertificatePEM == "" || cert.PrivateKeyPEM == "" {
 		return nil, fmt.Errorf("certificate and private key are required")
@@ -244,9 +274,9 @@ func (p Provider) Verify(ctx context.Context, cert *provider.CertificateData, co
 	if apiToken == "" {
 		return nil, fmt.Errorf("api_token is required")
 	}
-	zoneID := strFrom(config, "zone_id")
-	if zoneID == "" {
-		return nil, fmt.Errorf("zone_id is required")
+	zoneID, err := zoneFrom(config)
+	if err != nil {
+		return nil, err
 	}
 	if cert == nil {
 		return nil, fmt.Errorf("certificate data is required")
@@ -281,8 +311,6 @@ func (p Provider) ValidateCredentials(ctx context.Context, creds, config map[str
 	if strFrom(creds, "api_token") == "" {
 		return fmt.Errorf("api_token is required")
 	}
-	if strFrom(config, "zone_id") == "" {
-		return fmt.Errorf("zone_id is required")
-	}
-	return nil
+	_, err := zoneFrom(config)
+	return err
 }
