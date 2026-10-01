@@ -85,6 +85,7 @@ export interface Job {
 }
 
 export interface HistoryEntry {
+  id?: string
   action: HistoryAction
   result: HistoryResult
   message?: string

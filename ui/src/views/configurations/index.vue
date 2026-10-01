@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { UiPage, UiAlert, UiCard, UiButton, UiDataTable, UiStatusChip, UiBadge, UiIcon, UiDrawer, UiForm, UiInput, UiSelect, UiTextarea, useConfirm, useToast, type Column, type SelectOption } from '@go-tangra/ui'
+import { computed, onMounted, ref, watch } from 'vue'
+import { UiPage, UiAlert, UiCard, UiButton, UiDataTable, UiStatusChip, UiBadge, UiIcon, UiDrawer, UiForm, UiInput, UiSelect, UiTextarea, useConfirm, useListQuery, useToast, type Column, type SelectOption } from '@go-tangra/ui'
 import { useZodForm } from '@go-tangra/ui/forms'
-import { useConfigurations } from '@/stores/configurations'
+import { CONFIG_LIST, useConfigurations } from '@/stores/configurations'
 import { useProviders } from '@/stores/providers'
 import { describe } from '@/api/client'
 import { configurationSchema } from '@/schemas'
@@ -15,8 +15,15 @@ const toast = useToast()
 const drawer = ref(false)
 const selected = ref<Configuration | null>(null)
 const error = ref('')
+// Server paging and sorting (page / size / sort in the URL: ?configs.page=…).
+const lq = useListQuery('configs', CONFIG_LIST)
+async function load(): Promise<void> {
+  const res = await store.list({}, lq.query.value)
+  if (res?.page) lq.clampTo(res.page) // a page beyond the end answers the last page
+}
+watch(lq.query, () => void load())
 onMounted(() => {
-  void store.list()
+  void load()
   void providers.list()
 })
 const providerOptions = computed<SelectOption[]>(() => providers.items.map((p) => ({ title: p.display_name, value: p.type })))
@@ -32,7 +39,7 @@ const form = useZodForm(configurationSchema, {
   },
   onSuccess: () => {
     drawer.value = false
-    void store.list()
+    void load()
   },
 })
 function open(c: Configuration | null): void {
@@ -57,17 +64,19 @@ async function remove(): Promise<void> {
   try {
     await store.remove(selected.value.id)
     drawer.value = false
-    void store.list()
+    void load()
   } catch (e) {
     error.value = describe(e)
   }
 }
+// Only the server's sort fields (CONFIG_LIST) are sortable.
 const columns: Column<Configuration>[] = [
   { key: 'name', label: 'Name', sortable: true },
-  { key: 'provider_type', label: 'Provider', width: 'sm' },
-  { key: 'status', label: 'Status', width: 'sm' },
+  { key: 'provider_type', label: 'Provider', width: 'sm', sortable: true },
+  { key: 'status', label: 'Status', width: 'sm', sortable: true },
   { key: 'has_credentials', label: 'Credentials', width: 'sm', format: (c) => (c.has_credentials ? 'sealed' : '') },
   { key: 'last_deployment_at', label: 'Last deployment', format: (c) => (c.last_deployment_at ? new Date(c.last_deployment_at).toLocaleString() : ''), hideOnStack: true },
+  { key: 'created_at', label: 'Created', sortable: true, defaultDir: 'desc', hideOnStack: true, format: (c) => (c.created_at ? new Date(c.created_at).toLocaleString() : '') },
 ]
 </script>
 
@@ -76,7 +85,7 @@ const columns: Column<Configuration>[] = [
     <template #actions><UiButton icon="mdi-plus" data-test="config-new" @click="open(null)">New configuration</UiButton></template>
     <UiAlert v-if="store.error" kind="error" class="mb-3">{{ store.error }}</UiAlert>
     <UiCard :padded="false">
-      <UiDataTable :items="store.items" :columns="columns" :loading="store.loading" caption="Configurations" empty-title="No configurations yet" clickable :row-attrs="(c) => ({ 'data-test': 'config-row-' + c.id })" data-test="configs-table" @row-click="open">
+      <UiDataTable :items="store.items" :columns="columns" :loading="store.loading" :total="store.total" :page="lq.page.value" :page-size="lq.pageSize.value" :sort="lq.sort.value" caption="Configurations" empty-title="No configurations yet" clickable :row-attrs="(c) => ({ 'data-test': 'config-row-' + c.id })" data-test="configs-table" @row-click="open" @update:page="lq.setPage" @update:page-size="lq.setPageSize" @update:sort="lq.setSort">
         <template #cell-provider_type="{ row }"><UiBadge>{{ row.provider_type }}</UiBadge></template>
         <template #cell-status="{ row }"><UiStatusChip :status="row.status" :colors="{ inactive: 'neutral' }" /></template>
         <template #cell-has_credentials="{ row }"><UiIcon v-if="row.has_credentials" name="mdi-key" size="sm" class="text-warning" label="Credentials stored" /></template>

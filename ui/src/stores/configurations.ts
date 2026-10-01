@@ -1,48 +1,51 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import type { ListParams, ListQueryOptions } from '@go-tangra/ui'
 import { api } from '@/api/client'
 import type { Configuration, ConfigurationInput } from '@/api/types'
+import { fetchAll, pagedList } from '@/stores/paged'
+
+/** Sortable fields of GET /configurations (server Spec store.ConfigList). */
+export const CONFIG_SORTS = ['name', 'provider_type', 'status', 'created_at'] as const
+export const CONFIG_LIST: ListQueryOptions = { sortable: [...CONFIG_SORTS], defaultSort: { key: 'name', dir: 'asc' }, defaultSize: 25 }
+const FIRST_PAGE: ListParams = { page: 1, page_size: 25, sort: 'name', order: 'asc' }
+
+export interface ConfigFilter extends Record<string, string | undefined> {
+  provider_type?: string | undefined
+  status?: string | undefined
+}
 
 export const useConfigurations = defineStore('deployer-configurations', () => {
-  const items = ref<Configuration[]>([])
-  const loading = ref(false)
-  const error = ref('')
+  const paged = pagedList<Configuration, ConfigFilter>('configurations', FIRST_PAGE)
+  /** Every configuration (name order) for pickers such as target attachments. */
+  const options = ref<Configuration[]>([])
 
-  async function list(providerType?: string, status?: string): Promise<void> {
-    loading.value = true
-    error.value = ''
+  async function loadOptions(): Promise<void> {
     try {
-      const res = await api<{ items: Configuration[] }>('GET', 'configurations', undefined, {
-        query: { provider_type: providerType, status },
-      })
-      items.value = res.items ?? []
+      options.value = await fetchAll<Configuration>('configurations', 'name', 'asc')
     } catch (e) {
-      error.value = (e as Error).message
-    } finally {
-      loading.value = false
+      paged.error.value = (e as Error).message
     }
   }
 
   async function create(input: ConfigurationInput): Promise<Configuration> {
-    const c = await api<Configuration>('POST', 'configurations', input)
-    items.value = [c, ...items.value]
-    return c
+    return api<Configuration>('POST', 'configurations', input)
   }
 
   async function update(id: string, input: ConfigurationInput): Promise<Configuration> {
     const c = await api<Configuration>('PUT', 'configurations/' + id, input)
-    items.value = items.value.map((x) => (x.id === id ? c : x))
+    paged.items.value = paged.items.value.map((x) => (x.id === id ? c : x))
     return c
   }
 
   async function remove(id: string): Promise<void> {
     await api('POST', 'configurations/' + id + '/remove')
-    items.value = items.value.filter((x) => x.id !== id)
+    paged.items.value = paged.items.value.filter((x) => x.id !== id)
   }
 
   async function validate(providerType: string, credentials: Record<string, unknown>, config?: Record<string, unknown>): Promise<void> {
     await api('POST', 'configurations/validate', { provider_type: providerType, credentials, config })
   }
 
-  return { items, loading, error, list, create, update, remove, validate }
+  return { ...paged, options, loadOptions, create, update, remove, validate }
 })

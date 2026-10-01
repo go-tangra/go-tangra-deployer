@@ -1,11 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { useJobs } from '@/stores/jobs'
-import type { Job } from '@/api/types'
+import { useJobs, type JobEvent } from '@/stores/jobs'
 
 // A single shared EventSource relays the module's live events through the
-// gateway. deployment.completed / deployment.failed / job.updated patch the
-// jobs list in place so the UI reflects async worker progress without a poll.
+// gateway. deployment.completed / deployment.failed / job.updated patch a job
+// on the current jobs page in place (status, progress); an event for a job not
+// on the page reloads the page (debounced) so the server's order and total hold.
 // The stream is reference-counted so several views share one connection.
 export type Listener = (type: string, data: unknown) => void
 
@@ -24,10 +24,7 @@ export const useLive = defineStore('deployer-live', () => {
     } catch {
       /* non-JSON payloads are ignored */
     }
-    if (JOB_EVENTS.includes(type)) {
-      const job = data as Job
-      if (job && job.id) useJobs().patch(job)
-    }
+    if (JOB_EVENTS.includes(type) && data && typeof data === 'object') useJobs().applyEvent(data as JobEvent)
     for (const l of listeners) l(type, data)
   }
 
@@ -52,6 +49,7 @@ export const useLive = defineStore('deployer-live', () => {
 
   function close(): void {
     refs = 0
+    useJobs().cancelReload()
     source?.close()
     source = null
     connected.value = false
