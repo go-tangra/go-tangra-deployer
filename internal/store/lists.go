@@ -8,43 +8,46 @@ const jobTypeExpr = "(CASE WHEN parent_job_id IS NOT NULL THEN 'child' WHEN depl
 // List definitions of the deployer tables (specs/032-server-side-tables in
 // go-tangra, contracts/sortable-fields.md "deployer"). Sort fields map to
 // constant SQL expressions only; the memstore sorts the same public names in Go.
+// NotNull marks expressions that never yield NULL (NOT NULL columns; the job
+// type CASE ends in a constant ELSE): their ORDER BY carries no NULLS LAST, so
+// btree indexes serve both directions.
 var (
 	// ConfigList pages deployer_configs: name order by default.
 	ConfigList = listquery.Spec{
 		Fields: map[string]listquery.Field{
-			"name":          {Expr: "name", Text: true},
-			"provider_type": {Expr: "provider_type", Text: true},
-			"status":        {Expr: "status"},
-			"created_at":    {Expr: "created_at", DefaultDir: listquery.Desc},
+			"name":          {Expr: "name", Text: true, NotNull: true},
+			"provider_type": {Expr: "provider_type", Text: true, NotNull: true},
+			"status":        {Expr: "status", NotNull: true},
+			"created_at":    {Expr: "created_at", DefaultDir: listquery.Desc, NotNull: true},
 		},
 		Default: "name", TieBreak: "id",
 	}
 	// TargetList pages deployer_targets: name order by default.
 	TargetList = listquery.Spec{
 		Fields: map[string]listquery.Field{
-			"name":       {Expr: "name", Text: true},
-			"created_at": {Expr: "created_at", DefaultDir: listquery.Desc},
+			"name":       {Expr: "name", Text: true, NotNull: true},
+			"created_at": {Expr: "created_at", DefaultDir: listquery.Desc, NotNull: true},
 		},
 		Default: "name", TieBreak: "id",
 	}
 	// JobList pages deployer_jobs (jobs table, dashboard): newest first.
 	JobList = listquery.Spec{
 		Fields: map[string]listquery.Field{
-			"created_at":   {Expr: "created_at", DefaultDir: listquery.Desc},
-			"status":       {Expr: "status"},
-			"job_type":     {Expr: jobTypeExpr},
+			"created_at":   {Expr: "created_at", DefaultDir: listquery.Desc, NotNull: true},
+			"status":       {Expr: "status", NotNull: true},
+			"job_type":     {Expr: jobTypeExpr, NotNull: true},
 			"completed_at": {Expr: "completed_at", DefaultDir: listquery.Desc},
 		},
 		Default: "created_at", TieBreak: "id",
 	}
 	// ChildJobList pages a parent job's children: newest first.
 	ChildJobList = listquery.Spec{
-		Fields:  map[string]listquery.Field{"created_at": {Expr: "created_at", DefaultDir: listquery.Desc}},
+		Fields:  map[string]listquery.Field{"created_at": {Expr: "created_at", DefaultDir: listquery.Desc, NotNull: true}},
 		Default: "created_at", TieBreak: "id",
 	}
 	// HistoryList pages a job's deployment history: newest first.
 	HistoryList = listquery.Spec{
-		Fields:  map[string]listquery.Field{"created_at": {Expr: "created_at", DefaultDir: listquery.Desc}},
+		Fields:  map[string]listquery.Field{"created_at": {Expr: "created_at", DefaultDir: listquery.Desc, NotNull: true}},
 		Default: "created_at", TieBreak: "id",
 	}
 )

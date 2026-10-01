@@ -22,11 +22,15 @@ func TestListSpecs(t *testing.T) {
 	if r := ListRequest(listquery.Request{Page: 3, PageSize: 500, Sort: "nope"}, JobList); r != (listquery.Request{Page: 1, PageSize: 25, Sort: "created_at", Order: listquery.Desc}) {
 		t.Fatalf("invalid request = %+v", r)
 	}
-	if got := (listquery.Request{Sort: "job_type", Order: listquery.Asc}).OrderBy(JobList); got != jobTypeExpr+" ASC NULLS LAST, id ASC" {
+	if got := (listquery.Request{Sort: "job_type", Order: listquery.Asc}).OrderBy(JobList); got != jobTypeExpr+" ASC, id ASC" {
 		t.Fatalf("job_type order = %s", got)
 	}
-	if got := (listquery.Request{Sort: "name", Order: listquery.Desc}).OrderBy(TargetList); got != "lower(name) DESC NULLS LAST, id DESC" {
+	if got := (listquery.Request{Sort: "name", Order: listquery.Desc}).OrderBy(TargetList); got != "lower(name) DESC, id DESC" {
 		t.Fatalf("name order = %s", got)
+	}
+	// Nullable columns keep NULLS LAST.
+	if got := (listquery.Request{Sort: "completed_at", Order: listquery.Desc}).OrderBy(JobList); got != "completed_at DESC NULLS LAST, id DESC" {
+		t.Fatalf("completed_at order = %s", got)
 	}
 }
 
