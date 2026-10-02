@@ -148,20 +148,26 @@ func TestDeploySSLProfile_BailsOnForeignReference(t *testing.T) {
 	assertList(t, f.serverCerts("Other Inspection"), "preexisting_cert")
 }
 
-// ssl_profile: profile missing AND no template to clone → bail (but cert still imported).
-func TestDeploySSLProfile_BailsWhenNoTemplate(t *testing.T) {
+// ssl_profile with no replace-mode profile to clone: the owned profile is
+// created from FortiOS defaults bound to the new certificate (v4; v3 stopped
+// for manual review).
+func TestDeploySSLProfile_CreatesWithoutTemplate(t *testing.T) {
 	certPEM, keyPEM := genTestCert(t, "test.example.com", 7007)
 	f := newProfileFake(nil, nil)
 	res := deployForTest(t, f, map[string]any{"vdom": "root"}, "test.example.com", certPEM, keyPEM)
-	if res.Success {
-		t.Fatal("expected bail when no template profile exists to clone")
-	}
-	if mr, _ := res.Details["manual_review_required"].(bool); !mr {
-		t.Error("expected manual_review_required")
+	if !res.Success {
+		t.Fatalf("expected the profile to be created, got: %s", res.Message)
 	}
 	newCert := versionedName(sanitizeName("test.example.com"), testDate)
 	if _, ok := f.certs[newCert]; !ok {
-		t.Error("cert should still be imported even when bailing on missing template")
+		t.Error("cert should be imported")
+	}
+	auditProf := profileNameFor(sanitizeName("test.example.com"), "")
+	if got := f.serverCerts(auditProf); len(got) != 1 || got[0] != newCert {
+		t.Errorf("created profile server-cert = %v, want [%s]", got, newCert)
+	}
+	if act, _ := res.Details["profile_action"].(string); act != "created (FortiOS defaults, no template)" {
+		t.Errorf("profile_action = %q", act)
 	}
 }
 
@@ -220,30 +226,30 @@ func TestDeploySSLProfile_DefaultProfile_AppendsWhenAbsent(t *testing.T) {
 	}
 }
 
-// ssl_profile + default_ssl_profile: profile is missing → manual review, no
-// writes to either profile. The cert is still imported (idempotent).
-func TestDeploySSLProfile_DefaultProfileMissing_ManualReview(t *testing.T) {
+// ssl_profile + default_ssl_profile that does not exist yet: it is created
+// (cloned from the replace-mode template) bound to the new certificate, after
+// the owned profile; the cert is imported once (v4; v3 stopped for manual
+// review).
+func TestDeploySSLProfile_DefaultProfileMissing_Created(t *testing.T) {
 	certPEM, keyPEM := genTestCert(t, "test.example.com", 8003)
-	// A replace-mode template must exist or we'd bail for a different reason.
 	f := newProfileFake(nil, map[string][]string{"deep-inspection": {"tmpl_cert"}})
 	cfg := map[string]any{"vdom": "root", "default_ssl_profile": "nonexistent_profile"}
 	res := deployForTest(t, f, cfg, "test.example.com", certPEM, keyPEM)
-	if res.Success {
-		t.Fatal("expected manual review when default_ssl_profile is missing")
-	}
-	if mr, _ := res.Details["manual_review_required"].(bool); !mr {
-		t.Error("expected Details.manual_review_required=true")
-	}
-	if !strings.Contains(res.Message, "does not exist") {
-		t.Errorf("expected message to explain the missing profile, got: %s", res.Message)
-	}
-	auditProf := profileNameFor(sanitizeName("test.example.com"), "")
-	if _, ok := f.profiles[auditProf]; ok {
-		t.Error("audit profile must NOT be created when bailing on missing default profile")
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Message)
 	}
 	newCert := versionedName(sanitizeName("test.example.com"), testDate)
-	if _, ok := f.certs[newCert]; !ok {
-		t.Error("cert should still be imported (idempotent) even when bailing")
+	auditProf := profileNameFor(sanitizeName("test.example.com"), "")
+	for _, p := range []string{auditProf, "nonexistent_profile"} {
+		if got := f.serverCerts(p); len(got) != 1 || got[0] != newCert {
+			t.Errorf("%s server-cert = %v, want [%s]", p, got, newCert)
+		}
+	}
+	if act, _ := res.Details["default_profile_action"].(string); act != "created (cloned from template)" {
+		t.Errorf("default_profile_action = %q", act)
+	}
+	if got := f.serverCerts("deep-inspection"); len(got) != 1 || got[0] != "tmpl_cert" {
+		t.Errorf("template modified: %v", got)
 	}
 }
 

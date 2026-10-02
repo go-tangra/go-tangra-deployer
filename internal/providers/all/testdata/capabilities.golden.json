@@ -294,7 +294,7 @@
           "secret": false,
           "required": false,
           "overridable": true,
-          "help": "SSL profile strategy: existing SSL/SSH inspection profile (server certificate mode replace) whose server certificate list is also updated in place; other domains' certificates are kept.",
+          "help": "SSL profile strategy: SSL/SSH inspection profile (server certificate mode replace) whose server certificate list is also updated in place; other domains' certificates are kept. Created when it does not exist.",
           "placeholder": "inbound-www",
           "group": "options",
           "max_length": 35,

@@ -8,6 +8,7 @@ package fortigate
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 )
 
@@ -190,13 +191,13 @@ func (c *fgClient) getSSLSSHProfilesRaw(ctx context.Context) ([]map[string]any, 
 // use as a creation template, or nil if none exists. A minimal create body is
 // rejected by FortiOS (-651: interdependent required fields like HTTP3 ports
 // and exemption rules), so we clone a known-valid profile instead.
-func (c *fgClient) findReplaceModeTemplate(ctx context.Context, exclude string) (map[string]any, error) {
+func (c *fgClient) findReplaceModeTemplate(ctx context.Context, exclude ...string) (map[string]any, error) {
 	profs, err := c.getSSLSSHProfilesRaw(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for _, p := range profs {
-		if name, _ := p["name"].(string); name == exclude {
+		if name, _ := p["name"].(string); slices.Contains(exclude, name) {
 			continue
 		}
 		if mode, _ := p["server-cert-mode"].(string); mode != "replace" {
@@ -228,6 +229,49 @@ func (c *fgClient) createSSLSSHProfileFromTemplate(ctx context.Context, name, ce
 		return apiError("create ssl-ssh-profile "+name, r)
 	}
 	return nil
+}
+
+// createdByComment marks SSL/SSH profiles the deployer created without a
+// template.
+const createdByComment = "Created by the go-tangra deployer"
+
+// createSSLSSHProfile creates a profile named name bound to cert from FortiOS's
+// own defaults (server-cert-mode=replace), for when no replace-mode profile
+// exists to clone (v4; v3 required the operator to create it).
+func (c *fgClient) createSSLSSHProfile(ctx context.Context, name, cert string) error {
+	r, err := c.cmdbPost(ctx, "firewall/ssl-ssh-profile", map[string]any{
+		"name":             name,
+		"comment":          createdByComment,
+		"server-cert-mode": "replace",
+		"server-cert":      []map[string]string{{"name": cert}},
+	})
+	if err != nil {
+		return err
+	}
+	if !r.ok() {
+		return apiError("create ssl-ssh-profile "+name, r)
+	}
+	return nil
+}
+
+// ensureSSLSSHProfile creates a missing profile bound to cert: a clone of the
+// first replace-mode profile (v3) when one exists, otherwise from FortiOS
+// defaults. It returns the action for the result details.
+func (c *fgClient) ensureSSLSSHProfile(ctx context.Context, name, cert string, exclude ...string) (string, error) {
+	tmpl, err := c.findReplaceModeTemplate(ctx, append([]string{name}, exclude...)...)
+	if err != nil {
+		return "", fmt.Errorf("failed to find a profile template: %w", err)
+	}
+	if tmpl != nil {
+		if err := c.createSSLSSHProfileFromTemplate(ctx, name, cert, tmpl); err != nil {
+			return "", fmt.Errorf("failed to create profile %s: %w", name, err)
+		}
+		return "created (cloned from template)", nil
+	}
+	if err := c.createSSLSSHProfile(ctx, name, cert); err != nil {
+		return "", fmt.Errorf("failed to create profile %s: %w", name, err)
+	}
+	return "created (FortiOS defaults, no template)", nil
 }
 
 // findPoliciesBoundToProfile returns the names of firewall policies whose

@@ -206,12 +206,15 @@ still binds the certificate into its own profile (see below).
     `default_ssl_profile` (VIP, SSL-VPN, admin GUI, another profile), the job
     stops with "MANUAL REVIEW REQUIRED" (the certificate stays imported,
     nothing else changes). Otherwise the owned profile is created by cloning
-    the first existing replace-mode profile that has a server certificate
-    (no such profile → manual review) or its server-certificate list is
-    updated (family entry replaced in place, other domains kept), and the
-    family entry of `default_ssl_profile` — which must exist in server
-    certificate mode `replace` — is replaced in place (appended when
-    absent; no write when already current). Nothing is ever deleted.
+    the first existing replace-mode profile that has a server certificate,
+    or from FortiOS defaults (mode `replace`, only this certificate) when
+    there is none, or its server-certificate list is updated (family entry
+    replaced in place, other domains kept). The family entry of
+    `default_ssl_profile` is replaced in place (appended when absent; no
+    write when already current); a missing `default_ssl_profile` is created
+    the same way as the owned profile, while one in another server
+    certificate mode stops with "MANUAL REVIEW REQUIRED". Nothing is ever
+    deleted.
   - `rebind`: dated import as above, then every SSL/SSH profile, the SSL-VPN
     and admin GUI certificate and every VIP pointing at an older family
     member is repointed (`rebind_references`), and superseded family members

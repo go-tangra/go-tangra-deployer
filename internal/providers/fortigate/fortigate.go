@@ -79,7 +79,7 @@ func (Provider) Capabilities() provider.Capabilities {
 				Help: "SSL profile strategy: suffix of the provider-owned SSL/SSH inspection profile <certificate name><suffix>, created by cloning an existing replace-mode profile when missing."},
 			{Key: "default_ssl_profile", Label: "Default SSL profile", Type: provider.TypeString, Overridable: true, Group: provider.GroupOptions,
 				Pattern: `^[^\x00-\x1f"\\/.][^\x00-\x1f"\\/]{0,34}$`, MaxLength: 35, Placeholder: "inbound-www",
-				Help: "SSL profile strategy: existing SSL/SSH inspection profile (server certificate mode replace) whose server certificate list is also updated in place; other domains' certificates are kept."},
+				Help: "SSL profile strategy: SSL/SSH inspection profile (server certificate mode replace) whose server certificate list is also updated in place; other domains' certificates are kept. Created when it does not exist."},
 			{Key: "rebind_references", Label: "Rebind references", Type: provider.TypeBool, Group: provider.GroupOptions, Default: true,
 				Help: "Rebind strategy: repoint SSL/SSH profiles, SSL-VPN, admin GUI and VIPs from older certificates of the same name family to the new one."},
 			{Key: "prune_old", Label: "Prune old certificates", Type: provider.TypeBool, Group: provider.GroupOptions, Default: true,

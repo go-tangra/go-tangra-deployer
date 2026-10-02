@@ -122,9 +122,9 @@ func (p Provider) deploySSLProfile(ctx context.Context, c *fgClient, cfg deployC
 
 	// 3. Pre-validate the default profile (if configured) BEFORE any write so
 	//    a misconfiguration doesn't leave the audit profile updated and the
-	//    production profile stale. The default profile must pre-exist and be
-	//    in server-cert-mode=replace (the only mode where the server-cert
-	//    list is actually presented to clients).
+	//    production profile stale. An existing default profile must be in
+	//    server-cert-mode=replace (the only mode where the server-cert list is
+	//    actually presented to clients); a missing one is created in step 5.
 	var defaultProf *sslSSHProfile
 	if hasDefault {
 		note(progress, 60, "Validating default SSL inspection profile "+cfg.defaultProfile)
@@ -132,20 +132,19 @@ func (p Provider) deploySSLProfile(ctx context.Context, c *fgClient, cfg deployC
 		if derr != nil {
 			return nil, fmt.Errorf("failed to read default profile %s: %w", cfg.defaultProfile, derr)
 		}
-		if !dfound {
-			return manualReviewResult(c, cfg, resolvedName, profileName, imported,
-				fmt.Sprintf("default_ssl_profile %q does not exist on the device; the operator must pre-create it (in server-cert-mode=replace) before deploys can bind it", cfg.defaultProfile),
-				nil), nil
-		}
-		// FortiOS only honours the server-cert list when mode=replace. An
-		// empty string is allowed and treated as "use device default", which
-		// in practice means replace once a server-cert is set.
-		if dp.ServerCertMode != "" && dp.ServerCertMode != "replace" {
+		// A missing default profile is created in step 5 (v4; v3 stopped for
+		// manual review), after every check has passed.
+		if dfound && dp.ServerCertMode != "" && dp.ServerCertMode != "replace" {
+			// FortiOS only honours the server-cert list when mode=replace. An
+			// empty string is allowed and treated as "use device default",
+			// which in practice means replace once a server-cert is set.
 			return manualReviewResult(c, cfg, resolvedName, profileName, imported,
 				fmt.Sprintf("default_ssl_profile %q has server-cert-mode=%q; only \"replace\" supports a server-cert list, so PUTting the cert into this profile would be a silent no-op — change the mode or point default_ssl_profile at a different profile", cfg.defaultProfile, dp.ServerCertMode),
 				nil), nil
 		}
-		defaultProf = dp
+		if dfound {
+			defaultProf = dp
+		}
 	}
 
 	// 4. Create or edit the convention-named audit profile to point at the
@@ -158,20 +157,14 @@ func (p Provider) deploySSLProfile(ctx context.Context, c *fgClient, cfg deployC
 
 	var auditAction string
 	if !found {
+		// Cloned from a replace-mode template when one exists (v3), else
+		// created from FortiOS defaults (v4; v3 stopped for manual review).
 		note(progress, 75, "Creating SSL inspection profile "+profileName)
-		tmpl, terr := c.findReplaceModeTemplate(ctx, profileName)
-		if terr != nil {
-			return nil, fmt.Errorf("failed to find a profile template: %w", terr)
+		action, cerr := c.ensureSSLSSHProfile(ctx, profileName, resolvedName, cfg.defaultProfile)
+		if cerr != nil {
+			return nil, cerr
 		}
-		if tmpl == nil {
-			return manualReviewResult(c, cfg, resolvedName, profileName, imported,
-				fmt.Sprintf("profile %q does not exist and no replace-mode SSL-inspection profile is available to clone as a template; create %q once manually", profileName, profileName),
-				nil), nil
-		}
-		if err := c.createSSLSSHProfileFromTemplate(ctx, profileName, resolvedName, tmpl); err != nil {
-			return nil, fmt.Errorf("failed to create profile %s: %w", profileName, err)
-		}
-		auditAction = "created (cloned from template)"
+		auditAction = action
 	} else {
 		note(progress, 75, "Updating SSL inspection profile "+profileName)
 		newList, _ := replaceInList(prof.ServerCert, inFamily, resolvedName)
@@ -195,19 +188,29 @@ func (p Provider) deploySSLProfile(ctx context.Context, c *fgClient, cfg deployC
 	)
 	if hasDefault {
 		note(progress, 90, "Updating default SSL inspection profile "+cfg.defaultProfile)
-		newList, changed := replaceInList(defaultProf.ServerCert, inFamily, resolvedName)
-		if !changed && !containsName(newList, resolvedName) {
-			newList = append(newList, namedRef{Name: resolvedName})
-			changed = true
-			defaultAction = "appended (no family member was present)"
-		} else if changed {
-			defaultAction = "updated"
+		if defaultProf == nil {
+			// Missing: created bound to the certificate (v4; v3 required the
+			// operator to pre-create it).
+			action, cerr := c.ensureSSLSSHProfile(ctx, cfg.defaultProfile, resolvedName, profileName)
+			if cerr != nil {
+				return nil, cerr
+			}
+			defaultAction = action
 		} else {
-			defaultAction = "no-change (already current)"
-		}
-		if changed {
-			if err := c.setSSLSSHProfileServerCert(ctx, cfg.defaultProfile, newList); err != nil {
-				return nil, fmt.Errorf("failed to update default profile %s: %w", cfg.defaultProfile, err)
+			newList, changed := replaceInList(defaultProf.ServerCert, inFamily, resolvedName)
+			if !changed && !containsName(newList, resolvedName) {
+				newList = append(newList, namedRef{Name: resolvedName})
+				changed = true
+				defaultAction = "appended (no family member was present)"
+			} else if changed {
+				defaultAction = "updated"
+			} else {
+				defaultAction = "no-change (already current)"
+			}
+			if changed {
+				if err := c.setSSLSSHProfileServerCert(ctx, cfg.defaultProfile, newList); err != nil {
+					return nil, fmt.Errorf("failed to update default profile %s: %w", cfg.defaultProfile, err)
+				}
 			}
 		}
 		// Best-effort blast-radius enumeration. A failure here does not break

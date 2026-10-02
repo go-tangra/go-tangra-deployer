@@ -130,28 +130,35 @@ func TestProfileCreateWithSuffixAndChain(t *testing.T) {
 	}
 }
 
-func TestProfileCreateNoTemplateManualReview(t *testing.T) {
+// No usable template (a re-sign profile, a replace profile without
+// certificates): the owned profile is created from FortiOS defaults with only
+// name, comment, mode and the certificate; nothing else is written.
+func TestProfileCreateWithoutTemplate(t *testing.T) {
 	f := newFakeFortiOS()
 	f.addProfile("a-resign", "re-sign", "ca_cert")
 	f.addProfile("b-empty", "replace")
 	cd := newCertData(t, 2)
 	res, err := runDeploy(t, f, profileCfg(), cd)
-	if err != nil || res.Success || !res.Permanent {
+	if err != nil || !res.Success {
 		t.Fatalf("deploy = %+v, %v", res, err)
 	}
-	want := `MANUAL REVIEW REQUIRED: certificate ` + newName + ` was uploaded but NOT auto-bound — profile "` + ownedProf +
-		`" does not exist and no replace-mode SSL-inspection profile is available to clone as a template; create "` + ownedProf +
-		`" once manually. No references, profiles, or certificates were modified or deleted.`
-	if res.Message != want {
-		t.Fatalf("message = %q", res.Message)
+	posts := f.bodies(http.MethodPost, "cmdb/firewall/ssl-ssh-profile")
+	want := map[string]any{
+		"name":             ownedProf,
+		"comment":          createdByComment,
+		"server-cert-mode": "replace",
+		"server-cert":      []any{map[string]any{"name": newName}},
 	}
-	d := res.Details
-	if d["manual_review_required"] != true || d["expected_profile"] != ownedProf || d["imported"] != true || d["strategy"] != "ssl_profile" ||
-		len(d["foreign_references"].([]string)) != 0 || d["certificate_name"] != newName {
+	if len(posts) != 1 || !reflect.DeepEqual(posts[0], want) {
+		b, _ := json.Marshal(posts)
+		t.Fatalf("create bodies = %s", b)
+	}
+	if f.count(http.MethodPut, "") != 0 || f.count(http.MethodDelete, "") != 0 {
+		t.Fatalf("unexpected writes: %+v", f.calls)
+	}
+	assertList(t, f.serverCerts("a-resign"), "ca_cert")
+	if d := res.Details; d["profile"] != ownedProf || d["profile_action"] != "created (FortiOS defaults, no template)" || d["imported"] != true {
 		t.Fatalf("details = %v", d)
-	}
-	if f.count(http.MethodPost, "cmdb/") != 0 || f.count(http.MethodPut, "") != 0 {
-		t.Fatal("profile written on manual review")
 	}
 }
 
