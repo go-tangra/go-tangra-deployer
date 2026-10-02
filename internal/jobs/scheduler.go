@@ -246,15 +246,10 @@ func (s *Service) publish(ctx context.Context, tenantID, typ string, j store.Dep
 	}
 }
 
-// effectiveConfig layers the parent target's per-configuration override (if
-// any) over the configuration's base config, so one shared credential can
-// serve multiple zones/partitions (spec US4). Direct jobs have no parent, so
-// no override applies. Overrides never carry credentials.
-func (s *Service) effectiveConfig(ctx context.Context, j store.DeploymentJob, conf store.TargetConfiguration) map[string]any {
-	tgt, ok := s.parentTarget(ctx, j)
-	return s.effective(j, conf, tgt, ok)
-}
-
+// effective layers the parent target's per-configuration override (if any)
+// over the configuration's base config, so one shared credential can serve
+// multiple zones/partitions (spec US4). Direct jobs have no parent, so no
+// override applies. Overrides never carry credentials.
 func (s *Service) effective(j store.DeploymentJob, conf store.TargetConfiguration, tgt store.DeploymentTarget, hasTarget bool) map[string]any {
 	var ov map[string]any
 	if hasTarget {
@@ -279,20 +274,29 @@ func (s *Service) parentTarget(ctx context.Context, j store.DeploymentJob) (stor
 	return tgt, true
 }
 
-// override returns the target's override for conf, or nil.
+// override returns the target's override for conf, or nil. Defense in
+// depth for rows stored before the save-time refusal or restored from a
+// backup: only declared, overridable config fields with valid values apply —
+// an override never moves the destination, switches TLS verification, sets
+// headers or carries credentials (SR-015). Dropped keys are logged once by
+// name, never by value.
 func (s *Service) override(tgt store.DeploymentTarget, conf store.TargetConfiguration) map[string]any {
 	ov := tgt.ConfigOverrides[conf.ID]
-	// Defense in depth for rows stored before the save-time refusal: an
-	// override never moves the destination of a configuration that holds
-	// sealed credentials.
-	if keys := provider.OverrideDestinationKeys(ov); len(keys) > 0 && len(conf.CredentialsSealed) > 0 {
-		if _, seen := s.warned.LoadOrStore("dest:"+tgt.ID+":"+conf.ID, struct{}{}); !seen {
-			s.logger().Warn("deployer: target override tries to change the destination of a configuration with credentials; ignored",
-				"tenant_id", conf.TenantID, "target_id", tgt.ID, "configuration_id", conf.ID, "ignored_keys", keys)
-		}
-		return provider.StripDestinationKeys(ov)
+	if len(ov) == 0 {
+		return ov
 	}
-	return ov
+	caps, _ := provider.Info(conf.ProviderType)
+	kept, dropped := provider.FilterOverride(caps, ov)
+	if len(dropped) > 0 {
+		if _, seen := s.warned.LoadOrStore("ov:"+tgt.ID+":"+conf.ID, struct{}{}); !seen {
+			msg := "deployer: target override carries settings that cannot be overridden; ignored"
+			if len(provider.OverrideDestinationKeys(ov)) > 0 {
+				msg = "deployer: target override tries to change the destination of a configuration; ignored"
+			}
+			s.logger().Warn(msg, "tenant_id", conf.TenantID, "target_id", tgt.ID, "configuration_id", conf.ID, "ignored_keys", dropped)
+		}
+	}
+	return kept
 }
 
 // sanitize drops the redirect keys (provider.RedirectKeys) that rows stored

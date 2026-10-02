@@ -39,7 +39,7 @@ var authHeaderNames = map[string]struct{}{
 	"x-api-key":           {},
 }
 
-var authHeaderPattern = regexp.MustCompile(`(?i)token|secret|key|auth|cookie|password|credential`)
+var authHeaderPattern = regexp.MustCompile(`(?i)token|secret|key|auth|cookie|password|credential|jwt|session|bearer|signature`)
 
 // IsAuthHeader reports whether a custom header name looks like it carries a
 // credential.
@@ -140,6 +140,24 @@ func clip(s string) string {
 // may not set them for such a configuration.
 var DestinationKeys = []string{"url", "verify_url", "rollback_url"}
 
+// DestinationCredentialKeys are non-secret credential fields that name the
+// endpoint the secret credentials are sent to (BIG-IP and FortiGate host).
+var DestinationCredentialKeys = []string{"host"}
+
+// CredentialDestinationChange reports the first destination credential key
+// whose value (trimmed, case-insensitive) differs between the stored and the
+// next credentials.
+func CredentialDestinationChange(stored, next map[string]any) (string, bool) {
+	for _, k := range DestinationCredentialKeys {
+		a, _ := stored[k].(string)
+		b, _ := next[k].(string)
+		if !strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b)) {
+			return k, true
+		}
+	}
+	return "", false
+}
+
 // OverrideDestinationKeys returns the destination keys present in an override
 // (sorted). Names only.
 func OverrideDestinationKeys(ov map[string]any) []string {
@@ -150,18 +168,6 @@ func OverrideDestinationKeys(ov map[string]any) []string {
 		}
 	}
 	sort.Strings(out)
-	return out
-}
-
-// StripDestinationKeys returns a copy of ov without the destination keys.
-func StripDestinationKeys(ov map[string]any) map[string]any {
-	out := make(map[string]any, len(ov))
-	for k, v := range ov {
-		out[k] = v
-	}
-	for _, k := range DestinationKeys {
-		delete(out, k)
-	}
 	return out
 }
 

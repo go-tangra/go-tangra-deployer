@@ -58,7 +58,7 @@ func (Provider) Capabilities() provider.Capabilities {
 				Help:        "Reimport into this ACM certificate instead of importing a new one."},
 		},
 		CredentialFields: []provider.Field{
-			{Key: "access_key_id", Label: "Access key ID", Type: provider.TypeString, Required: true, Group: provider.GroupCredentials,
+			{Key: "access_key_id", Label: "Access key ID", Type: provider.TypeString, Required: true, Group: provider.GroupCredentials, // #nosec G101 -- placeholder is the AWS documentation example key, not a credential
 				Pattern: `^[A-Z0-9]{16,128}$`, MaxLength: 128, Placeholder: "AKIAIOSFODNN7EXAMPLE",
 				Help: "Access key of an IAM identity allowed to import certificates into ACM."},
 			{Key: "secret_access_key", Label: "Secret access key", Type: provider.TypeString, Secret: true, Required: true,
@@ -240,7 +240,7 @@ func (p Provider) call(ctx context.Context, cr creds, region, ep, op string, in 
 	}
 	signV4(req, payload, cr, region, "acm", time.Now().UTC())
 
-	resp, err := (&http.Client{Timeout: 30 * time.Second, Transport: p.transport}).Do(req)
+	resp, err := (&http.Client{Timeout: 30 * time.Second, Transport: p.transport, CheckRedirect: provider.NoRedirect}).Do(req)
 	if err != nil {
 		return fmt.Errorf("acm request failed: %w", err)
 	}

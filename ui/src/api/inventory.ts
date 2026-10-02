@@ -63,4 +63,5 @@ export const CAPABILITY: Record<string, { text: string; color: 'success' | 'warn
   upgrade_required: { text: 'Agent upgrade required', color: 'warning' },
   not_supported_platform: { text: 'Platform not supported', color: 'neutral' },
   disabled_on_server: { text: 'Disabled by the server', color: 'neutral' },
+  ambiguous_agent: { text: 'Several agents claim this host', color: 'error' },
 }

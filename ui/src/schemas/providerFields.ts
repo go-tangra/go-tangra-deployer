@@ -62,7 +62,7 @@ function compiled(p: string): RegExp | null {
 
 // Header names refused in webhook custom headers (Go provider.IsAuthHeader).
 const AUTH_HEADER_NAMES = new Set(['authorization', 'proxy-authorization', 'cookie', 'x-api-key'])
-const AUTH_HEADER_PATTERN = /token|secret|key|auth|cookie|password|credential/i
+const AUTH_HEADER_PATTERN = /token|secret|key|auth|cookie|password|credential|jwt|session|bearer|signature/i
 export function isAuthHeader(name: string): boolean {
   const n = name.trim().toLowerCase()
   return AUTH_HEADER_NAMES.has(n) || AUTH_HEADER_PATTERN.test(n)

@@ -66,7 +66,7 @@ func (c *Consumer) SetRevocationForwarder(r Revoker, aud Auditor) { c.rev, c.aud
 // audited, never returned to the event loop (issued/renewed handling goes on).
 // Reports whether the revocation was forwarded successfully.
 func (c *Consumer) HandleRevoked(ctx context.Context, tenantID, certID string) bool {
-	if c.rev == nil || certID == "" {
+	if c.rev == nil || !validCertID(certID) {
 		return false
 	}
 	cfgs, err := c.st.ListConfigurations(ctx, tenantID, repo.ConfigFilter{ProviderType: inventoryAgentType, Status: store.ConfigActive})
@@ -90,6 +90,20 @@ func (c *Consumer) HandleRevoked(ctx context.Context, tenantID, certID string) b
 		_ = c.aud.Record(ctx, ev)
 	}
 	return err == nil
+}
+
+// validCertID bounds a certificate id taken from an event before it is
+// forwarded or audited: 1..128 characters of [A-Za-z0-9._:-].
+func validCertID(id string) bool {
+	if id == "" || len(id) > 128 {
+		return false
+	}
+	for _, r := range id {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("._:-", r)) {
+			return false
+		}
+	}
+	return true
 }
 
 // NewConsumer builds the consumer.

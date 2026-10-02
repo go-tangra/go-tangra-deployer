@@ -48,7 +48,7 @@ func DefaultName(cn string) (string, bool) {
 		s = "wildcard." + s[2:]
 	}
 	s = strings.Map(func(r rune) rune {
-		if r < utf8.RuneSelf && isNameByte(byte(r)) {
+		if r < utf8.RuneSelf && isNameByte(byte(r)) { // #nosec G115 -- r < utf8.RuneSelf (0x80) fits a byte
 			return r
 		}
 		return '_'
@@ -60,7 +60,7 @@ func DefaultName(cn string) (string, bool) {
 		}
 		b.WriteByte(s[i])
 	}
-	out := strings.TrimLeftFunc(b.String(), func(r rune) bool { return r >= utf8.RuneSelf || !isAlnum(byte(r)) })
+	out := strings.TrimLeftFunc(b.String(), func(r rune) bool { return r >= utf8.RuneSelf || !isAlnum(byte(r)) }) // #nosec G115 -- byte(r) only when r < utf8.RuneSelf
 	if len(out) > MaxNameLen {
 		out = out[:MaxNameLen]
 	}

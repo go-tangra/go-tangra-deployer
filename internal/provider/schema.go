@@ -363,6 +363,27 @@ func MergeOverride(config, override map[string]any) map[string]any {
 	return out
 }
 
+// FilterOverride keeps the keys of a stored target override that are
+// declared, overridable config fields with a valid value (or empty: inherit)
+// and returns the names of the dropped keys (sorted). It re-applies the
+// save-time rule at job start, so rows stored before it (or restored from a
+// backup) can never redirect a configuration (url, TLS switch, headers) or
+// smuggle credentials (SR-015).
+func FilterOverride(c Capabilities, override map[string]any) (map[string]any, []string) {
+	out := make(map[string]any, len(override))
+	var dropped []string
+	for k, v := range override {
+		f, ok := configField(c, k)
+		if !ok || !f.Overridable || (!IsEmpty(v) && checkValue(f, v) != "") {
+			dropped = append(dropped, safeKey(k))
+			continue
+		}
+		out[k] = v
+	}
+	sort.Strings(dropped)
+	return out, dropped
+}
+
 // ValidateOverride checks a target override for one attached configuration
 // (contracts/deployer-config-ui.md §4a): every key must be a declared,
 // overridable config field (credential keys and every non-overridable field →

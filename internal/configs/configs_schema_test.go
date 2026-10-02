@@ -453,6 +453,80 @@ func TestValidateWithStoredCredentials(t *testing.T) {
 	}
 }
 
+// TestDestinationChangeNeedsStoredSecrets (T110, SR-014): changing where a
+// configuration sends its credentials (credential host, webhook url) on
+// update or in a test of a stored configuration is refused while a stored
+// secret would follow without being re-entered or cleared; the probe never
+// sees the stored secret at the new destination.
+func TestDestinationChangeNeedsStoredSecrets(t *testing.T) {
+	ctx := context.Background()
+	cs, m := newService(t)
+	subj := adminSubject()
+
+	// BIG-IP: a new host alone keeps the stored password -> refused.
+	v := bigipConfig(t, cs)
+	_, err := cs.Update(ctx, subj, v.ID, configs.Input{Name: v.Name, Credentials: map[string]any{"host": "evil.example"}})
+	if ve := asValidation(t, err); ve.Field != "credentials.host" || ve.Fields["credentials.password"] != "required" ||
+		ve.Fields["credentials.host"] != configs.MsgDestinationChanged || strings.Contains(err.Error(), "evil.example") {
+		t.Fatalf("host change: %v %v", err, ve.Fields)
+	}
+	if c := storedCreds(t, cs, m, v.ID); c["host"] != "bigip.example.com" {
+		t.Fatalf("refused update stored: %v", c)
+	}
+	// Same host (case-insensitive) is no change; a new host with the password is.
+	if _, err := cs.Update(ctx, subj, v.ID, configs.Input{Name: v.Name, Credentials: map[string]any{"host": "BIGIP.example.com"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cs.Update(ctx, subj, v.ID, configs.Input{Name: v.Name, Credentials: map[string]any{"host": "new.example", "password": "n3w-password"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Webhook: a new url with only one of two stored secrets re-entered.
+	wh, err := cs.Create(ctx, subj, configs.Input{Name: "wh", ProviderType: "webhook", Config: map[string]any{"url": "https://hook.example/a"},
+		Credentials: map[string]any{"token": "t0ken-value", "secret": "s3cret-value"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved := map[string]any{"url": "https://evil.example/a"}
+	_, err = cs.Update(ctx, subj, wh.ID, configs.Input{Name: wh.Name, Config: moved, Credentials: map[string]any{"secret": "n3w-secret"}})
+	if ve := asValidation(t, err); ve.Field != "config.url" || ve.Fields["credentials.token"] != "required" || ve.Fields["credentials.secret"] != "" {
+		t.Fatalf("partial re-entry: %v", ve.Fields)
+	}
+	// Clearing the other secret is enough.
+	if _, err := cs.Update(ctx, subj, wh.ID, configs.Input{Name: wh.Name, Config: moved, Credentials: map[string]any{"secret": "n3w-secret"},
+		ClearCredentials: []string{"token"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Validate of a stored configuration against another host.
+	pv, err := cs.Create(ctx, subj, configs.Input{Name: "probe-dest", ProviderType: "test_probe",
+		Config: map[string]any{"zone": "z", "site": "s"}, Credentials: map[string]any{"host": "h.example", "password": "stored-password-value"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _, _ := probe.seen()
+	_, err = cs.Validate(ctx, subj, configs.ValidateRequest{ConfigurationID: pv.ID, Config: map[string]any{"zone": "z", "site": "s"},
+		Credentials: map[string]any{"host": "evil.example"}})
+	if ve := asValidation(t, err); ve.Fields["credentials.password"] != "required" {
+		t.Fatalf("validate host change: %v", err)
+	}
+	if after, _, _ := probe.seen(); after != before {
+		t.Fatal("stored secret sent to a changed destination")
+	}
+	if _, err := cs.Validate(ctx, subj, configs.ValidateRequest{ConfigurationID: pv.ID, Config: map[string]any{"zone": "z", "site": "s"},
+		Credentials: map[string]any{"host": "evil.example", "password": "typed-password"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, creds, _ := probe.seen(); creds["password"] != "typed-password" {
+		t.Fatalf("probe creds: %v", creds)
+	}
+	// A stored webhook tested against another url without its token.
+	_, err = cs.Validate(ctx, subj, configs.ValidateRequest{ConfigurationID: wh.ID, Config: map[string]any{"url": "https://other.example/a"}})
+	if ve := asValidation(t, err); ve.Field != "config.url" || ve.Fields["credentials.secret"] != "required" {
+		t.Fatalf("validate url change: %v", err)
+	}
+}
+
 // D25 §7: target-supplied fields use their default for the probe, or the
 // probe is skipped (checked=partial, deferred).
 func TestValidateTargetSuppliedFields(t *testing.T) {

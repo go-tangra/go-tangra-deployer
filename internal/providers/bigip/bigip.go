@@ -478,8 +478,9 @@ func newJSONRequest(ctx context.Context, method, url, username, password string,
 // interfaces present a self-signed certificate.
 func httpClient() *http.Client {
 	return &http.Client{
-		Timeout:   httpTimeout,
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, //nolint:gosec // BIG-IP management uses a self-signed cert
+		Timeout:       httpTimeout,
+		CheckRedirect: provider.NoRedirect,
+		Transport:     &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, // #nosec G402 -- pre-033 behaviour: BIG-IP management uses a self-signed certificate (follow-up: CA pin option)
 	}
 }
 

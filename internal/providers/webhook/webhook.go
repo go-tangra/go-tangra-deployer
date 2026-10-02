@@ -247,7 +247,7 @@ func client(config map[string]any) *http.Client {
 	if s, ok := config["skip_tls_verify"].(bool); ok {
 		skip = s
 	}
-	return &http.Client{Timeout: timeout, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: skip}}} //nolint:gosec // opt-in for private endpoints with self-signed certs
+	return &http.Client{Timeout: timeout, CheckRedirect: provider.NoRedirect, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: skip}}} //nolint:gosec // opt-in for private endpoints with self-signed certs
 }
 
 // addHeaders applies auth (bearer token / api key / raw authorization) and any

@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -151,4 +153,11 @@ func TestRegisterRejectsInvalidDeclaration(t *testing.T) {
 		}
 	}()
 	Register(fake{caps: Capabilities{Type: "bad", CredentialFields: []Field{{Key: "token", Label: "Token", Secret: true, Overridable: true}}}})
+}
+
+// TestNoRedirect (T110): credential-bearing clients never follow a redirect.
+func TestNoRedirect(t *testing.T) {
+	if err := NoRedirect(nil, nil); !errors.Is(err, http.ErrUseLastResponse) {
+		t.Fatalf("NoRedirect = %v", err)
+	}
 }

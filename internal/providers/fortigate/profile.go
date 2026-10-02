@@ -18,7 +18,7 @@ import (
 )
 
 // profileNamePattern is the descriptor pattern of default_ssl_profile.
-var profileNamePattern = regexp.MustCompile(`^[^\x00-\x1f"\\/]{1,35}$`)
+var profileNamePattern = regexp.MustCompile(`^[^\x00-\x1f"\\/.][^\x00-\x1f"\\/]{0,34}$`) // no leading dot: "." and ".." would be path segments of the FortiOS URL
 
 // Profile actions reported in the job details.
 const (
@@ -33,6 +33,7 @@ type profileJob struct {
 	profile string
 	base    string
 	serial  string
+	der     []byte // the deployed leaf: reuse requires the identical certificate
 }
 
 func newProfileJob(c *fgClient, profile string, cert *provider.CertificateData) (*profileJob, *provider.Result, error) {
@@ -44,7 +45,7 @@ func newProfileJob(c *fgClient, profile string, cert *provider.CertificateData) 
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse certificate: %w", err)
 	}
-	return &profileJob{c: c, profile: profile, base: certName(leafPEM, cert), serial: certSerial(leaf)}, nil, nil
+	return &profileJob{c: c, profile: profile, base: certName(leafPEM, cert), serial: certSerial(leaf), der: leaf.Raw}, nil, nil
 }
 
 func (j *profileJob) details() map[string]any {
@@ -84,7 +85,7 @@ func (j *profileJob) deploy(ctx context.Context, cert *provider.CertificateData,
 	if err != nil {
 		return nil, fmt.Errorf("list certificates: %w", err)
 	}
-	existing := c.findLocalCertBySerial(ctx, certs, j.serial)
+	existing := c.findLocalCert(ctx, certs, j.serial, j.der)
 	famMatch := familyMatcher(j.base)
 	inFamily := func(n string) bool { return famMatch(n) || (existing != "" && n == existing) }
 
@@ -181,7 +182,7 @@ func (j *profileJob) verify(ctx context.Context) (*provider.Result, error) {
 	if err != nil {
 		return &provider.Result{Success: false, Message: fmt.Sprintf("verify failed: %v", err), Details: d}, nil
 	}
-	name := c.findLocalCertBySerial(ctx, certs, j.serial)
+	name := c.findLocalCert(ctx, certs, j.serial, j.der)
 	if name == "" {
 		return &provider.Result{Success: false, Message: "certificate not found on FortiGate", Details: d}, nil
 	}
@@ -209,7 +210,7 @@ func (j *profileJob) rollback(ctx context.Context) (*provider.Result, error) {
 	if err != nil {
 		return &provider.Result{Success: false, Message: fmt.Sprintf("rollback failed: %v", err), Details: d}, nil
 	}
-	deployed := c.findLocalCertBySerial(ctx, certs, j.serial)
+	deployed := c.findLocalCert(ctx, certs, j.serial, j.der)
 	if deployed == "" {
 		return &provider.Result{Success: false, Message: "deployed certificate not found on FortiGate; profile unchanged", Details: d}, nil
 	}

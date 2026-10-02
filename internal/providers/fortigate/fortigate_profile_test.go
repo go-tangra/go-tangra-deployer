@@ -318,6 +318,22 @@ func TestProfileDeployImportsDatedNameAndReplacesFamilyEntry(t *testing.T) {
 	}
 }
 
+// TestProfileDeploySameSerialOtherCertificate (T110): a device certificate
+// that only shares the serial (another issuer or key) is not reused.
+func TestProfileDeploySameSerialOtherCertificate(t *testing.T) {
+	fixedClock(t, "20261002")
+	f := newFakeFortiOS()
+	lookalike, _ := certWithSerial(t, "www.example.com", 2)
+	f.addCert("lookalike", lookalike)
+	f.profiles["inbound-www"] = &sslSSHProfile{Name: "inbound-www", ServerCertMode: "replace", ServerCert: []namedRef{{"lookalike"}}}
+	srv := f.serve(t)
+	cd := newCertData(t, 2)
+	res, err := (Provider{}).Deploy(context.Background(), cd, profileCfg(), fgCreds(srv), nil)
+	if err != nil || !res.Success || res.Details["imported"] != true || res.Details["certificate_name"] != "www_example_com_20261002" {
+		t.Fatalf("deploy = %+v, %v", res, err)
+	}
+}
+
 func TestProfileDeploySameDayCollisionAndAppend(t *testing.T) {
 	fixedClock(t, "20261002")
 	f := newFakeFortiOS()
@@ -618,7 +634,7 @@ func TestValidateCredentialsDefaultProfile(t *testing.T) {
 
 func TestDefaultProfileDescriptor(t *testing.T) {
 	caps := Provider{}.Capabilities()
-	for _, bad := range []string{"a/b", `a"b`, "a\\b", "x\ny", strings.Repeat("a", 36)} {
+	for _, bad := range []string{"a/b", `a"b`, "a\\b", "x\ny", strings.Repeat("a", 36), ".", "..", ".hidden"} {
 		if errs, _ := provider.ValidateInput(caps, map[string]any{"vdom": "root", "default_ssl_profile": bad}, nil, provider.ModeConfiguration); errs["config.default_ssl_profile"] == "" {
 			t.Errorf("%q accepted", bad)
 		}
@@ -658,7 +674,7 @@ func TestProfileClientEdgeCases(t *testing.T) {
 	if _, err := c.getLocalCertPEM(ctx, "boom"); err == nil {
 		t.Error("500 accepted")
 	}
-	if n := c.findLocalCertBySerial(ctx, []localCert{{Name: "boom"}, {Name: "empty"}, {Name: "garbage"}}, "1"); n != "" {
+	if n := c.findLocalCert(ctx, []localCert{{Name: "boom"}, {Name: "empty"}, {Name: "garbage"}}, "1", nil); n != "" {
 		t.Errorf("found %q", n)
 	}
 	if _, found, err := c.getSSLSSHProfile(ctx, "empty"); err != nil || found {

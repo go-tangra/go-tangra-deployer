@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -342,12 +343,10 @@ func (s *Service) Update(ctx context.Context, subj authz.Subjects, id string, in
 		return View{}, err
 	}
 	// Moving the destination of a configuration that holds sealed
-	// credentials would send them (and the private key) to the new host: the
-	// credentials must be re-entered in the same request.
-	if len(c.CredentialsSealed) > 0 && len(reentered) == 0 {
-		if key, changed := provider.DestinationChange(c.Config, newConfig); changed {
-			return View{}, invalid("config."+key, "credentials must be re-entered when the destination changes")
-		}
+	// credentials would send them (and the private key) to the new host:
+	// every stored secret must be re-entered (or cleared) in the same request.
+	if err := guardDestination(caps, c.Config, newConfig, stored, merged, reentered, in.ClearCredentials); err != nil {
+		return View{}, err
 	}
 	if err := s.checkAttachedTargets(ctx, subj.TenantID, c, caps, oldConfig, newConfig); err != nil {
 		return View{}, err
@@ -366,6 +365,54 @@ func (s *Service) Update(ctx context.Context, subj authz.Subjects, id string, in
 	}
 	out, _ := s.st.GetConfiguration(ctx, subj.TenantID, id)
 	return view(out), nil
+}
+
+// MsgDestinationChanged is the field message of a destination change that
+// would carry stored secrets to the new endpoint.
+const MsgDestinationChanged = "credentials must be re-entered when the destination changes"
+
+// guardDestination refuses a change of where a configuration sends its
+// credentials (config url/verify_url/rollback_url, credential host) while a
+// stored secret would follow it without being re-entered or cleared in the
+// same request. Every stored credential that is not a declared non-secret
+// field counts as secret (legacy keys included). The changed field carries
+// MsgDestinationChanged and each carried secret "required"; no value is
+// echoed.
+func guardDestination(caps provider.Capabilities, storedConfig, nextConfig, stored, merged, reentered map[string]any, cleared []string) error {
+	if len(stored) == 0 {
+		return nil
+	}
+	path := ""
+	if k, changed := provider.DestinationChange(storedConfig, nextConfig); changed {
+		path = "config." + k
+	} else if k, changed := provider.CredentialDestinationChange(stored, merged); changed {
+		path = provider.PathCredentials + k
+	}
+	if path == "" {
+		return nil
+	}
+	public := map[string]bool{}
+	for _, f := range caps.CredentialFields {
+		if !f.Secret {
+			public[f.Key] = true
+		}
+	}
+	fe := provider.FieldErrors{}
+	for k, v := range stored {
+		if public[k] || provider.IsEmpty(v) || slices.Contains(cleared, k) {
+			continue
+		}
+		if _, ok := reentered[k]; !ok {
+			fe[provider.PathCredentials+k] = provider.CodeRequired
+		}
+	}
+	if len(fe) == 0 {
+		return nil
+	}
+	fe[path] = MsgDestinationChanged
+	ve := fieldErrors(fe)
+	ve.Field, ve.Msg = path, MsgDestinationChanged
+	return ve
 }
 
 // mergeCredentials overlays the re-entered values on the stored credentials
@@ -505,7 +552,16 @@ func (s *Service) Validate(ctx context.Context, subj authz.Subjects, req Validat
 		if err != nil {
 			return ValidateResult{}, err
 		}
+		reentered := creds
 		creds, _ = mergeCredentials(provider.Capabilities{}, stored, creds, nil)
+		// A test against another endpoint must not send the stored secrets
+		// there (the same rule as an update).
+		if caps, ok := provider.Info(c.ProviderType); ok {
+			if err := guardDestination(caps, c.Config, req.Config, stored, creds, reentered, nil); err != nil {
+				s.auditValidated(ctx, subj, req, "invalid", "")
+				return ValidateResult{}, err
+			}
+		}
 	} else if err := s.az.Check(ctx, subj, authz.Configuration, "", authz.Manage); err != nil {
 		return ValidateResult{}, err
 	}

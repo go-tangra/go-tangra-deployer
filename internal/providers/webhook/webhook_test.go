@@ -55,6 +55,29 @@ func TestDeployPostsBundleWithAuth(t *testing.T) {
 	}
 }
 
+// TestRedirectNotFollowed (T110): a redirect from the endpoint is a failure;
+// the private key and the token never reach the redirect target.
+func TestRedirectNotFollowed(t *testing.T) {
+	hits := 0
+	sink := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits++ }))
+	defer sink.Close()
+	for _, code := range []int{http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, sink.URL+"/collect", code)
+		}))
+		p, _ := provider.Get("webhook")
+		res, err := p.Deploy(context.Background(), &provider.CertificateData{CertificatePEM: "CERT", PrivateKeyPEM: "KEY"},
+			map[string]any{"url": srv.URL}, map[string]any{"token": "tok-123"}, nil)
+		srv.Close()
+		if err == nil && res.Success {
+			t.Fatalf("%d: redirect treated as success", code)
+		}
+	}
+	if hits != 0 {
+		t.Fatalf("redirect target reached %d times", hits)
+	}
+}
+
 func TestDeployFailureFromEndpoint(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)

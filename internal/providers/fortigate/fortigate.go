@@ -64,7 +64,7 @@ func (Provider) Capabilities() provider.Capabilities {
 				Default: "global", Options: []provider.Option{{Value: "global", Label: "Global"}, {Value: "vdom", Label: "VDOM"}},
 				Help: "Import the certificate globally or into the VDOM only."},
 			{Key: "default_ssl_profile", Label: "Default SSL profile", Type: provider.TypeString, Overridable: true, Group: provider.GroupOptions,
-				Pattern: `^[^\x00-\x1f"\\/]{1,35}$`, MaxLength: 35, Placeholder: "inbound-www",
+				Pattern: `^[^\x00-\x1f"\\/.][^\x00-\x1f"\\/]{0,34}$`, MaxLength: 35, Placeholder: "inbound-www",
 				Help: "Existing SSL/SSH inspection profile (server certificate mode replace) whose server certificate list is updated in place; other domains' certificates are kept. Renewals are imported under dated names."},
 		},
 		CredentialFields: []provider.Field{
@@ -253,9 +253,10 @@ func newClient(creds, config map[string]any) *fgClient {
 	vdom := cfgString(config, "vdom", "root")
 	return &fgClient{
 		http: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout:       60 * time.Second,
+			CheckRedirect: provider.NoRedirect,
 			// FortiGate management interfaces typically use self-signed certs.
-			Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, //nolint:gosec // FortiGate mgmt uses self-signed certs
+			Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, // #nosec G402 -- pre-033 behaviour: FortiGate management interfaces use self-signed certificates (follow-up: CA pin option)
 		},
 		host:  host,
 		token: credString(creds, "api_token"),

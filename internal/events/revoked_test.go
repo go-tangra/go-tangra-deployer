@@ -3,6 +3,7 @@ package events_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -72,6 +73,9 @@ func TestRevokedForwardedOnlyWithInventoryAgent(t *testing.T) {
 		t.Fatal("forwarded for an inactive configuration")
 	}
 	addInventoryConfig(t, m, store.ConfigActive)
+	if c.HandleRevoked(ctx, tenant, strings.Repeat("c", 129)) || c.HandleRevoked(ctx, tenant, "cert 1;x") || rev.n() != 0 {
+		t.Fatal("malformed certificate id forwarded")
+	}
 	if c.HandleRevoked(ctx, tenant, "") || rev.n() != 0 {
 		t.Fatal("forwarded without a certificate id")
 	}

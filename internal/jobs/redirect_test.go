@@ -142,7 +142,10 @@ func TestLegacyOverrideRedirectKeysIgnored(t *testing.T) {
 	}
 	tgtID := makeTarget(t, ctx, subj, m, cfg.ID, nil)
 	tgt, _ := m.GetTarget(ctx, subj.TenantID, tgtID)
-	tgt.ConfigOverrides = map[string]map[string]any{cfg.ID: {"api_base": attacker, "zone_id": "z2"}}
+	// T110: non-overridable and undeclared keys (headers, TLS switch,
+	// credentials) of a legacy or restored row are ignored as well.
+	tgt.ConfigOverrides = map[string]map[string]any{cfg.ID: {"api_base": attacker, "zone_id": "z2",
+		"headers": map[string]any{"X-Api-Key": "k"}, "skip_tls_verify": true, "token": "t"}}
 	if err := m.UpdateTarget(ctx, tgt); err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +156,7 @@ func TestLegacyOverrideRedirectKeysIgnored(t *testing.T) {
 		js.Once(ctx, nil)
 	}
 	got := recorderProvider.last()
-	if got["api_base"] != nil || got["zone_id"] != "z2" {
+	if got["api_base"] != nil || got["zone_id"] != "z2" || got["headers"] != nil || got["skip_tls_verify"] != nil || got["token"] != nil {
 		t.Fatalf("effective config = %v", got)
 	}
 }
@@ -204,8 +207,10 @@ func TestLegacyOverrideDestinationIgnoredWithCredentials(t *testing.T) {
 		t.Fatalf("warning leaks values:\n%s", out)
 	}
 
+	// 033 (SR-015): url is never overridable — without credentials the
+	// private key must not follow an override either.
 	got = run(nil)
-	if got["url"] != attacker {
-		t.Fatalf("without credentials the override applies: %v", got)
+	if got["url"] != "https://hook.example/a" || got["timeout_seconds"] != 5.0 {
+		t.Fatalf("without credentials: effective config = %v", got)
 	}
 }

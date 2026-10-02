@@ -7,6 +7,7 @@ package fortigate
 // delete a certificate an SSL/SSH profile still references (F13).
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/json"
@@ -166,12 +167,14 @@ func (c *fgClient) getLocalCertPEM(ctx context.Context, name string) (string, er
 	return list[0].Certificate, nil
 }
 
-// findLocalCertBySerial returns the name of the local certificate with this
-// serial, or "" when none is present. FortiOS rejects re-importing identical
-// content (-145), so an already present certificate is reused. The PEM comes
+// findLocalCert returns the name of the local certificate that is the
+// deployed certificate (same serial and identical DER), or "" when none is
+// present. FortiOS rejects re-importing identical content (-145), so an
+// already present certificate is reused; a certificate of another issuer
+// that happens to share the serial is not. The PEM comes
 // from the listing when FortiOS includes it, otherwise from a per-name read
 // (v3 behaviour); unreadable entries are skipped.
-func (c *fgClient) findLocalCertBySerial(ctx context.Context, list []localCert, serial string) string {
+func (c *fgClient) findLocalCert(ctx context.Context, list []localCert, serial string, der []byte) string {
 	for _, lc := range list {
 		pemStr := lc.Certificate
 		if pemStr == "" {
@@ -187,7 +190,7 @@ func (c *fgClient) findLocalCertBySerial(ctx context.Context, list []localCert, 
 		if err != nil {
 			continue
 		}
-		if certSerial(leaf) == serial {
+		if certSerial(leaf) == serial && bytes.Equal(leaf.Raw, der) {
 			return lc.Name
 		}
 	}

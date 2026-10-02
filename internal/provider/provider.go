@@ -11,6 +11,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"net/http"
 	"sort"
 	"sync"
 	"time"
@@ -228,3 +229,10 @@ func reset() {
 	defer registry.mu.Unlock()
 	registry.m = map[string]Provider{}
 }
+
+// NoRedirect is the CheckRedirect of every HTTP client that carries
+// credentials or key material: a redirect is answered with the 3xx response
+// itself (a failure for the provider), never followed — Go would replay a
+// POST body (the private key) on 307/308 and keep custom headers (API keys)
+// on a cross-host redirect.
+func NoRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }

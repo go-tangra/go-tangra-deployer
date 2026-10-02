@@ -25,7 +25,8 @@ func TestCheckConfigRedirectKeys(t *testing.T) {
 
 func TestAuthHeaders(t *testing.T) {
 	bad := []string{"Authorization", "authorization", "Proxy-Authorization", "Cookie", "X-Api-Key", "X-API-KEY",
-		"X-Auth-Token", "X-Webhook-Secret", "Api-Key", "X-Access-Token", "X-Password", "X-Credential", " Authorization "}
+		"X-Auth-Token", "X-Webhook-Secret", "Api-Key", "X-Access-Token", "X-Password", "X-Credential", " Authorization ",
+		"X-Jwt", "X-Session-Id", "X-Bearer", "X-Hub-Signature"}
 	for _, h := range bad {
 		if !IsAuthHeader(h) {
 			t.Errorf("%q not detected", h)
@@ -146,7 +147,19 @@ func TestCheckDestinationURL(t *testing.T) {
 	if got := OverrideDestinationKeys(ov); len(got) != 2 || got[0] != "rollback_url" || got[1] != "url" {
 		t.Fatalf("OverrideDestinationKeys = %v", got)
 	}
-	if s := StripDestinationKeys(ov); len(s) != 1 || ov["url"] != "x" {
-		t.Fatalf("StripDestinationKeys = %v (input %v)", s, ov)
+}
+
+// TestCredentialDestinationChange (T110): the credential host names where
+// the secret credentials go; case and surrounding spaces are no change.
+func TestCredentialDestinationChange(t *testing.T) {
+	stored := map[string]any{"host": "lb.example.com", "password": "p"}
+	if k, ch := CredentialDestinationChange(stored, map[string]any{"host": " LB.example.com", "password": "q"}); ch {
+		t.Fatalf("same host changed (%s)", k)
+	}
+	if k, ch := CredentialDestinationChange(stored, map[string]any{"host": "evil.example"}); !ch || k != "host" {
+		t.Fatalf("new host: %s %v", k, ch)
+	}
+	if _, ch := CredentialDestinationChange(map[string]any{"token": "t"}, map[string]any{"token": "u"}); ch {
+		t.Fatal("no host is no change")
 	}
 }

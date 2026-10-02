@@ -116,7 +116,7 @@ func (f *Fake) VerifyHostCertificates(_ context.Context, r *invv1.VerifyHostCert
 	if f.Fail != nil {
 		return nil, f.Fail
 	}
-	out := &invv1.VerifyHostCertificatesResponse{Total: int32(len(f.HostIDs)), Matched: int32(len(f.HostIDs))}
+	out := &invv1.VerifyHostCertificatesResponse{Total: int32(len(f.HostIDs)), Matched: int32(len(f.HostIDs))} // #nosec G115 -- test fake, a handful of hosts
 	for _, h := range f.HostIDs {
 		out.Hosts = append(out.Hosts, &invv1.HostCertificateStatus{HostId: h, Status: "match", FingerprintSha256: r.GetExpectedFingerprintSha256()})
 	}
@@ -131,7 +131,7 @@ func (f *Fake) MarkCertificateRevoked(_ context.Context, r *invv1.MarkCertificat
 	if f.Fail != nil {
 		return nil, f.Fail
 	}
-	return &invv1.MarkCertificateRevokedResponse{CancelledItems: 1, FlaggedHosts: int32(len(f.HostIDs))}, nil
+	return &invv1.MarkCertificateRevokedResponse{CancelledItems: 1, FlaggedHosts: int32(len(f.HostIDs))}, nil // #nosec G115 -- test fake, a handful of hosts
 }
 
 // Snapshot returns copies of the recorded requests.

@@ -68,7 +68,7 @@ func note(p provider.ProgressFn, pct int, msg string) {
 }
 
 func (p Provider) httpClient() *http.Client {
-	return &http.Client{Timeout: 60 * time.Second, Transport: p.transport}
+	return &http.Client{Timeout: 60 * time.Second, Transport: p.transport, CheckRedirect: provider.NoRedirect}
 }
 
 // base returns the Cloudflare API base URL. Only the test-only

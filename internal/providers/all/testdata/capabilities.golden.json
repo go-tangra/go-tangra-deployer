@@ -260,7 +260,7 @@
           "placeholder": "inbound-www",
           "group": "options",
           "max_length": 35,
-          "pattern": "^[^\\x00-\\x1f\"\\\\/]{1,35}$"
+          "pattern": "^[^\\x00-\\x1f\"\\\\/.][^\\x00-\\x1f\"\\\\/]{0,34}$"
         }
       ],
       "credential_fields": [

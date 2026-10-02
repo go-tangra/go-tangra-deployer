@@ -261,6 +261,29 @@ func TestValidateOverrideNonOverridableRequired(t *testing.T) {
 	}
 }
 
+// TestFilterOverride (T110, SR-015): at job start only declared,
+// overridable config fields with valid values survive a stored override.
+func TestFilterOverride(t *testing.T) {
+	c := Capabilities{Type: "f", ConfigFields: []Field{
+		{Key: "zone", Label: "Zone", Overridable: true, Pattern: `^[a-z]+$`},
+		{Key: "timeout", Label: "Timeout", Type: TypeInt, Overridable: true},
+		{Key: "url", Label: "URL", Type: TypeURL},
+		{Key: "skip_tls_verify", Label: "Skip", Type: TypeBool},
+	}, CredentialFields: []Field{{Key: "token", Label: "Token", Secret: true}}}
+	kept, dropped := FilterOverride(c, map[string]any{"zone": "z", "timeout": "", "url": "https://attacker.example", "skip_tls_verify": true,
+		"token": "t", "headers": map[string]any{"Authorization": "x"}, "bad\nkey": 1})
+	if !reflect.DeepEqual(kept, map[string]any{"zone": "z", "timeout": ""}) {
+		t.Fatalf("kept = %v", kept)
+	}
+	if strings.Join(dropped, ",") != "bad_key,headers,skip_tls_verify,token,url" {
+		t.Fatalf("dropped = %v", dropped)
+	}
+	// A value that no longer follows its descriptor is dropped too.
+	if kept, dropped := FilterOverride(c, map[string]any{"zone": "Z1"}); len(kept) != 0 || len(dropped) != 1 {
+		t.Fatalf("invalid value: %v %v", kept, dropped)
+	}
+}
+
 func TestFieldErrorsError(t *testing.T) {
 	fe := FieldErrors{"config.b": "required", "config.a": "pattern"}
 	if fe.Error() != "validation failed: config.a: pattern; config.b: required" {
