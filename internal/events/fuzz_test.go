@@ -23,6 +23,8 @@ func FuzzCertIDFrom(f *testing.F) {
 	f.Add(`{"certificate_id":"abc","module":"lcm"}`)
 	f.Add(`{"certificate_id":"abc","spiffe_id":"spiffe://x","not_after":"2026-01-01T00:00:00Z"}`)
 	f.Add(`{}`)
+	f.Add(`{"certificate_id":"0192a7c0-0000-7000-8000-000000000001","reason":"key_compromise"}`) // certificate.revoked (033)
+	f.Add(`{"certificate_id":"","revoked_at":"2026-10-02T00:00:00Z"}`)
 	f.Add(``)
 	f.Add(`not json at all }{ "certificate_id"`)
 	f.Add(strings.Repeat(`{"a":`, 5000) + `1` + strings.Repeat(`}`, 5000)) // deeply nested

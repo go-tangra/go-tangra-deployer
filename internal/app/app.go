@@ -207,6 +207,10 @@ func Build(ctx context.Context, cfg config.Config, o Options) (a *App, err error
 	// event bus and spawn deployment jobs for matching targets.
 	if cfg.Events.Enabled {
 		cons := events.NewConsumer(a.Repo, lcmC, a.Log)
+		if a.Inventory != nil {
+			// certificate.revoked → inventory (feature 033, research D14).
+			cons.SetRevocationForwarder(a.Inventory, aw)
+		}
 		reader := streamReader{streamClient}
 		tenants := []string{cfg.Enroll.TenantID}
 		a.workers = append(a.workers, func(c context.Context) { cons.Run(c, reader, tenants, stream.Key) })

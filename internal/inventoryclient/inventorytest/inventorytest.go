@@ -32,6 +32,8 @@ type Fake struct {
 	HostIDs []string
 	// State of every item (default INSTALLED).
 	State invv1.DeliveryState
+	// Offline marks every agent offline.
+	Offline bool
 	// Fail, when set, is returned by every call.
 	Fail       error
 	deliveries map[string]*invv1.CertificateDelivery
@@ -57,13 +59,21 @@ func (f *Fake) CreateCertificateDelivery(_ context.Context, r *invv1.CreateCerti
 	if d, ok := f.deliveries[key]; ok {
 		out := proto.Clone(d).(*invv1.CertificateDelivery)
 		out.Created = false
+		if r.GetRearmFailed() {
+			for _, it := range out.Items {
+				if it.State == invv1.DeliveryState_DELIVERY_STATE_FAILED {
+					it.State, it.Attempts = f.State, it.Attempts+1
+				}
+			}
+			f.deliveries[key] = out
+		}
 		return out, nil
 	}
 	d := &invv1.CertificateDelivery{Id: "delivery-" + r.GetIdempotencyKey(), TenantId: r.GetTenantId(), CertificateId: r.GetCertificateId(),
 		Name: r.GetName(), KeyPolicy: r.GetKeyPolicy(), Created: true}
 	for i, h := range f.HostIDs {
 		d.Items = append(d.Items, &invv1.CertificateDeliveryItem{Id: d.Id + "-" + h, HostId: h, Hostname: "host-" + string(rune('a'+i)),
-			AgentOnline: true, State: f.State, Serial: "0A", FingerprintSha256: "ab", HookExitCode: -1, Attempts: 1})
+			AgentOnline: !f.Offline, State: f.State, Serial: "0A", FingerprintSha256: "ab", HookExitCode: -1, Attempts: 1})
 	}
 	f.deliveries[key] = d
 	return d, nil
