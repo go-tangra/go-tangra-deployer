@@ -94,6 +94,19 @@
           "group": "connection",
           "max_length": 64,
           "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+        },
+        {
+          "key": "ssl_profile",
+          "label": "SSL profile",
+          "type": "string",
+          "secret": false,
+          "required": false,
+          "overridable": true,
+          "help": "Existing client-SSL profile to bind the certificate into (name in the partition or /Partition/name). Empty: the provider maintains its own \u003cname\u003e_clientssl profile.",
+          "placeholder": "www_clientssl_prod",
+          "group": "options",
+          "max_length": 321,
+          "pattern": "^(/[A-Za-z0-9_.-]{1,64}/)?[A-Za-z0-9_][A-Za-z0-9_.-]{0,254}$"
         }
       ],
       "credential_fields": [
@@ -235,6 +248,19 @@
           ],
           "help": "Import the certificate globally or into the VDOM only.",
           "group": "options"
+        },
+        {
+          "key": "default_ssl_profile",
+          "label": "Default SSL profile",
+          "type": "string",
+          "secret": false,
+          "required": false,
+          "overridable": true,
+          "help": "Existing SSL/SSH inspection profile (server certificate mode replace) whose server certificate list is updated in place; other domains' certificates are kept. Renewals are imported under dated names.",
+          "placeholder": "inbound-www",
+          "group": "options",
+          "max_length": 35,
+          "pattern": "^[^\\x00-\\x1f\"\\\\/]{1,35}$"
         }
       ],
       "credential_fields": [

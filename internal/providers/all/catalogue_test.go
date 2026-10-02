@@ -87,10 +87,10 @@ func TestRequiredParityWithV3(t *testing.T) {
 func TestOverridableSet(t *testing.T) {
 	want := map[string][]string{
 		"aws_acm":         {"certificate_arn", "region"},
-		"bigip":           {"partition"},
+		"bigip":           {"partition", "ssl_profile"},
 		"cloudflare":      {"zone_id"},
 		"dummy":           {"fail"},
-		"fortigate":       {"import_scope", "vdom"},
+		"fortigate":       {"default_ssl_profile", "import_scope", "vdom"},
 		"webhook":         {"metadata", "timeout_seconds"},
 		"inventory-agent": {"cert_name", "host_ids", "host_tags", "key_policy", "require_all_success", "wait_seconds"},
 	}
