@@ -101,8 +101,8 @@ func TestValidateCredentialsBigIPMissing(t *testing.T) {
 	}
 }
 
-// TestDeployBigIPValidation covers Deploy's missing-host, missing-partition and
-// missing-material guards.
+// TestDeployBigIPValidation covers Deploy's missing-host and missing-material
+// guards; a missing partition is v3's Common.
 func TestDeployBigIPValidation(t *testing.T) {
 	p, _ := provider.Get("bigip")
 	ctx := context.Background()
@@ -113,8 +113,8 @@ func TestDeployBigIPValidation(t *testing.T) {
 	}
 	srv := happyBigIP(t)
 	defer srv.Close()
-	if _, err := p.Deploy(ctx, bigipCert, map[string]any{}, bigipCreds(srv), nil); err == nil {
-		t.Fatal("expected partition error")
+	if res, err := p.Deploy(ctx, bigipCert, map[string]any{}, bigipCreds(srv), nil); err != nil || !res.Success || res.Details["partition"] != "Common" {
+		t.Fatalf("expected the Common partition: %+v, %v", res, err)
 	}
 	if _, err := p.Deploy(ctx, &provider.CertificateData{}, map[string]any{"partition": "Common"}, bigipCreds(srv), nil); err == nil {
 		t.Fatal("expected certificate-material error")
@@ -122,7 +122,7 @@ func TestDeployBigIPValidation(t *testing.T) {
 }
 
 // TestDeployBigIPConflictRetry drives the "already exists -> overwrite" retry in
-// installCrypto and the "already exists -> PATCH" path in bindClientSSLProfile.
+// installCrypto and the 409 -> PATCH path of the client-SSL profile.
 func TestDeployBigIPConflictRetry(t *testing.T) {
 	seen := map[string]int{}
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -158,16 +158,19 @@ func TestDeployBigIPConflictRetry(t *testing.T) {
 	defer srv.Close()
 
 	p, _ := provider.Get("bigip")
-	res, err := p.Deploy(context.Background(), bigipCert, map[string]any{"partition": "Common"}, bigipCreds(srv), nil)
+	res, err := p.Deploy(context.Background(), bigipCert, map[string]any{"partition": "Common", "ssl_profile": "p"}, bigipCreds(srv), nil)
 	if err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
 	if !res.Success {
 		t.Fatalf("expected success through conflict-retry paths: %+v", res)
 	}
+	if seen["PATCH /mgmt/tm/ltm/profile/client-ssl/~Common~p"] != 1 {
+		t.Fatalf("existing profile not patched: %v", seen)
+	}
 }
 
-// TestDeployBigIPCertInstallFailure covers the "certificate upload failed" path
+// TestDeployBigIPCertInstallFailure covers the "failed to upload certificate" path
 // and confirms the password is never leaked.
 func TestDeployBigIPCertInstallFailure(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -186,7 +189,7 @@ func TestDeployBigIPCertInstallFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
-	if res.Success || !strings.Contains(res.Message, "certificate upload failed") {
+	if res.Success || !strings.Contains(res.Message, "failed to upload certificate") {
 		t.Fatalf("expected certificate upload failure: %+v", res)
 	}
 	if strings.Contains(res.Message, bigipPass) {
@@ -194,7 +197,7 @@ func TestDeployBigIPCertInstallFailure(t *testing.T) {
 	}
 }
 
-// TestDeployBigIPBindFailure covers the client-SSL profile binding failure path.
+// TestDeployBigIPBindFailure covers the client-SSL profile create failure path.
 func TestDeployBigIPBindFailure(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/mgmt/tm/ltm/profile/client-ssl" {
@@ -208,11 +211,11 @@ func TestDeployBigIPBindFailure(t *testing.T) {
 	defer srv.Close()
 
 	p, _ := provider.Get("bigip")
-	res, err := p.Deploy(context.Background(), bigipCert, map[string]any{"partition": "Common"}, bigipCreds(srv), nil)
+	res, err := p.Deploy(context.Background(), bigipCert, map[string]any{"partition": "Common", "ssl_profile": "p"}, bigipCreds(srv), nil)
 	if err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
-	if res.Success || !strings.Contains(res.Message, "binding failed") {
+	if res.Success || !strings.Contains(res.Message, "failed to create/update SSL profile") {
 		t.Fatalf("expected profile binding failure: %+v", res)
 	}
 }
@@ -234,7 +237,7 @@ func TestDeployBigIPVerifyFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
-	if res.Success || !strings.Contains(res.Message, "post-deploy verification failed") {
+	if res.Success || !strings.HasPrefix(res.Message, "verification failed") {
 		t.Fatalf("expected post-deploy verification failure: %+v", res)
 	}
 }
@@ -261,7 +264,8 @@ func TestVerifyBigIPFailure(t *testing.T) {
 	}
 }
 
-// TestVerifyBigIPMissing covers Verify's credential and partition guards.
+// TestVerifyBigIPMissing covers Verify's credential guard; a missing partition
+// is v3's Common.
 func TestVerifyBigIPMissing(t *testing.T) {
 	p, _ := provider.Get("bigip")
 	if _, err := p.Verify(context.Background(), bigipCert, map[string]any{"partition": "Common"},
@@ -270,8 +274,8 @@ func TestVerifyBigIPMissing(t *testing.T) {
 	}
 	srv := happyBigIP(t)
 	defer srv.Close()
-	if _, err := p.Verify(context.Background(), bigipCert, map[string]any{}, bigipCreds(srv)); err == nil {
-		t.Fatal("expected partition error")
+	if res, err := p.Verify(context.Background(), bigipCert, map[string]any{}, bigipCreds(srv)); err != nil || res.Details["certificate_name"] != "/Common/www_example_com.crt" {
+		t.Fatalf("expected the Common partition: %+v, %v", res, err)
 	}
 }
 
@@ -316,7 +320,8 @@ func TestRollbackBigIPPartialFailure(t *testing.T) {
 	}
 }
 
-// TestRollbackBigIPMissing covers rollback's credential and partition guards.
+// TestRollbackBigIPMissing covers rollback's credential guard; a missing
+// partition is v3's Common.
 func TestRollbackBigIPMissing(t *testing.T) {
 	p, _ := provider.Get("bigip")
 	if _, err := p.Rollback(context.Background(), bigipCert, map[string]any{"partition": "Common"},
@@ -325,7 +330,7 @@ func TestRollbackBigIPMissing(t *testing.T) {
 	}
 	srv := happyBigIP(t)
 	defer srv.Close()
-	if _, err := p.Rollback(context.Background(), bigipCert, map[string]any{}, bigipCreds(srv)); err == nil {
-		t.Fatal("expected partition error")
+	if res, err := p.Rollback(context.Background(), bigipCert, map[string]any{}, bigipCreds(srv)); err != nil || res.Details["deleted_cert"] != "/Common/www_example_com.crt" {
+		t.Fatalf("expected the Common partition: %+v, %v", res, err)
 	}
 }

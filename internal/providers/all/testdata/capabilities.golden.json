@@ -74,7 +74,7 @@
     {
       "type": "bigip",
       "display_name": "F5 BIG-IP",
-      "description": "Installs the certificate, key and chain on an F5 BIG-IP and binds them into a client-SSL profile (iControl REST).",
+      "description": "Deploys the certificate, key and chain to an F5 BIG-IP via the iControl REST API and, optionally, binds them into a client-SSL profile.",
       "supports_verify": true,
       "supports_rollback": true,
       "delivers_by_reference": false,
@@ -89,11 +89,11 @@
           "required": true,
           "overridable": true,
           "default": "Common",
-          "help": "Administrative partition the certificate objects are created in.",
+          "help": "Administrative partition the certificate, key, chain and client-SSL profile are created in (default Common).",
           "placeholder": "Common",
           "group": "connection",
           "max_length": 64,
-          "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$"
         },
         {
           "key": "ssl_profile",
@@ -102,11 +102,11 @@
           "secret": false,
           "required": false,
           "overridable": true,
-          "help": "Existing client-SSL profile to bind the certificate into (name in the partition or /Partition/name). Empty: the provider maintains its own \u003cname\u003e_clientssl profile.",
-          "placeholder": "www_clientssl_prod",
+          "help": "Client-SSL profile to bind the certificate into (name in the partition or /Partition/name). Created (chain none, ciphers DEFAULT) when it does not exist; otherwise its certificate and key are updated. Rollback deletes it. Empty: no profile is touched.",
+          "placeholder": "www_clientssl",
           "group": "options",
           "max_length": 321,
-          "pattern": "^(/[A-Za-z0-9_.-]{1,64}/)?[A-Za-z0-9_][A-Za-z0-9_.-]{0,254}$"
+          "pattern": "^(/[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}/)?[A-Za-z0-9_][A-Za-z0-9_.-]{0,254}$"
         }
       ],
       "credential_fields": [
