@@ -720,3 +720,9 @@ func safeKey(k string) string {
 	}
 	return string(b)
 }
+
+// HostPattern is the descriptor pattern of an appliance management address:
+// a host name, IPv4 or bracketed IPv6 literal with an optional port. An
+// http(s):// prefix and a trailing slash are tolerated (the providers strip
+// them; v3 configurations carry them).
+const HostPattern = `^(https?://)?([A-Za-z0-9.-]{1,253}|\[[0-9A-Fa-f:.]{2,45}\])(:[0-9]{1,5})?/?$`

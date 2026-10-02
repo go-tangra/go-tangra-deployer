@@ -21,8 +21,14 @@ func (Provider) Capabilities() provider.Capabilities {
 	return provider.Capabilities{
 		Type:             "dummy",
 		DisplayName:      "Dummy (testing)",
+		Description:      "Simulates a deployment without contacting anything; for testing jobs and automation.",
 		SupportsVerify:   true,
 		SupportsRollback: true,
+		SchemaVersion:    1,
+		ConfigFields: []provider.Field{
+			{Key: "fail", Label: "Fail", Type: provider.TypeBool, Overridable: true, Group: provider.GroupOptions, Default: false,
+				Help: "Simulate a failed deployment."},
+		},
 	}
 }
 

@@ -44,15 +44,24 @@ func (Provider) Capabilities() provider.Capabilities {
 	return provider.Capabilities{
 		Type:             "bigip",
 		DisplayName:      "F5 BIG-IP",
+		Description:      "Installs the certificate, key and chain on an F5 BIG-IP and binds them into a client-SSL profile (iControl REST).",
 		SupportsVerify:   true,
 		SupportsRollback: true,
+		TestConnection:   true,
+		SchemaVersion:    1,
 		ConfigFields: []provider.Field{
-			{Key: "partition", Label: "Partition", Required: true},
+			{Key: "partition", Label: "Partition", Type: provider.TypeString, Required: true, Overridable: true, Group: provider.GroupConnection,
+				Default: "Common", Pattern: `^[A-Za-z0-9_.-]{1,64}$`, MaxLength: 64, Placeholder: "Common",
+				Help: "Administrative partition the certificate objects are created in."},
 		},
 		CredentialFields: []provider.Field{
-			{Key: "host", Label: "Host", Required: true},
-			{Key: "username", Label: "Username", Required: true},
-			{Key: "password", Label: "Password", Secret: true, Required: true},
+			{Key: "host", Label: "Host", Type: provider.TypeString, Required: true, Group: provider.GroupConnection,
+				Pattern: provider.HostPattern, MaxLength: 270, Placeholder: "bigip.example.com",
+				Help: "Management address of the BIG-IP (host or host:port)."},
+			{Key: "username", Label: "Username", Type: provider.TypeString, Required: true, Group: provider.GroupCredentials,
+				MaxLength: 128, Placeholder: "deployer", Help: "iControl REST user allowed to manage certificates and SSL profiles."},
+			{Key: "password", Label: "Password", Type: provider.TypeString, Secret: true, Required: true, Group: provider.GroupCredentials,
+				MaxLength: 256, Help: "Password of the iControl REST user."},
 		},
 	}
 }

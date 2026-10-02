@@ -51,14 +51,25 @@ func (Provider) Capabilities() provider.Capabilities {
 	return provider.Capabilities{
 		Type:             "fortigate",
 		DisplayName:      "FortiGate",
+		Description:      "Imports the certificate and key as a local certificate on a FortiGate (FortiOS REST API).",
 		SupportsVerify:   true,
 		SupportsRollback: true,
+		TestConnection:   true,
+		SchemaVersion:    1,
 		ConfigFields: []provider.Field{
-			{Key: "vdom", Label: "VDOM", Required: true},
+			{Key: "vdom", Label: "VDOM", Type: provider.TypeString, Required: true, Overridable: true, Group: provider.GroupConnection,
+				Default: "root", Pattern: `^[A-Za-z0-9_-]{1,31}$`, MaxLength: 31, Placeholder: "root",
+				Help: "Virtual domain the certificate is managed in."},
+			{Key: "import_scope", Label: "Import scope", Type: provider.TypeEnum, Overridable: true, Group: provider.GroupOptions,
+				Default: "global", Options: []provider.Option{{Value: "global", Label: "Global"}, {Value: "vdom", Label: "VDOM"}},
+				Help: "Import the certificate globally or into the VDOM only."},
 		},
 		CredentialFields: []provider.Field{
-			{Key: "host", Label: "FortiGate host", Required: true},
-			{Key: "api_token", Label: "API token", Secret: true, Required: true},
+			{Key: "host", Label: "Host", Type: provider.TypeString, Required: true, Group: provider.GroupConnection,
+				Pattern: provider.HostPattern, MaxLength: 270, Placeholder: "fortigate.example.com",
+				Help: "Management address of the FortiGate (host or host:port)."},
+			{Key: "api_token", Label: "API token", Type: provider.TypeString, Secret: true, Required: true, Group: provider.GroupCredentials,
+				MaxLength: 256, Help: "Token of a REST API administrator allowed to manage certificates."},
 		},
 	}
 }

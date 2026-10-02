@@ -44,16 +44,27 @@ func (Provider) Capabilities() provider.Capabilities {
 	return provider.Capabilities{
 		Type:             "aws_acm",
 		DisplayName:      "AWS Certificate Manager",
+		Description:      "Imports the certificate, key and chain into AWS Certificate Manager (or reimports into an existing ACM certificate).",
 		SupportsVerify:   true,
 		SupportsRollback: false,
+		SchemaVersion:    1,
 		ConfigFields: []provider.Field{
-			{Key: "region", Label: "AWS region", Required: true},
-			{Key: "certificate_arn", Label: "Existing ACM ARN (reimport)"},
+			{Key: "region", Label: "AWS region", Type: provider.TypeString, Required: true, Overridable: true, Group: provider.GroupConnection,
+				Pattern: `^[a-z]{2}(-[a-z]+)+-[0-9]{1,2}$`, MaxLength: 32, Placeholder: "eu-central-1",
+				Help: "AWS region of the ACM certificate store."},
+			{Key: "certificate_arn", Label: "Existing ACM certificate ARN", Type: provider.TypeString, Overridable: true, Group: provider.GroupOptions,
+				Pattern: `^arn:aws[a-z-]*:acm:[a-z0-9-]+:[0-9]{12}:certificate/[A-Za-z0-9-]+$`, MaxLength: 256,
+				Placeholder: "arn:aws:acm:eu-central-1:123456789012:certificate/0f1e2d3c-…",
+				Help:        "Reimport into this ACM certificate instead of importing a new one."},
 		},
 		CredentialFields: []provider.Field{
-			{Key: "access_key_id", Label: "Access key ID", Required: true},
-			{Key: "secret_access_key", Label: "Secret access key", Secret: true, Required: true},
-			{Key: "session_token", Label: "Session token (optional)", Secret: true},
+			{Key: "access_key_id", Label: "Access key ID", Type: provider.TypeString, Required: true, Group: provider.GroupCredentials,
+				Pattern: `^[A-Z0-9]{16,128}$`, MaxLength: 128, Placeholder: "AKIAIOSFODNN7EXAMPLE",
+				Help: "Access key of an IAM identity allowed to import certificates into ACM."},
+			{Key: "secret_access_key", Label: "Secret access key", Type: provider.TypeString, Secret: true, Required: true,
+				Group: provider.GroupCredentials, MaxLength: 256, Help: "Secret of the access key."},
+			{Key: "session_token", Label: "Session token", Type: provider.TypeText, Secret: true, Group: provider.GroupCredentials,
+				MaxLength: 4096, Help: "Only for temporary (STS) credentials."},
 		},
 	}
 }

@@ -44,13 +44,18 @@ func (Provider) Capabilities() provider.Capabilities {
 	return provider.Capabilities{
 		Type:             "cloudflare",
 		DisplayName:      "Cloudflare",
+		Description:      "Uploads the certificate as a Cloudflare custom certificate for one zone.",
 		SupportsVerify:   true,
 		SupportsRollback: false,
+		SchemaVersion:    1,
 		ConfigFields: []provider.Field{
-			{Key: "zone_id", Label: "Zone ID", Required: true},
+			{Key: "zone_id", Label: "Zone ID", Type: provider.TypeString, Required: true, Overridable: true, Group: provider.GroupConnection,
+				Pattern: `^[a-f0-9]{32}$`, MaxLength: 32, Placeholder: "023e105f4ecef8ad9ca31a8372d0c353",
+				Help: "Cloudflare dashboard → the zone → Overview → API → Zone ID."},
 		},
 		CredentialFields: []provider.Field{
-			{Key: "api_token", Label: "API Token", Secret: true, Required: true},
+			{Key: "api_token", Label: "API token", Type: provider.TypeString, Secret: true, Required: true, Group: provider.GroupCredentials,
+				MaxLength: 256, Help: "API token with the permission Zone → SSL and Certificates → Edit for this zone."},
 		},
 	}
 }

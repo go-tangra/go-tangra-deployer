@@ -1,0 +1,399 @@
+{
+  "items": [
+    {
+      "type": "aws_acm",
+      "display_name": "AWS Certificate Manager",
+      "description": "Imports the certificate, key and chain into AWS Certificate Manager (or reimports into an existing ACM certificate).",
+      "supports_verify": true,
+      "supports_rollback": false,
+      "delivers_by_reference": false,
+      "schema_version": 1,
+      "config_fields": [
+        {
+          "key": "region",
+          "label": "AWS region",
+          "type": "string",
+          "secret": false,
+          "required": true,
+          "overridable": true,
+          "help": "AWS region of the ACM certificate store.",
+          "placeholder": "eu-central-1",
+          "group": "connection",
+          "max_length": 32,
+          "pattern": "^[a-z]{2}(-[a-z]+)+-[0-9]{1,2}$"
+        },
+        {
+          "key": "certificate_arn",
+          "label": "Existing ACM certificate ARN",
+          "type": "string",
+          "secret": false,
+          "required": false,
+          "overridable": true,
+          "help": "Reimport into this ACM certificate instead of importing a new one.",
+          "placeholder": "arn:aws:acm:eu-central-1:123456789012:certificate/0f1e2d3c-…",
+          "group": "options",
+          "max_length": 256,
+          "pattern": "^arn:aws[a-z-]*:acm:[a-z0-9-]+:[0-9]{12}:certificate/[A-Za-z0-9-]+$"
+        }
+      ],
+      "credential_fields": [
+        {
+          "key": "access_key_id",
+          "label": "Access key ID",
+          "type": "string",
+          "secret": false,
+          "required": true,
+          "help": "Access key of an IAM identity allowed to import certificates into ACM.",
+          "placeholder": "AKIAIOSFODNN7EXAMPLE",
+          "group": "credentials",
+          "max_length": 128,
+          "pattern": "^[A-Z0-9]{16,128}$"
+        },
+        {
+          "key": "secret_access_key",
+          "label": "Secret access key",
+          "type": "string",
+          "secret": true,
+          "required": true,
+          "help": "Secret of the access key.",
+          "group": "credentials",
+          "max_length": 256
+        },
+        {
+          "key": "session_token",
+          "label": "Session token",
+          "type": "text",
+          "secret": true,
+          "required": false,
+          "help": "Only for temporary (STS) credentials.",
+          "group": "credentials",
+          "max_length": 4096
+        }
+      ]
+    },
+    {
+      "type": "bigip",
+      "display_name": "F5 BIG-IP",
+      "description": "Installs the certificate, key and chain on an F5 BIG-IP and binds them into a client-SSL profile (iControl REST).",
+      "supports_verify": true,
+      "supports_rollback": true,
+      "delivers_by_reference": false,
+      "test_connection": true,
+      "schema_version": 1,
+      "config_fields": [
+        {
+          "key": "partition",
+          "label": "Partition",
+          "type": "string",
+          "secret": false,
+          "required": true,
+          "overridable": true,
+          "default": "Common",
+          "help": "Administrative partition the certificate objects are created in.",
+          "placeholder": "Common",
+          "group": "connection",
+          "max_length": 64,
+          "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+        }
+      ],
+      "credential_fields": [
+        {
+          "key": "host",
+          "label": "Host",
+          "type": "string",
+          "secret": false,
+          "required": true,
+          "help": "Management address of the BIG-IP (host or host:port).",
+          "placeholder": "bigip.example.com",
+          "group": "connection",
+          "max_length": 270,
+          "pattern": "^(https?://)?([A-Za-z0-9.-]{1,253}|\\[[0-9A-Fa-f:.]{2,45}\\])(:[0-9]{1,5})?/?$"
+        },
+        {
+          "key": "username",
+          "label": "Username",
+          "type": "string",
+          "secret": false,
+          "required": true,
+          "help": "iControl REST user allowed to manage certificates and SSL profiles.",
+          "placeholder": "deployer",
+          "group": "credentials",
+          "max_length": 128
+        },
+        {
+          "key": "password",
+          "label": "Password",
+          "type": "string",
+          "secret": true,
+          "required": true,
+          "help": "Password of the iControl REST user.",
+          "group": "credentials",
+          "max_length": 256
+        }
+      ]
+    },
+    {
+      "type": "cloudflare",
+      "display_name": "Cloudflare",
+      "description": "Uploads the certificate as a Cloudflare custom certificate for one zone.",
+      "supports_verify": true,
+      "supports_rollback": false,
+      "delivers_by_reference": false,
+      "schema_version": 1,
+      "config_fields": [
+        {
+          "key": "zone_id",
+          "label": "Zone ID",
+          "type": "string",
+          "secret": false,
+          "required": true,
+          "overridable": true,
+          "help": "Cloudflare dashboard → the zone → Overview → API → Zone ID.",
+          "placeholder": "023e105f4ecef8ad9ca31a8372d0c353",
+          "group": "connection",
+          "max_length": 32,
+          "pattern": "^[a-f0-9]{32}$"
+        }
+      ],
+      "credential_fields": [
+        {
+          "key": "api_token",
+          "label": "API token",
+          "type": "string",
+          "secret": true,
+          "required": true,
+          "help": "API token with the permission Zone → SSL and Certificates → Edit for this zone.",
+          "group": "credentials",
+          "max_length": 256
+        }
+      ]
+    },
+    {
+      "type": "dummy",
+      "display_name": "Dummy (testing)",
+      "description": "Simulates a deployment without contacting anything; for testing jobs and automation.",
+      "supports_verify": true,
+      "supports_rollback": true,
+      "delivers_by_reference": false,
+      "schema_version": 1,
+      "config_fields": [
+        {
+          "key": "fail",
+          "label": "Fail",
+          "type": "bool",
+          "secret": false,
+          "required": false,
+          "overridable": true,
+          "default": false,
+          "help": "Simulate a failed deployment.",
+          "group": "options"
+        }
+      ],
+      "credential_fields": null
+    },
+    {
+      "type": "fortigate",
+      "display_name": "FortiGate",
+      "description": "Imports the certificate and key as a local certificate on a FortiGate (FortiOS REST API).",
+      "supports_verify": true,
+      "supports_rollback": true,
+      "delivers_by_reference": false,
+      "test_connection": true,
+      "schema_version": 1,
+      "config_fields": [
+        {
+          "key": "vdom",
+          "label": "VDOM",
+          "type": "string",
+          "secret": false,
+          "required": true,
+          "overridable": true,
+          "default": "root",
+          "help": "Virtual domain the certificate is managed in.",
+          "placeholder": "root",
+          "group": "connection",
+          "max_length": 31,
+          "pattern": "^[A-Za-z0-9_-]{1,31}$"
+        },
+        {
+          "key": "import_scope",
+          "label": "Import scope",
+          "type": "enum",
+          "secret": false,
+          "required": false,
+          "overridable": true,
+          "default": "global",
+          "options": [
+            {
+              "value": "global",
+              "label": "Global"
+            },
+            {
+              "value": "vdom",
+              "label": "VDOM"
+            }
+          ],
+          "help": "Import the certificate globally or into the VDOM only.",
+          "group": "options"
+        }
+      ],
+      "credential_fields": [
+        {
+          "key": "host",
+          "label": "Host",
+          "type": "string",
+          "secret": false,
+          "required": true,
+          "help": "Management address of the FortiGate (host or host:port).",
+          "placeholder": "fortigate.example.com",
+          "group": "connection",
+          "max_length": 270,
+          "pattern": "^(https?://)?([A-Za-z0-9.-]{1,253}|\\[[0-9A-Fa-f:.]{2,45}\\])(:[0-9]{1,5})?/?$"
+        },
+        {
+          "key": "api_token",
+          "label": "API token",
+          "type": "string",
+          "secret": true,
+          "required": true,
+          "help": "Token of a REST API administrator allowed to manage certificates.",
+          "group": "credentials",
+          "max_length": 256
+        }
+      ]
+    },
+    {
+      "type": "webhook",
+      "display_name": "Webhook (generic HTTP)",
+      "description": "Posts the certificate, chain and key as JSON to an HTTP endpoint you operate.",
+      "supports_verify": true,
+      "supports_rollback": true,
+      "delivers_by_reference": false,
+      "test_connection": true,
+      "schema_version": 1,
+      "config_fields": [
+        {
+          "key": "url",
+          "label": "Webhook URL",
+          "type": "url",
+          "secret": false,
+          "required": true,
+          "help": "Receives the deployment request (POST).",
+          "placeholder": "https://hooks.example.com/certificates",
+          "group": "connection",
+          "max_length": 2048
+        },
+        {
+          "key": "verify_url",
+          "label": "Verify URL",
+          "type": "url",
+          "secret": false,
+          "required": false,
+          "help": "Receives verify requests; defaults to the webhook URL.",
+          "placeholder": "https://hooks.example.com/certificates/verify",
+          "group": "options",
+          "max_length": 2048
+        },
+        {
+          "key": "rollback_url",
+          "label": "Rollback URL",
+          "type": "url",
+          "secret": false,
+          "required": false,
+          "help": "Receives rollback requests; defaults to the webhook URL.",
+          "placeholder": "https://hooks.example.com/certificates/rollback",
+          "group": "options",
+          "max_length": 2048
+        },
+        {
+          "key": "timeout_seconds",
+          "label": "Timeout (s)",
+          "type": "int",
+          "secret": false,
+          "required": false,
+          "overridable": true,
+          "default": 60,
+          "help": "How long to wait for the endpoint.",
+          "group": "options",
+          "min": 1,
+          "max": 300
+        },
+        {
+          "key": "skip_tls_verify",
+          "label": "Skip TLS verification",
+          "type": "bool",
+          "secret": false,
+          "required": false,
+          "default": false,
+          "help": "Only for endpoints with self-signed certificates.",
+          "group": "options"
+        },
+        {
+          "key": "headers",
+          "label": "Custom headers",
+          "type": "key_value",
+          "secret": false,
+          "required": false,
+          "help": "Extra request headers; authentication headers belong in the credentials.",
+          "group": "options",
+          "max_length": 1024,
+          "max_items": 20
+        },
+        {
+          "key": "metadata",
+          "label": "Metadata",
+          "type": "key_value",
+          "secret": false,
+          "required": false,
+          "overridable": true,
+          "help": "Key/value pairs sent in the request payload.",
+          "group": "options",
+          "max_length": 1024,
+          "max_items": 20
+        }
+      ],
+      "credential_fields": [
+        {
+          "key": "token",
+          "label": "Bearer token",
+          "type": "string",
+          "secret": true,
+          "required": false,
+          "help": "Sent as Authorization: Bearer \u003ctoken\u003e.",
+          "group": "credentials",
+          "max_length": 4096
+        },
+        {
+          "key": "authorization",
+          "label": "Authorization header",
+          "type": "string",
+          "secret": true,
+          "required": false,
+          "help": "Raw Authorization header value; takes precedence over the bearer token.",
+          "group": "credentials",
+          "max_length": 4096
+        },
+        {
+          "key": "api_key",
+          "label": "API key",
+          "type": "string",
+          "secret": true,
+          "required": false,
+          "help": "Sent as X-API-Key.",
+          "group": "credentials",
+          "max_length": 4096
+        },
+        {
+          "key": "secret",
+          "label": "Webhook secret",
+          "type": "string",
+          "secret": true,
+          "required": false,
+          "help": "Sent as X-Webhook-Secret.",
+          "group": "credentials",
+          "max_length": 4096
+        }
+      ]
+    }
+  ]
+}

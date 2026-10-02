@@ -31,16 +31,38 @@ func (Provider) Capabilities() provider.Capabilities {
 	return provider.Capabilities{
 		Type:             "webhook",
 		DisplayName:      "Webhook (generic HTTP)",
+		Description:      "Posts the certificate, chain and key as JSON to an HTTP endpoint you operate.",
 		SupportsVerify:   true,
 		SupportsRollback: true,
+		TestConnection:   true,
+		SchemaVersion:    1,
+		// URLs, the TLS switch and the custom headers decide where the sealed
+		// token/secret and the private key are sent: never overridable (SR-015).
 		ConfigFields: []provider.Field{
-			{Key: "url", Label: "Webhook URL", Required: true},
-			{Key: "verify_url", Label: "Verify URL (optional)"},
-			{Key: "rollback_url", Label: "Rollback URL (optional)"},
+			{Key: "url", Label: "Webhook URL", Type: provider.TypeURL, Required: true, Group: provider.GroupConnection, MaxLength: 2048,
+				Placeholder: "https://hooks.example.com/certificates", Help: "Receives the deployment request (POST)."},
+			{Key: "verify_url", Label: "Verify URL", Type: provider.TypeURL, Group: provider.GroupOptions, MaxLength: 2048,
+				Placeholder: "https://hooks.example.com/certificates/verify", Help: "Receives verify requests; defaults to the webhook URL."},
+			{Key: "rollback_url", Label: "Rollback URL", Type: provider.TypeURL, Group: provider.GroupOptions, MaxLength: 2048,
+				Placeholder: "https://hooks.example.com/certificates/rollback", Help: "Receives rollback requests; defaults to the webhook URL."},
+			{Key: "timeout_seconds", Label: "Timeout (s)", Type: provider.TypeInt, Overridable: true, Group: provider.GroupOptions,
+				Default: 60, Min: provider.IntPtr(1), Max: provider.IntPtr(300), Help: "How long to wait for the endpoint."},
+			{Key: "skip_tls_verify", Label: "Skip TLS verification", Type: provider.TypeBool, Group: provider.GroupOptions, Default: false,
+				Help: "Only for endpoints with self-signed certificates."},
+			{Key: "headers", Label: "Custom headers", Type: provider.TypeKeyValue, Group: provider.GroupOptions, MaxItems: 20, MaxLength: 1024,
+				Help: "Extra request headers; authentication headers belong in the credentials."},
+			{Key: "metadata", Label: "Metadata", Type: provider.TypeKeyValue, Overridable: true, Group: provider.GroupOptions, MaxItems: 20,
+				MaxLength: 1024, Help: "Key/value pairs sent in the request payload."},
 		},
 		CredentialFields: []provider.Field{
-			{Key: "token", Label: "Bearer token", Secret: true},
-			{Key: "secret", Label: "Webhook signing secret", Secret: true},
+			{Key: "token", Label: "Bearer token", Type: provider.TypeString, Secret: true, Group: provider.GroupCredentials, MaxLength: 4096,
+				Help: "Sent as Authorization: Bearer <token>."},
+			{Key: "authorization", Label: "Authorization header", Type: provider.TypeString, Secret: true, Group: provider.GroupCredentials,
+				MaxLength: 4096, Help: "Raw Authorization header value; takes precedence over the bearer token."},
+			{Key: "api_key", Label: "API key", Type: provider.TypeString, Secret: true, Group: provider.GroupCredentials, MaxLength: 4096,
+				Help: "Sent as X-API-Key."},
+			{Key: "secret", Label: "Webhook secret", Type: provider.TypeString, Secret: true, Group: provider.GroupCredentials, MaxLength: 4096,
+				Help: "Sent as X-Webhook-Secret."},
 		},
 	}
 }
