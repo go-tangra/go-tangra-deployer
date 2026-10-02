@@ -61,7 +61,8 @@ test.describe('deployer remote', () => {
     await page.goto(base + '/')
     await signIn(page, email, password)
     const csrf = async () => (await page.context().cookies()).find((c) => c.name === '__Host-csrf')?.value ?? ''
-    const post = async (path: string, data: unknown) => page.request.post(base + '/api/deployer/v1/' + path, { data, headers: { 'X-CSRF-Token': await csrf() } })
+    // The gateway's CSRF check needs the Origin a browser would send with the token.
+    const post = async (path: string, data: unknown) => page.request.post(base + '/api/deployer/v1/' + path, { data, headers: { 'X-CSRF-Token': await csrf(), Origin: base } })
     const zone = '023e105f4ecef8ad9ca31a8372d0c353'
     const stamp = Date.now()
     await openNav(page, 'deployer', 'Configurations')
