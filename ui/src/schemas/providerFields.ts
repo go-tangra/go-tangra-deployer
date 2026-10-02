@@ -402,12 +402,29 @@ export function emptyValue(f: ProviderField): unknown {
   }
 }
 
-/** Form value from a stored value (wrong-typed legacy values become empty). */
+/** A bool's value when nothing usable is stored: its default (as the server reads it). */
+function boolDefault(f: ProviderField): boolean {
+  return typeof f.default === 'boolean' ? f.default : false
+}
+
+/** A legacy string bool, read as the providers do (v3 cfgBool); anything else is the default. */
+function legacyBool(f: ProviderField, v: string): boolean {
+  const s = v.trim().toLowerCase()
+  if (['true', '1', 'yes', 'on'].includes(s)) return true
+  if (['false', '0', 'no', 'off'].includes(s)) return false
+  return boolDefault(f)
+}
+
+/**
+ * Form value from a stored value (wrong-typed legacy values become empty). A
+ * bool that is not stored keeps its default, so saving an edit never flips a
+ * default-on option off.
+ */
 function formValue(f: ProviderField, v: unknown): unknown {
-  if (v === undefined || v === null) return emptyValue(f)
+  if (v === undefined || v === null) return fieldType(f) === 'bool' ? boolDefault(f) : emptyValue(f)
   switch (fieldType(f)) {
     case 'bool':
-      return typeof v === 'boolean' ? v : emptyValue(f)
+      return typeof v === 'boolean' ? v : typeof v === 'string' ? legacyBool(f, v) : boolDefault(f)
     case 'int':
       return typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v)) ? Number(v) : ''
     case 'string_list':

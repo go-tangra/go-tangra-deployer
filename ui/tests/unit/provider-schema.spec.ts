@@ -79,6 +79,18 @@ describe('descriptor helpers', () => {
     expect(buildPayload(inv, { ...iv, 'config.host_tags': [' role=web ', ''] }).config).toEqual({ host_tags: ['role=web'], key_policy: 'require', require_all_success: false, wait_seconds: 60 })
   })
 
+  it('edit: a bool that is not stored keeps its default; v3 string bools are read like the server (cfgBool)', () => {
+    const fg = byType.fortigate!
+    expect(initialValues(fg)['config.prune_old']).toBe(true)
+    const edit = initialValues(fg, { config: { vdom: 'root', prune_old: 'off', rebind_references: 'garbage' } })
+    expect(edit['config.prune_old']).toBe(false)
+    expect(edit['config.rebind_references']).toBe(true) // unparseable → default
+    expect(initialValues(fg, { config: { vdom: 'root', prune_old: 'YES', rebind_references: 7 } })).toMatchObject({ 'config.prune_old': true, 'config.rebind_references': true })
+    expect(initialValues(fg, { config: {} })['config.rebind_references']).toBe(true)
+    const inv = byType['inventory-agent']!
+    expect(initialValues(inv, { config: {} })['config.require_all_success']).toBe(false) // default false stays false
+  })
+
   it('override values: three-state booleans, empty values inherit', () => {
     const inv = byType['inventory-agent']!
     const v = overrideValues(inv, { require_all_success: true, cert_name: 'www' }, 'o.')

@@ -193,14 +193,15 @@ describe('configuration drawer: schema-driven provider form', () => {
     expect(drawer().textContent).not.toContain('TOP-SECRET-PW')
   })
 
-  it('legacy undeclared keys are listed and dropped on save; a missing required field is highlighted on open', async () => {
-    const row = { id: 'l1', name: 'Old', provider_type: 'fortigate', status: 'active', has_credentials: true, config: { vdom: '', replace_strategy: 'x', import_scope: 'vdom' }, credentials_set: ['host', 'api_token'], credentials_public: { host: 'fw.example' }, target_supplied: ['vdom'] }
+  it('legacy undeclared keys are listed and dropped on save; a missing required field is highlighted on open; bools keep their default', async () => {
+    // prune_old: a v3 string bool ("no" → off); rebind_references: not stored → its default (on).
+    const row = { id: 'l1', name: 'Old', provider_type: 'fortigate', status: 'active', has_credentials: true, config: { vdom: '', legacy_cert_prefix: 'x', import_scope: 'vdom', prune_old: 'no' }, credentials_set: ['host', 'api_token'], credentials_public: { host: 'fw.example' }, target_supplied: ['vdom'] }
     const calls = await mountView(api([row]))
     await openRow('l1')
-    expect(q('[data-test=legacy-keys]')!.textContent).toContain('replace_strategy')
+    expect(q('[data-test=legacy-keys]')!.textContent).toContain('legacy_cert_prefix')
     await type(input('config.vdom'), 'root')
     await save()
-    expect(body(calls, 'PUT', '/configurations/l1')!.config).toEqual({ vdom: 'root', import_scope: 'vdom' })
+    expect(body(calls, 'PUT', '/configurations/l1')!.config).toEqual({ vdom: 'root', import_scope: 'vdom', prune_old: false, rebind_references: true })
   })
 
   it('read-only view for readers: labelled values and "stored" badges for secrets', async () => {
