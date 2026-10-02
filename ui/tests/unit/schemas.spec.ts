@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { certificateFilterSchema, configurationSchema, jobFilterSchema, targetFormSchema, targetSchema } from '@/schemas'
+import { certificateFilterSchema, configurationSchema, filterToApi, filterToForm, jobFilterSchema, targetFormSchema, targetSchema } from '@/schemas'
 import type { Configuration, Provider } from '@/api/types'
 
 const cloudflare: Provider = {
@@ -35,7 +35,12 @@ describe('deployer schemas', () => {
     expect(certificateFilterSchema.safeParse({ common_name: '(' }).success).toBe(false)
     expect(certificateFilterSchema.safeParse({ common_name: '^api\\.' }).success).toBe(true)
     const t = targetSchema.parse({ name: 'Prod', certificate_filters: [{ issuer: '', common_name: '', san: '', organization: '' }, { common_name: 'example' }] })
-    expect(t.certificate_filters).toEqual([{ issuer: undefined, common_name: 'example', san: undefined, organization: undefined }])
+    expect(t.certificate_filters).toEqual([{ issuer: undefined, common_name: 'example', san: undefined, organization: undefined, org_unit: undefined, country: undefined }])
+    // Form <-> API field names (Go store.CertificateFilter); the API refuses unknown fields.
+    expect(filterToApi({ san: 'server-lab\\.eu', issuer: '', organization: 'Acme' })).toEqual({ san_pattern: 'server-lab\\.eu', subject_organization: 'Acme' })
+    expect(filterToForm({ issuer_name: 'R3', common_name_pattern: 'a', san_pattern: 'b', subject_organization: 'c', subject_org_unit: 'd', subject_country: 'e' }))
+      .toEqual({ issuer: 'R3', common_name: 'a', san: 'b', organization: 'c', org_unit: 'd', country: 'e' })
+    expect(filterToApi(filterToForm({ san_pattern: 'x', subject_country: 'BG' }))).toEqual({ san_pattern: 'x', subject_country: 'BG' })
     expect(targetSchema.safeParse({ name: 'Prod', certificate_filters: new Array(21).fill({}) }).success).toBe(false)
     const cfg: Configuration = { id: 'c1', name: 'CF', provider_type: 'cloudflare', status: 'active', has_credentials: true, config: {}, target_supplied: ['zone_id'] }
     const s = targetFormSchema({ configuration: (id) => (id === 'c1' ? cfg : undefined), provider: () => cloudflare })

@@ -468,8 +468,20 @@ export interface components {
             /** @enum {string} */
             order: "asc" | "desc";
         };
+        /** @description All set fields must match (AND). Patterns are regular expressions (anchored) or a leading-wildcard glob like *.example.com; unknown fields are refused (400 malformed_body). */
         CertificateFilter: {
-            [key: string]: unknown;
+            /** @description issuer name (exact) */
+            issuer_name?: string;
+            /** @description certificate common name pattern */
+            common_name_pattern?: string;
+            /** @description pattern matched against each SAN */
+            san_pattern?: string;
+            /** @description subject O (exact) */
+            subject_organization?: string;
+            /** @description subject OU (exact) */
+            subject_org_unit?: string;
+            /** @description subject C (exact) */
+            subject_country?: string;
         };
         Target: {
             id: string;

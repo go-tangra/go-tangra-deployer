@@ -20,7 +20,7 @@ class FakeSource { onopen = null; onerror = null; addEventListener() {} close() 
 const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div/>' } }] })
 const global = { plugins: [router] }
 const config = { id: 'c1', name: 'Edge', provider_type: 'ssh', status: 'active', has_credentials: true, config: { host: 'edge' } }
-const target = { id: 't1', name: 'Edge servers', auto_deploy: true, certificate_filters: [{ common_name: '.*\\.example$' }], configuration_ids: ['c1'] }
+const target = { id: 't1', name: 'Edge servers', auto_deploy: true, certificate_filters: [{ common_name_pattern: '.*\\.example$', subject_country: 'BG' }], configuration_ids: ['c1'] }
 
 describe('deployer views on the kit', () => {
   beforeEach(() => {
@@ -40,6 +40,8 @@ describe('deployer views on the kit', () => {
     expect(drawer.querySelector<HTMLInputElement>('input[data-field=name]')!.value).toBe('Edge servers')
     expect(drawer.querySelectorAll('[data-test=target-configs]').length).toBe(2)
     const cn = drawer.querySelector<HTMLInputElement>('#f-cn-0')!
+    // The stored filter (API field names) is shown in the form.
+    expect(cn.value).toBe('.*\\.example$')
     cn.value = '('
     cn.dispatchEvent(new Event('input'))
     ;(drawer.querySelector('[data-test=target-save]') as HTMLButtonElement).click()
@@ -54,7 +56,7 @@ describe('deployer views on the kit', () => {
     ;(drawer.querySelector('[data-test=target-save]') as HTMLButtonElement).click()
     await flushPromises()
     const put = calls.find((c) => c.init.method === 'PUT')!
-    expect(JSON.parse(String(put.init.body))).toEqual({ name: 'Edge servers', auto_deploy: true, certificate_filters: [{ common_name: 'web-.*' }] })
+    expect(JSON.parse(String(put.init.body))).toEqual({ name: 'Edge servers', auto_deploy: true, certificate_filters: [{ common_name_pattern: 'web-.*', subject_country: 'BG' }] }) // API field names; uneditable fields kept
     const attach = calls.find((c) => c.init.method === 'POST' && c.url.endsWith('/targets/t1/configurations'))!
     expect(JSON.parse(String(attach.init.body))).toMatchObject({ configuration_ids: ['c2'] })
     w.unmount()
