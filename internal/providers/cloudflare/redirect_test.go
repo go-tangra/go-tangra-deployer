@@ -92,7 +92,9 @@ func TestMalformedZoneIDBuildsNoRequest(t *testing.T) {
 			t.Errorf("zone %q produced requests", z)
 		}
 	}
-	if err := (Provider{}).ValidateConfig(map[string]any{}); err != nil {
-		t.Errorf("absent zone refused at save: %v", err)
+	for _, cfg := range []map[string]any{{}, {"zone_id": ""}, {"zone_id": "  "}, {"zone_id": nil}} {
+		if err := (Provider{}).ValidateConfig(cfg); err != nil {
+			t.Errorf("empty zone %v refused at save: %v", cfg, err)
+		}
 	}
 }

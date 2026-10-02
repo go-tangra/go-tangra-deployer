@@ -111,7 +111,9 @@ func TestRegionCannotRedirect(t *testing.T) {
 			t.Errorf("valid region %q refused: %v", region, err)
 		}
 	}
-	if err := (Provider{}).ValidateConfig(map[string]any{}); err != nil {
-		t.Errorf("absent region refused at save: %v", err)
+	for _, cfg := range []map[string]any{{}, {"region": ""}, {"region": "  "}, {"region": nil}} {
+		if err := (Provider{}).ValidateConfig(cfg); err != nil {
+			t.Errorf("empty region %v refused at save: %v", cfg, err)
+		}
 	}
 }

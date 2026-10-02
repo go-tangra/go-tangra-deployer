@@ -131,9 +131,10 @@ func regionFrom(config map[string]any) (string, error) {
 }
 
 // ValidateConfig is the save-time check (provider.ConfigValidator): a region,
-// when given, must be a well-formed AWS region.
+// when given, must be a well-formed AWS region. An empty value is not given
+// (the descriptor rule: a target may supply it).
 func (Provider) ValidateConfig(config map[string]any) error {
-	if _, present := config["region"]; !present {
+	if provider.IsEmpty(config["region"]) {
 		return nil
 	}
 	if !regionPattern.MatchString(str(config, "region")) {

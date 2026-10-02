@@ -99,9 +99,10 @@ func zoneFrom(config map[string]any) (string, error) {
 }
 
 // ValidateConfig is the save-time check (provider.ConfigValidator): a zone id,
-// when given, must be 32 hexadecimal characters.
+// when given, must be 32 hexadecimal characters. An empty value is not given
+// (the descriptor rule: a target may supply it).
 func (Provider) ValidateConfig(config map[string]any) error {
-	if _, present := config["zone_id"]; !present {
+	if provider.IsEmpty(config["zone_id"]) {
 		return nil
 	}
 	if !zonePattern.MatchString(strFrom(config, "zone_id")) {
