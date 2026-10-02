@@ -14,11 +14,13 @@ import (
 
 	"github.com/go-tangra/go-tangra-lcm/sdk/v4/pkg/lcmidentity"
 	"github.com/go-tangra/go-tangra/v4"
+	"google.golang.org/grpc"
 
 	authv1 "github.com/go-tangra/go-tangra-auth/sdk/v4/api/proto/auth/v1"
 	"github.com/go-tangra/go-tangra-auth/sdk/v4/pkg/authclient"
 	"github.com/go-tangra/go-tangra-portal/sdk/v4/pkg/gatewayclient"
 
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/audit"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/config"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/configs"
@@ -30,8 +32,11 @@ import (
 	lcmv1 "github.com/go-tangra/go-tangra-lcm/sdk/v4/api/proto/lcm/v1"
 
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/backup"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/inventoryclient"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/lcmclient"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/all" // registers all deployment providers
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/providers/inventoryagent"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo/repodb"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/sealed"
@@ -51,6 +56,10 @@ type Options struct {
 	Freya    []freya.Option
 	Migrate  bool
 	Remote   fs.FS // built federated UI remote (nil serves no remote)
+	// LCMConn and InventoryConn replace the mesh connections to lcm and
+	// inventory (tests: in-process fakes over bufconn).
+	LCMConn       grpc.ClientConnInterface
+	InventoryConn grpc.ClientConnInterface
 }
 
 // App is the wired service.
@@ -65,6 +74,9 @@ type App struct {
 	HTTP     *httpapi.Server
 	Hub      *stream.Hub
 	Jobs     *jobs.Service
+	// Inventory is the mesh client of inventory.v1.CertificateDeliveryService
+	// (nil when inventory.service is not configured).
+	Inventory *inventoryclient.Client
 
 	closers []func()
 	workers []func(context.Context)
@@ -151,10 +163,18 @@ func Build(ctx context.Context, cfg config.Config, o Options) (a *App, err error
 	}
 
 	// lcm client (mTLS to lcm's browser API port).
-	lcmC, lerr := a.newLCMClient(ctx)
+	lcmC, lerr := a.newLCMClient(ctx, o.LCMConn)
 	if lerr != nil {
 		return nil, lerr
 	}
+	// inventory-agent provider (feature 033): registered only when the
+	// inventory peer is configured, before workers and HTTP start.
+	if err = a.wireInventory(ctx, o.InventoryConn); err != nil {
+		return nil, err
+	}
+	// Audit sink for configuration validation and revocation forwarding.
+	aw := audit.NewWriter(a.Repo, func(err error) { a.Log.Warn("deployer: audit write failed", "err", err) })
+	a.closers = append(a.closers, aw.Close)
 
 	// Event bus (Valkey Streams).
 	sc := valkeykv.Config{Addresses: cfg.Valkey.Addresses, Username: cfg.Valkey.Username, Password: cfg.Valkey.Password, AllowPlaintext: cfg.Valkey.AllowPlaintext}
@@ -172,6 +192,8 @@ func Build(ctx context.Context, cfg config.Config, o Options) (a *App, err error
 
 	// Services.
 	cs := configs.New(a.Repo, a.Env, az)
+	cs.SetLogger(a.Log)
+	cs.SetAuditor(aw)
 	ds := deploy.New(a.Repo, az)
 	tgs := targets.New(a.Repo, az)
 	a.Jobs = jobs.New(a.Repo, az, lcmC, cs, hubPublisher{a.Hub}, jobs.Config{
@@ -207,12 +229,48 @@ func Build(ctx context.Context, cfg config.Config, o Options) (a *App, err error
 
 // newLCMClient builds the module gRPC client to lcm (SPIFFE mTLS, resolved and
 // pooled by the Freya app). Certificate downloads go over lcm.v1.Certificates.
-func (a *App) newLCMClient(ctx context.Context) (*lcmclient.Client, error) {
-	conn, err := a.Freya.Client(ctx, a.Cfg.LCM.Service)
-	if err != nil {
-		return nil, fmt.Errorf("lcm client: %w", err)
+func (a *App) newLCMClient(ctx context.Context, conn grpc.ClientConnInterface) (*lcmclient.Client, error) {
+	if conn == nil {
+		c, err := a.Freya.Client(ctx, a.Cfg.LCM.Service)
+		if err != nil {
+			return nil, fmt.Errorf("lcm client: %w", err)
+		}
+		conn = c
 	}
 	return lcmclient.New(lcmv1.NewCertificatesClient(conn)), nil
+}
+
+// wireInventory builds the mesh client to the inventory service (SPIFFE mTLS;
+// the inventory accepts CertificateDeliveryService calls only from the
+// deployer's identity) and registers the inventory-agent provider. Without
+// inventory.service the provider is absent from the catalogue.
+func (a *App) wireInventory(ctx context.Context, conn grpc.ClientConnInterface) error {
+	if a.Cfg.Inventory.Service == "" {
+		return nil
+	}
+	if conn == nil {
+		c, err := a.Freya.Client(ctx, a.Cfg.Inventory.Service)
+		if err != nil {
+			return fmt.Errorf("inventory client: %w", err)
+		}
+		conn = c
+	}
+	a.Inventory = inventoryclient.New(conn)
+	registerInventoryAgent(a.Inventory)
+	return nil
+}
+
+// registerInventoryAgent registers the provider once per process; a later
+// Build in the same process (tests) rebinds its client. The registry stays
+// write-once for every other provider.
+func registerInventoryAgent(inv inventoryagent.Inventory) {
+	if p, err := provider.Get(inventoryagent.Type); err == nil {
+		if ia, ok := p.(*inventoryagent.Provider); ok {
+			ia.SetInventory(inv)
+		}
+		return
+	}
+	provider.Register(inventoryagent.New(inv))
 }
 
 // Run starts the verifier, gateway registration, workers, and the Freya runtime.

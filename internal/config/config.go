@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -27,8 +28,11 @@ type Config struct {
 	Events  Events  `yaml:"events"`
 	Gateway Gateway `yaml:"gateway"`
 	LCM     LCM     `yaml:"lcm"`
-	Enroll  Enroll  `yaml:"enroll"`
-	Limits  Limits  `yaml:"limits_deployer"`
+	// Inventory names the inventory peer of the inventory-agent provider
+	// (feature 033). Empty: the provider is not registered.
+	Inventory Inventory `yaml:"inventory"`
+	Enroll    Enroll    `yaml:"enroll"`
+	Limits    Limits    `yaml:"limits_deployer"`
 }
 
 // DB configures TimescaleDB.
@@ -82,6 +86,12 @@ type LCM struct {
 	Service string `yaml:"service"`
 }
 
+// Inventory names the inventory service (mesh discovery name) the
+// inventory-agent provider delivers certificates through.
+type Inventory struct {
+	Service string `yaml:"service"`
+}
+
 // Enroll makes the service obtain its SVID by enrolling with lcm over the
 // network (the multi-host path); app.Build injects the enroll identity provider.
 type Enroll struct {
@@ -100,6 +110,8 @@ type Limits struct {
 	ConfigMaxBytes  int64 `yaml:"config_max_bytes"`
 	FilterMaxLength int   `yaml:"filter_max_length"`
 }
+
+var serviceName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 
 // Default returns secure defaults on top of the Freya defaults.
 func Default() Config {
@@ -192,6 +204,9 @@ func (c Config) Validate() error {
 	}
 	if c.LCM.Service == "" {
 		return errors.New("config: lcm.service is required")
+	}
+	if c.Inventory.Service != "" && !serviceName.MatchString(c.Inventory.Service) {
+		return errors.New("config: inventory.service must be a service name ([a-z][a-z0-9-]{0,62})")
 	}
 	if c.Limits.BackupMaxBytes < 4<<20 || c.Limits.BackupMaxBytes > 64<<20 {
 		return errors.New("config: limits_deployer.backup_max_bytes must be within [4 MiB, 64 MiB]")

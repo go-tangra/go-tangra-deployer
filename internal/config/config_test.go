@@ -131,6 +131,7 @@ func TestValidateRejects(t *testing.T) {
 		"gateway service":   func(c *config.Config) { c.Gateway.Service = "" },
 		"gateway issuer":    func(c *config.Config) { c.Gateway.Issuer = "http://insecure" },
 		"lcm service":       func(c *config.Config) { c.LCM.Service = "" },
+		"inventory service": func(c *config.Config) { c.Inventory.Service = "Inventory:9975" },
 		"backup max bytes":  func(c *config.Config) { c.Limits.BackupMaxBytes = 1 << 20 },
 		"config max bytes":  func(c *config.Config) { c.Limits.ConfigMaxBytes = 1 },
 		"filter max length": func(c *config.Config) { c.Limits.FilterMaxLength = 1 },
@@ -170,6 +171,19 @@ func TestLoad(t *testing.T) {
 	}
 	if c.Gateway.Service != "gateway" {
 		t.Errorf("Load: Gateway.Service = %q, want default gateway", c.Gateway.Service)
+	}
+
+	// Feature 033: the inventory section (go-tangra-docker configs/deployer.yaml)
+	// is optional; empty means the inventory-agent provider is not registered.
+	if c.Inventory.Service != "" {
+		t.Errorf("Load: Inventory.Service = %q, want empty by default", c.Inventory.Service)
+	}
+	inv := filepath.Join(dir, "inv.yaml")
+	if err := os.WriteFile(inv, []byte("inventory: { service: inventory }\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if c, err := config.Load(inv); err != nil || c.Inventory.Service != "inventory" {
+		t.Errorf("Load(inventory) = %q, %v", c.Inventory.Service, err)
 	}
 
 	// A missing file is an error.

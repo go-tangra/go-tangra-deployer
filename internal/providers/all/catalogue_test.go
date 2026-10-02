@@ -68,6 +68,8 @@ func TestRequiredParityWithV3(t *testing.T) {
 		"fortigate":  {"api_token", "host", "vdom"},
 		"webhook":    {"url"},
 		"dummy":      {},
+		// v3 "Tangra client": at least one of host_ids/host_tags (one_of_required).
+		"inventory-agent": {},
 	}
 	for typ, req := range want {
 		c, ok := provider.Info(typ)
@@ -84,12 +86,13 @@ func TestRequiredParityWithV3(t *testing.T) {
 // never a credential, a URL, the TLS switch or the custom headers.
 func TestOverridableSet(t *testing.T) {
 	want := map[string][]string{
-		"aws_acm":    {"certificate_arn", "region"},
-		"bigip":      {"partition"},
-		"cloudflare": {"zone_id"},
-		"dummy":      {"fail"},
-		"fortigate":  {"import_scope", "vdom"},
-		"webhook":    {"metadata", "timeout_seconds"},
+		"aws_acm":         {"certificate_arn", "region"},
+		"bigip":           {"partition"},
+		"cloudflare":      {"zone_id"},
+		"dummy":           {"fail"},
+		"fortigate":       {"import_scope", "vdom"},
+		"webhook":         {"metadata", "timeout_seconds"},
+		"inventory-agent": {"cert_name", "host_ids", "host_tags", "key_policy", "require_all_success", "wait_seconds"},
 	}
 	for typ, ov := range want {
 		c, _ := provider.Info(typ)

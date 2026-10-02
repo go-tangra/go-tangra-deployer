@@ -263,6 +263,108 @@
       ]
     },
     {
+      "type": "inventory-agent",
+      "display_name": "Inventory agent",
+      "description": "Delivers the certificate to inventory hosts through their agents (certbot layout).",
+      "supports_verify": true,
+      "supports_rollback": false,
+      "delivers_by_reference": true,
+      "schema_version": 1,
+      "config_fields": [
+        {
+          "key": "host_ids",
+          "label": "Hosts",
+          "type": "host_selector",
+          "secret": false,
+          "required": false,
+          "overridable": true,
+          "help": "Inventory hosts that receive the certificate.",
+          "group": "connection",
+          "max_length": 36,
+          "max_items": 1000
+        },
+        {
+          "key": "host_tags",
+          "label": "Host tags",
+          "type": "string_list",
+          "secret": false,
+          "required": false,
+          "overridable": true,
+          "help": "key or key=value; a host must match all tags.",
+          "placeholder": "role=web",
+          "group": "connection",
+          "max_length": 319,
+          "pattern": "^[A-Za-z0-9_.:/-]{1,63}(=[^\\x00-\\x1f]{0,255})?$",
+          "max_items": 16
+        },
+        {
+          "key": "cert_name",
+          "label": "Certificate name",
+          "type": "string",
+          "secret": false,
+          "required": false,
+          "overridable": true,
+          "help": "Directory name under live/ on the host; default from the common name.",
+          "placeholder": "www",
+          "group": "options",
+          "max_length": 64,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+        },
+        {
+          "key": "key_policy",
+          "label": "Private key",
+          "type": "enum",
+          "secret": false,
+          "required": false,
+          "overridable": true,
+          "default": "require",
+          "options": [
+            {
+              "value": "require",
+              "label": "Required"
+            },
+            {
+              "value": "certificate_only",
+              "label": "Certificate only (keep the host's key)"
+            }
+          ],
+          "help": "Deliver the private key with the certificate, or only the certificate for hosts that generated their own key.",
+          "group": "options"
+        },
+        {
+          "key": "require_all_success",
+          "label": "Require all hosts",
+          "type": "bool",
+          "secret": false,
+          "required": false,
+          "overridable": true,
+          "default": false,
+          "help": "Fail the deployment when any selected host fails or cannot receive certificates.",
+          "group": "options"
+        },
+        {
+          "key": "wait_seconds",
+          "label": "Wait for hosts (s)",
+          "type": "int",
+          "secret": false,
+          "required": false,
+          "overridable": true,
+          "default": 60,
+          "help": "How long a deployment waits for host results; hosts still offline are reported as queued.",
+          "group": "options",
+          "min": 0,
+          "max": 240
+        }
+      ],
+      "credential_fields": [],
+      "one_of_required": [
+        [
+          "host_ids",
+          "host_tags"
+        ]
+      ]
+    },
+    {
       "type": "webhook",
       "display_name": "Webhook (generic HTTP)",
       "description": "Posts the certificate, chain and key as JSON to an HTTP endpoint you operate.",
