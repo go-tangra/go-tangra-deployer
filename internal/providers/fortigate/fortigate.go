@@ -1,34 +1,34 @@
 // Package fortigate is a deployment provider that installs an issued
 // certificate + private key onto a FortiGate firewall via the FortiOS REST API.
 //
-// The import uses the monitor endpoint POST /api/v2/monitor/vpn-certificate/local/import
-// (type=regular), which loads a leaf certificate paired with its key as a local
-// (server) certificate. Verify reads the object back through the cmdb endpoint
-// GET /api/v2/cmdb/certificate/local/<name>; Rollback removes it via
-// DELETE on the same cmdb path. Every call is scoped to a VDOM via the mandatory
-// ?vdom= query parameter and authenticated with a bearer API token.
+// It is a 1:1 port of the go-tangra v3 FortiGate provider (v3.5.1): the
+// certificate (leaf only — FortiOS rejects a chain with -145) is imported via
+// POST /api/v2/monitor/vpn-certificate/local/import (type=regular) and every
+// call is scoped to a VDOM (?vdom=) and authenticated with a bearer API token.
+// Three replace strategies are selected by replace_strategy:
 //
-// This is a focused single-file port of go-tangra's FortiGate provider: it keeps
-// the real endpoints, payloads and auth but drops tangra's naming/versioning,
-// reference-rebinding and ssl-profile machinery. The certificate object name is
-// derived from the certificate subject's common name.
+//   - "ssl_profile" (default): import under a dated name (or reuse the
+//     identical certificate), bind it into the provider-owned SSL/SSH
+//     inspection profile "{base}{profile_suffix}" (cloned from an existing
+//     replace-mode profile when missing) and, optionally, into the shared
+//     default_ssl_profile. A reference outside those profiles stops the
+//     deployment for manual review. Nothing is ever deleted.
+//   - "rebind": import under a dated name, repoint every reference to the
+//     certificate family (SSL/SSH profiles, SSL-VPN, admin GUI, VIPs) and
+//     prune superseded family members.
+//   - "delete": the legacy delete-then-import under the bare name.
 //
-// The api_token and private key are never logged or returned in any Result or
-// error message.
+// v4 keeps these safety properties on top of v3: redirects are never followed,
+// the API token and private key never appear in a message, error or details,
+// reuse of a device certificate requires identical DER (not only the serial),
+// and profile names are refused when they could form a URL path segment.
 package fortigate
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/base64"
-	"encoding/json"
-	"encoding/pem"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -37,11 +37,16 @@ import (
 
 func init() { provider.Register(Provider{}) }
 
-// maxBodyBytes caps how much of a FortiOS response we read into memory.
-const maxBodyBytes = 4 << 20
+// Replace strategies.
+const (
+	strategySSLProfile = "ssl_profile"
+	strategyRebind     = "rebind"
+	strategyDelete     = "delete"
+)
 
-// fortiNameMaxLen is FortiGate's certificate-name length limit.
-const fortiNameMaxLen = 35
+// settle is the pause after deleting a certificate before re-importing under
+// the same name (delete strategy, v3: one second); tests replace it.
+var settle = func() { time.Sleep(time.Second) }
 
 // Provider installs certificates onto a FortiGate firewall via the FortiOS REST API.
 type Provider struct{}
@@ -51,7 +56,7 @@ func (Provider) Capabilities() provider.Capabilities {
 	return provider.Capabilities{
 		Type:             "fortigate",
 		DisplayName:      "FortiGate",
-		Description:      "Imports the certificate and key as a local certificate on a FortiGate (FortiOS REST API).",
+		Description:      "Imports the certificate and key as a local certificate on a FortiGate (FortiOS REST API) and binds it into SSL/SSH inspection profiles.",
 		SupportsVerify:   true,
 		SupportsRollback: true,
 		TestConnection:   true,
@@ -63,9 +68,22 @@ func (Provider) Capabilities() provider.Capabilities {
 			{Key: "import_scope", Label: "Import scope", Type: provider.TypeEnum, Overridable: true, Group: provider.GroupOptions,
 				Default: "global", Options: []provider.Option{{Value: "global", Label: "Global"}, {Value: "vdom", Label: "VDOM"}},
 				Help: "Import the certificate globally or into the VDOM only."},
+			{Key: "replace_strategy", Label: "Replace strategy", Type: provider.TypeEnum, Group: provider.GroupOptions,
+				Default: strategySSLProfile, Options: []provider.Option{
+					{Value: strategySSLProfile, Label: "SSL profile (import dated, bind into profiles, never delete)"},
+					{Value: strategyRebind, Label: "Rebind (import dated, repoint all references, prune old)"},
+					{Value: strategyDelete, Label: "Delete (delete and re-import under the same name)"}},
+				Help: "How a renewal replaces the certificate. SSL profile stops for manual review when the certificate is used outside its profiles; Rebind repoints SSL/SSH profiles, SSL-VPN, admin GUI and VIPs; Delete fails while the certificate is in use."},
+			{Key: "profile_suffix", Label: "Profile suffix", Type: provider.TypeString, Overridable: true, Group: provider.GroupOptions,
+				Default: defaultProfileSuffix, Pattern: `^[^\x00-\x1f"\\/]{1,35}$`, MaxLength: 35, Placeholder: defaultProfileSuffix,
+				Help: "SSL profile strategy: suffix of the provider-owned SSL/SSH inspection profile <certificate name><suffix>, created by cloning an existing replace-mode profile when missing."},
 			{Key: "default_ssl_profile", Label: "Default SSL profile", Type: provider.TypeString, Overridable: true, Group: provider.GroupOptions,
 				Pattern: `^[^\x00-\x1f"\\/.][^\x00-\x1f"\\/]{0,34}$`, MaxLength: 35, Placeholder: "inbound-www",
-				Help: "Existing SSL/SSH inspection profile (server certificate mode replace) whose server certificate list is updated in place; other domains' certificates are kept. Renewals are imported under dated names."},
+				Help: "SSL profile strategy: SSL/SSH inspection profile (server certificate mode replace) whose server certificate list is also updated in place; other domains' certificates are kept. Created when it does not exist."},
+			{Key: "rebind_references", Label: "Rebind references", Type: provider.TypeBool, Group: provider.GroupOptions, Default: true,
+				Help: "Rebind strategy: repoint SSL/SSH profiles, SSL-VPN, admin GUI and VIPs from older certificates of the same name family to the new one."},
+			{Key: "prune_old", Label: "Prune old certificates", Type: provider.TypeBool, Group: provider.GroupOptions, Default: true,
+				Help: "Rebind strategy: delete superseded certificates of the same name family; certificates still in use are kept and reported."},
 		},
 		CredentialFields: []provider.Field{
 			{Key: "host", Label: "Host", Type: provider.TypeString, Required: true, Group: provider.GroupConnection,
@@ -77,324 +95,380 @@ func (Provider) Capabilities() provider.Capabilities {
 	}
 }
 
-// ValidateCredentials checks the required credentials are present and probes the
-// device for connectivity/authorization. An unreachable device is not fatal;
-// an explicit 401/403 is. With default_ssl_profile set, the profile must exist
-// on the device (not_found_on_endpoint).
+// deployConfig holds the resolved provider configuration for one deployment.
+type deployConfig struct {
+	vdom           string
+	importScope    string // "global" | "vdom"
+	strategy       string // "ssl_profile" (default) | "rebind" | "delete"
+	profileSuffix  string // suffix for the owned profile in ssl_profile mode
+	defaultProfile string // optional production-bound ssl-ssh-profile updated in addition to {base}_ssl_profile
+	rebindRefs     bool   // rebind strategy only
+	pruneOld       bool   // rebind strategy only
+}
+
+func parseConfig(config map[string]any) deployConfig {
+	return deployConfig{
+		vdom:           cfgString(config, "vdom", "root"),
+		importScope:    cfgString(config, "import_scope", "global"),
+		strategy:       cfgString(config, "replace_strategy", strategySSLProfile),
+		profileSuffix:  cfgString(config, "profile_suffix", defaultProfileSuffix),
+		defaultProfile: cfgString(config, "default_ssl_profile", ""),
+		rebindRefs:     cfgBool(config, "rebind_references", true),
+		pruneOld:       cfgBool(config, "prune_old", true),
+	}
+}
+
+// usesProfiles reports whether the strategy is ssl_profile (any value other
+// than rebind/delete falls back to it, as in v3).
+func (cfg deployConfig) usesProfiles() bool {
+	return cfg.strategy != strategyRebind && cfg.strategy != strategyDelete
+}
+
+// ValidateCredentials ("Test connection") checks the required credentials and
+// probes the device. An unreachable device is not fatal at save time (v4
+// contract shared by the appliance providers); 401/403 and any other non-2xx
+// answer are (v3). In the ssl_profile strategy a configured
+// default_ssl_profile must exist on the device (not_found_on_endpoint).
 func (p Provider) ValidateCredentials(ctx context.Context, creds, config map[string]any) error {
-	reachable, err := p.probe(ctx, creds, config)
-	if err != nil || !reachable {
+	c, err := clientFrom(creds, config)
+	if err != nil {
 		return err
 	}
-	profile := sslProfileFrom(config)
-	if profile == "" {
+	r, err := c.cmdbGet(ctx, "system/global")
+	if err != nil {
+		return nil // unreachable at validation time is not fatal
+	}
+	if err := checkProbe(r); err != nil {
+		return err
+	}
+	cfg := parseConfig(config)
+	if !cfg.usesProfiles() || strings.TrimSpace(cfg.defaultProfile) == "" {
 		return nil
 	}
-	if !profileNamePattern.MatchString(profile) {
+	if !profileNamePattern.MatchString(cfg.defaultProfile) {
 		return &provider.FieldError{Field: provider.PathConfig + "default_ssl_profile", Msg: provider.CodePattern}
 	}
-	if _, found, err := newClient(creds, config).getSSLSSHProfile(ctx, profile); err == nil && !found {
+	if _, found, err := c.getSSLSSHProfile(ctx, cfg.defaultProfile); err == nil && !found {
 		return &provider.FieldError{Field: provider.PathConfig + "default_ssl_profile", Msg: provider.CodeNotFoundOnEndpoint}
 	}
 	return nil
 }
 
-// probe checks the credentials and reports whether the device answered.
-func (p Provider) probe(ctx context.Context, creds, config map[string]any) (bool, error) {
+// clientFrom checks the required credentials and builds the client.
+func clientFrom(creds, config map[string]any) (*fgClient, error) {
 	host := credString(creds, "host")
 	if host == "" {
-		return false, fmt.Errorf("host is required")
+		return nil, fmt.Errorf("host is required")
 	}
-	if credString(creds, "api_token") == "" {
-		return false, fmt.Errorf("api_token is required")
+	token := credString(creds, "api_token")
+	if token == "" {
+		return nil, fmt.Errorf("api_token is required")
 	}
-	c := newClient(creds, config)
-	r, err := c.do(ctx, http.MethodGet, "cmdb/system/global", nil)
-	if err != nil {
-		return false, nil // unreachable at validation time is not fatal
-	}
-	if r.StatusCode == http.StatusUnauthorized || r.StatusCode == http.StatusForbidden {
-		return false, fmt.Errorf("authentication failed: invalid or unauthorized API token (HTTP %d)", r.StatusCode)
-	}
-	return true, nil
+	return newClient(host, token, cfgString(config, "vdom", "root")), nil
 }
 
-// Deploy imports the certificate + key onto the FortiGate as a local certificate
-// and verifies it is present afterwards. If an object with the same name already
-// exists it is deleted first (FortiOS rejects re-importing over an existing name).
-// With default_ssl_profile set, the certificate is reused or imported under a
-// dated name and bound into that existing profile instead (nothing deleted).
-func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, config, creds map[string]any, progress provider.ProgressFn) (*provider.Result, error) {
-	if _, err := p.probe(ctx, creds, config); err != nil {
+func checkProbe(r *apiResponse) error {
+	if r.StatusCode == http.StatusUnauthorized || r.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("authentication failed: invalid or unauthorized API token (HTTP %d)", r.StatusCode)
+	}
+	if !r.ok() {
+		return apiError("connectivity check", r)
+	}
+	return nil
+}
+
+// connect is v3's ValidateCredentials as run before every Deploy, Verify and
+// Rollback: the device must answer the connectivity check.
+func connect(ctx context.Context, creds, config map[string]any) (*fgClient, error) {
+	c, err := clientFrom(creds, config)
+	if err != nil {
 		return nil, err
 	}
+	r, err := c.cmdbGet(ctx, "system/global")
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to FortiGate: %w", err)
+	}
+	if err := checkProbe(r); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// baseName derives the base object name from the certificate's own subject
+// (not external metadata, which can disagree with the actual cert — e.g. an
+// apex cert recorded with a wildcard common_name), falling back to the
+// metadata common name and then to "cert_<id prefix>".
+func baseName(leafPEM string, cert *provider.CertificateData) string {
+	parsedLeaf, _ := parseLeaf(leafPEM)
+	base := sanitizeName(subjectBaseName(parsedLeaf, cert.CommonName))
+	if base == "" {
+		base = "cert_" + safeIDPrefix(cert.ID)
+	}
+	return base
+}
+
+// Deploy deploys a certificate to FortiGate.
+func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, config, creds map[string]any, progress provider.ProgressFn) (*provider.Result, error) {
+	c, err := connect(ctx, creds, config)
+	if err != nil {
+		return nil, err
+	}
+	cfg := parseConfig(config)
+
+	note(progress, 10, "Validating certificate data")
 	if cert.CertificatePEM == "" || cert.PrivateKeyPEM == "" {
 		return nil, fmt.Errorf("certificate and private key are required")
 	}
-	c := newClient(creds, config)
-	if profile := sslProfileFrom(config); profile != "" {
-		job, res, err := newProfileJob(c, profile, cert)
-		if job == nil {
-			return res, err
+
+	// FortiOS local (server) cert import expects a single leaf certificate.
+	// Sending the chain (leaf + intermediates) is rejected with error -145.
+	leafCert := leafCertPEM(cert.CertificatePEM)
+	base := baseName(leafCert, cert)
+
+	switch cfg.strategy {
+	case strategyDelete:
+		return p.deployDelete(ctx, c, cfg, base, leafCert, cert.PrivateKeyPEM, progress)
+	case strategyRebind:
+		return p.deployRebind(ctx, c, cfg, base, leafCert, cert.PrivateKeyPEM, progress)
+	default: // "ssl_profile" — production-safe default
+		// v4: names that could form a URL path segment are refused before
+		// anything is sent (stored rows predating the descriptor patterns).
+		if cfg.defaultProfile != "" && !profileNamePattern.MatchString(cfg.defaultProfile) {
+			return &provider.Result{Success: false, Permanent: true, Message: "default_ssl_profile is not a valid SSL/SSH profile name"}, nil
 		}
-		return job.deploy(ctx, cert, cfgString(config, "import_scope", "global"), progress)
+		if !profileSuffixPattern.MatchString(cfg.profileSuffix) {
+			return &provider.Result{Success: false, Permanent: true, Message: "profile_suffix is not a valid SSL/SSH profile name suffix"}, nil
+		}
+		return p.deploySSLProfile(ctx, c, cfg, base, leafCert, cert.PrivateKeyPEM, progress)
 	}
+}
 
-	note(progress, 10, "preparing certificate")
-	// FortiOS local (server) import expects a single leaf certificate; passing
-	// the full chain is rejected with error -145.
-	leaf := leafCertPEM(cert.CertificatePEM)
-	name := certName(leaf, cert)
+// deployRebind imports the renewed certificate under a unique dated name,
+// repoints existing references to it, then prunes superseded family members.
+// This avoids FortiOS rejecting the replacement of a referenced certificate.
+func (p Provider) deployRebind(ctx context.Context, c *fgClient, cfg deployConfig, base, fullCert, keyPEM string, progress provider.ProgressFn) (*provider.Result, error) {
+	date := now().UTC().Format("20060102")
 
-	note(progress, 30, "checking for existing certificate")
-	exists, err := c.certExists(ctx, name)
+	// Idempotency by CONTENT, not by name: reuse the identical certificate,
+	// suffix-probe on a dated-name collision, and import a single leaf so
+	// FortiOS doesn't reject the import with -145.
+	leaf := leafCertPEM(fullCert)
+	parsed, err := parseLeaf(leaf)
 	if err != nil {
-		return nil, fmt.Errorf("check existing certificate: %w", err)
+		return nil, fmt.Errorf("failed to parse certificate: %w", err)
 	}
-	if exists {
-		note(progress, 45, "removing superseded certificate")
-		if err := c.deleteCert(ctx, name); err != nil {
-			return nil, fmt.Errorf("replace certificate %s: %w", name, err)
+	note(progress, 15, "Checking whether the certificate is already on the device")
+	existingName, err := c.findLocalCertBySerial(ctx, parsed)
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up existing certificate: %w", err)
+	}
+
+	var newName string
+	imported := false
+	sameDayCollision := false
+	if existingName != "" {
+		newName = existingName // reuse — the same certificate is already on the device
+	} else {
+		name, collided, rerr := c.resolveFreeImportName(ctx, base, date)
+		if rerr != nil {
+			return nil, fmt.Errorf("failed to resolve import name: %w", rerr)
 		}
+		newName = name
+		sameDayCollision = collided
+		note(progress, 40, "Importing certificate "+newName)
+		if err := c.importCert(ctx, newName, leaf, keyPEM, cfg.importScope); err != nil {
+			return nil, fmt.Errorf("failed to import certificate: %w", err)
+		}
+		ok, verr := c.certExists(ctx, newName)
+		if verr != nil || !ok {
+			return nil, fmt.Errorf("verification failed: certificate %s not found after import (%v)", newName, verr)
+		}
+		imported = true
 	}
 
-	note(progress, 60, "importing certificate "+name)
-	if err := c.importCert(ctx, name, leaf, cert.PrivateKeyPEM, cfgString(config, "import_scope", "global")); err != nil {
-		return nil, fmt.Errorf("import certificate: %w", err)
+	inFamily := familyMatcher(base)
+
+	var rb rebindResult
+	if cfg.rebindRefs {
+		note(progress, 65, "Rebinding references to "+newName)
+		rb = rebindReferences(ctx, c, inFamily, newName)
 	}
 
-	note(progress, 85, "verifying import")
-	ok, err := c.certExists(ctx, name)
+	// Prune is safe regardless of rebind outcome: FortiOS refuses to delete a
+	// still-referenced certificate, so a failed rebind cannot lead to a broken
+	// reference here — the old cert simply survives the prune.
+	var pruned, pruneErrs []string
+	if cfg.pruneOld {
+		note(progress, 85, "Pruning superseded certificates")
+		pruned, pruneErrs = pruneFamily(ctx, c, inFamily, newName)
+	}
+
+	note(progress, 100, "Deployment complete")
+
+	success := len(rb.Errors) == 0
+	msg := fmt.Sprintf("Certificate %s deployed (%d reference(s) rebound, %d superseded cert(s) pruned)", newName, len(rb.Rebound), len(pruned))
+	if !success {
+		msg = fmt.Sprintf("Certificate %s imported but %d reference rebind(s) failed: %s", newName, len(rb.Errors), strings.Join(rb.Errors, "; "))
+	}
+
+	details := map[string]any{
+		"host":             c.host,
+		"vdom":             cfg.vdom,
+		"certificate_name": newName,
+		"strategy":         strategyRebind,
+		"imported":         imported,
+		"rebound":          rb.Rebound,
+		"rebind_errors":    rb.Errors,
+		"pruned":           pruned,
+		"prune_errors":     pruneErrs,
+	}
+	if sameDayCollision {
+		details["same_day_collision"] = true
+	}
+	return &provider.Result{
+		Success: success,
+		Message: msg,
+		Details: details,
+	}, nil
+}
+
+// deployDelete is the legacy replace strategy: delete the existing certificate
+// then re-import under the same name. It only works when the certificate is not
+// referenced by any other object; otherwise FortiOS blocks the delete. Kept as
+// an opt-in escape hatch via replace_strategy=delete.
+func (p Provider) deployDelete(ctx context.Context, c *fgClient, cfg deployConfig, base, fullCert, keyPEM string, progress provider.ProgressFn) (*provider.Result, error) {
+	certName := base
+
+	note(progress, 20, "Checking for existing certificate")
+	exists, err := c.certExists(ctx, certName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check existing certificate: %w", err)
+	}
+
+	if exists {
+		note(progress, 50, "Deleting existing certificate")
+		if err := c.deleteCert(ctx, certName); err != nil {
+			return nil, fmt.Errorf("failed to replace certificate %s: %w; if it is referenced by an SSL profile or other object, set replace_strategy=rebind", certName, err)
+		}
+		settle()
+	}
+
+	note(progress, 60, "Importing certificate")
+	if err := c.importCert(ctx, certName, fullCert, keyPEM, cfg.importScope); err != nil {
+		return nil, fmt.Errorf("failed to import certificate: %w", err)
+	}
+
+	note(progress, 90, "Verifying deployment")
+	ok, err := c.certExists(ctx, certName)
 	if err != nil || !ok {
-		return nil, fmt.Errorf("verification failed: certificate %s not found after import", name)
+		return nil, fmt.Errorf("verification failed: certificate not found after import")
 	}
 
-	note(progress, 100, "deployment complete")
+	note(progress, 100, "Deployment complete")
 	return &provider.Result{
 		Success: true,
-		Message: fmt.Sprintf("Certificate deployed to FortiGate as %s", name),
+		Message: "Certificate deployed successfully to FortiGate",
 		Details: map[string]any{
 			"host":             c.host,
-			"vdom":             c.vdom,
-			"certificate_name": name,
+			"vdom":             cfg.vdom,
+			"certificate_name": certName,
+			"strategy":         strategyDelete,
 			"was_update":       exists,
 		},
 	}, nil
 }
 
-// Verify reads the certificate object back from the device.
+// pruneFamily deletes family certificates other than keep. In-use members are
+// left in place (FortiOS rejects the delete) and reported as non-fatal errors.
+func pruneFamily(ctx context.Context, c *fgClient, inFamily func(string) bool, keep string) (pruned, errs []string) {
+	names, err := c.listLocalCertNames(ctx)
+	if err != nil {
+		return nil, []string{err.Error()}
+	}
+	for _, n := range names {
+		if n == keep || !inFamily(n) {
+			continue
+		}
+		if err := c.deleteCert(ctx, n); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", n, err))
+			continue
+		}
+		pruned = append(pruned, n)
+	}
+	return pruned, errs
+}
+
+// Verify checks that a member of the certificate family exists on the device.
 func (p Provider) Verify(ctx context.Context, cert *provider.CertificateData, config, creds map[string]any) (*provider.Result, error) {
-	if _, err := p.probe(ctx, creds, config); err != nil {
+	c, err := connect(ctx, creds, config)
+	if err != nil {
 		return nil, err
 	}
-	c := newClient(creds, config)
-	if profile := sslProfileFrom(config); profile != "" {
-		job, res, err := newProfileJob(c, profile, cert)
-		if job == nil {
-			return res, err
-		}
-		return job.verify(ctx)
-	}
-	name := certName(leafCertPEM(cert.CertificatePEM), cert)
+	cfg := parseConfig(config)
+	inFamily := familyMatcher(baseName(leafCertPEM(cert.CertificatePEM), cert))
 
-	ok, err := c.certExists(ctx, name)
+	names, err := c.listLocalCertNames(ctx)
 	if err != nil {
-		return &provider.Result{Success: false, Message: fmt.Sprintf("verify failed: %v", err)}, nil
+		return &provider.Result{Success: false, Message: fmt.Sprintf("Failed to verify: %v", err)}, nil
 	}
-	if !ok {
-		return &provider.Result{Success: false, Message: "certificate not found on FortiGate"}, nil
+	var found []string
+	for _, n := range names {
+		if inFamily(n) {
+			found = append(found, n)
+		}
 	}
+	if len(found) == 0 {
+		return &provider.Result{Success: false, Message: "Certificate not found on FortiGate"}, nil
+	}
+	sort.Strings(found)
+	current := found[len(found)-1] // newest dated version sorts last
+
 	return &provider.Result{
 		Success: true,
 		Message: "Certificate verified on FortiGate",
-		Details: map[string]any{"host": c.host, "vdom": c.vdom, "certificate_name": name},
+		Details: map[string]any{
+			"host":             c.host,
+			"vdom":             cfg.vdom,
+			"certificate_name": current,
+			"family_members":   found,
+		},
 	}, nil
 }
 
-// Rollback removes the deployed certificate object. FortiOS refuses to delete a
-// still-referenced certificate, so an in-use certificate is left in place and
-// reported rather than breaking a live configuration.
+// Rollback removes deployed family certificates that are no longer referenced.
+// Referenced members are left in place (FortiOS rejects the delete), so a
+// rollback cannot break a live configuration.
 func (p Provider) Rollback(ctx context.Context, cert *provider.CertificateData, config, creds map[string]any) (*provider.Result, error) {
-	if _, err := p.probe(ctx, creds, config); err != nil {
+	c, err := connect(ctx, creds, config)
+	if err != nil {
 		return nil, err
 	}
-	c := newClient(creds, config)
-	if profile := sslProfileFrom(config); profile != "" {
-		job, res, err := newProfileJob(c, profile, cert)
-		if job == nil {
-			return res, err
-		}
-		return job.rollback(ctx)
-	}
-	name := certName(leafCertPEM(cert.CertificatePEM), cert)
+	inFamily := familyMatcher(baseName(leafCertPEM(cert.CertificatePEM), cert))
 
-	if err := c.deleteCert(ctx, name); err != nil {
-		return &provider.Result{Success: false, Message: fmt.Sprintf("rollback failed: %v", err)}, nil
+	names, err := c.listLocalCertNames(ctx)
+	if err != nil {
+		return &provider.Result{Success: false, Message: fmt.Sprintf("Rollback failed: %v", err)}, nil
 	}
+	var deleted, skipped []string
+	for _, n := range names {
+		if !inFamily(n) {
+			continue
+		}
+		if err := c.deleteCert(ctx, n); err != nil {
+			skipped = append(skipped, fmt.Sprintf("%s (%v)", n, err))
+			continue
+		}
+		deleted = append(deleted, n)
+	}
+
 	return &provider.Result{
 		Success: true,
-		Message: fmt.Sprintf("Rollback removed certificate %s from FortiGate", name),
-		Details: map[string]any{"host": c.host, "vdom": c.vdom, "certificate_name": name},
-	}, nil
-}
-
-// ---- FortiOS REST client ----------------------------------------------------
-
-// fgClient is a thin FortiOS REST client scoped to a single host + vdom.
-type fgClient struct {
-	http  *http.Client
-	host  string
-	token string
-	vdom  string
-}
-
-func newClient(creds, config map[string]any) *fgClient {
-	host := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(credString(creds, "host"), "https://"), "http://"), "/")
-	vdom := cfgString(config, "vdom", "root")
-	return &fgClient{
-		http: &http.Client{
-			Timeout:       60 * time.Second,
-			CheckRedirect: provider.NoRedirect,
-			// FortiGate management interfaces typically use self-signed certs.
-			Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, // #nosec G402 -- pre-033 behaviour: FortiGate management interfaces use self-signed certificates (follow-up: CA pin option)
+		Message: fmt.Sprintf("Rollback removed %d certificate(s); %d still referenced", len(deleted), len(skipped)),
+		Details: map[string]any{
+			"deleted": deleted,
+			"skipped": skipped,
 		},
-		host:  host,
-		token: credString(creds, "api_token"),
-		vdom:  vdom,
-	}
-}
-
-// fortiEnvelope is the standard FortiOS REST response wrapper.
-type fortiEnvelope struct {
-	Status     string          `json:"status"`
-	HTTPStatus int             `json:"http_status"`
-	Error      int             `json:"error"`
-	CLIError   string          `json:"cli_error"`
-	Message    string          `json:"message"`
-	Results    json.RawMessage `json:"results"`
-}
-
-// apiResponse holds the decoded result of a single API call.
-type apiResponse struct {
-	StatusCode int
-	Body       []byte
-	Env        fortiEnvelope
-}
-
-func (r *apiResponse) ok() bool {
-	return r.StatusCode == http.StatusOK || r.StatusCode == http.StatusCreated
-}
-
-// do performs a request against /api/v2/<apiPath>, always pinning the vdom and
-// presenting the bearer API token.
-func (c *fgClient) do(ctx context.Context, method, apiPath string, body any) (*apiResponse, error) {
-	q := url.Values{"vdom": {c.vdom}}
-	u := fmt.Sprintf("https://%s/api/v2/%s?%s", c.host, apiPath, q.Encode())
-
-	var rdr io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return nil, fmt.Errorf("marshal request body: %w", err)
-		}
-		rdr = bytes.NewReader(b)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, u, rdr)
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("fortigate %s %s: %w", method, apiPath, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
-	if err != nil {
-		return nil, fmt.Errorf("read response (HTTP %d): %w", resp.StatusCode, err)
-	}
-	out := &apiResponse{StatusCode: resp.StatusCode, Body: raw}
-	_ = json.Unmarshal(raw, &out.Env) // best-effort; not every body is the envelope
-	return out, nil
-}
-
-// certExists reports whether a local certificate with the given name exists.
-func (c *fgClient) certExists(ctx context.Context, name string) (bool, error) {
-	r, err := c.do(ctx, http.MethodGet, "cmdb/certificate/local/"+url.PathEscape(name), nil)
-	if err != nil {
-		return false, err
-	}
-	if r.StatusCode == http.StatusNotFound {
-		return false, nil
-	}
-	if !r.ok() {
-		return false, apiError("check certificate", r)
-	}
-	return true, nil
-}
-
-// importCert imports a new local certificate via the monitor API. scope is
-// "global" or "vdom". The certificate and key are base64-encoded per FortiOS.
-func (c *fgClient) importCert(ctx context.Context, name, certPEM, keyPEM, scope string) error {
-	payload := map[string]any{
-		"type":             "regular",
-		"certname":         name,
-		"file_content":     base64.StdEncoding.EncodeToString([]byte(certPEM)),
-		"key_file_content": base64.StdEncoding.EncodeToString([]byte(keyPEM)),
-		"scope":            scope,
-	}
-	r, err := c.do(ctx, http.MethodPost, "monitor/vpn-certificate/local/import", payload)
-	if err != nil {
-		return err
-	}
-	if !r.ok() {
-		return apiError("import certificate "+name, r)
-	}
-	return nil
-}
-
-// deleteCert deletes a local certificate. A 404 is treated as success.
-func (c *fgClient) deleteCert(ctx context.Context, name string) error {
-	r, err := c.do(ctx, http.MethodDelete, "cmdb/certificate/local/"+url.PathEscape(name), nil)
-	if err != nil {
-		return err
-	}
-	if r.StatusCode == http.StatusNotFound {
-		return nil
-	}
-	if !r.ok() {
-		return apiError("delete certificate "+name, r)
-	}
-	return nil
-}
-
-// apiError renders a FortiOS error response into a client-safe Go error. It
-// includes envelope diagnostics and a truncated raw body but never the token.
-func apiError(op string, r *apiResponse) error {
-	body := strings.TrimSpace(string(r.Body))
-	if len(body) > 512 {
-		body = body[:512] + "…"
-	}
-	msg := fmt.Sprintf("fortigate: %s failed: HTTP %d", op, r.StatusCode)
-	if r.Env.Status != "" {
-		msg += fmt.Sprintf(", status=%s", r.Env.Status)
-	}
-	if r.Env.Error != 0 {
-		msg += fmt.Sprintf(", error=%d", r.Env.Error)
-	}
-	if r.Env.CLIError != "" {
-		msg += fmt.Sprintf(", cli_error=%q", r.Env.CLIError)
-	}
-	if r.StatusCode == http.StatusFailedDependency || r.Env.Error == -23 {
-		msg += " [object is referenced/in-use]"
-	}
-	if body != "" {
-		msg += ": " + body
-	}
-	return fmt.Errorf("%s", msg)
+	}, nil
 }
 
 // ---- helpers ----------------------------------------------------------------
@@ -406,11 +480,6 @@ func credString(m map[string]any, key string) string {
 	return ""
 }
 
-// sslProfileFrom returns the configured default_ssl_profile ("" when unset).
-func sslProfileFrom(config map[string]any) string {
-	return strings.TrimSpace(cfgString(config, "default_ssl_profile", ""))
-}
-
 func cfgString(m map[string]any, key, def string) string {
 	if v, ok := m[key].(string); ok && v != "" {
 		return v
@@ -418,82 +487,33 @@ func cfgString(m map[string]any, key, def string) string {
 	return def
 }
 
+// cfgBool reads a bool option; stored v3 configurations may hold it as a
+// string ("true"/"1"/"yes"/"on", "false"/"0"/"no"/"off"). Anything else is
+// the default.
+func cfgBool(m map[string]any, key string, def bool) bool {
+	switch v := m[key].(type) {
+	case bool:
+		return v
+	case string:
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "true", "1", "yes", "on":
+			return true
+		case "false", "0", "no", "off":
+			return false
+		}
+	}
+	return def
+}
+
+func safeIDPrefix(id string) string {
+	if len(id) >= 8 {
+		return id[:8]
+	}
+	return id
+}
+
 func note(p provider.ProgressFn, pct int, msg string) {
 	if p != nil {
 		p(pct, msg)
 	}
-}
-
-// certName derives the FortiGate object name from the certificate subject's
-// common name (falling back to the first DNS SAN, then the supplied metadata,
-// then a stable id-based name).
-func certName(leafPEM string, cert *provider.CertificateData) string {
-	base := cert.CommonName
-	if parsed, err := parseLeaf(leafPEM); err == nil && parsed != nil {
-		if cn := strings.TrimSpace(parsed.Subject.CommonName); cn != "" {
-			base = cn
-		} else if len(parsed.DNSNames) > 0 {
-			base = parsed.DNSNames[0]
-		}
-	}
-	name := sanitizeName(base)
-	if name == "" {
-		id := cert.ID
-		if len(id) > 8 {
-			id = id[:8]
-		}
-		name = sanitizeName("cert_" + id)
-	}
-	return name
-}
-
-// parseLeaf parses the first CERTIFICATE block of a PEM bundle.
-func parseLeaf(pemData string) (*x509.Certificate, error) {
-	block, _ := pem.Decode([]byte(leafCertPEM(pemData)))
-	if block == nil {
-		return nil, fmt.Errorf("no certificate PEM block found")
-	}
-	return x509.ParseCertificate(block.Bytes)
-}
-
-// leafCertPEM returns only the first CERTIFICATE block from a PEM bundle, so the
-// leaf is imported without intermediates (which FortiOS rejects with error -145).
-func leafCertPEM(pemData string) string {
-	rest := []byte(pemData)
-	for {
-		block, remainder := pem.Decode(rest)
-		if block == nil {
-			break
-		}
-		if block.Type == "CERTIFICATE" {
-			return string(pem.EncodeToMemory(block))
-		}
-		rest = remainder
-	}
-	return pemData
-}
-
-// sanitizeName converts a common name into a valid FortiGate resource name:
-// wildcard "*" → "star", dots and other invalid characters → "_", collapsed and
-// trimmed, leading digit prefixed with "cert_", truncated to 35 characters.
-func sanitizeName(name string) string {
-	result := strings.Replace(name, "*", "star", 1)
-	result = strings.ReplaceAll(result, ".", "_")
-	result = strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
-			return r
-		}
-		return '_'
-	}, result)
-	for strings.Contains(result, "__") {
-		result = strings.ReplaceAll(result, "__", "_")
-	}
-	result = strings.Trim(result, "_")
-	if len(result) > 0 && result[0] >= '0' && result[0] <= '9' {
-		result = "cert_" + result
-	}
-	if len(result) > fortiNameMaxLen {
-		result = strings.TrimRight(result[:fortiNameMaxLen], "_")
-	}
-	return result
 }

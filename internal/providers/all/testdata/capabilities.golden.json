@@ -207,7 +207,7 @@
     {
       "type": "fortigate",
       "display_name": "FortiGate",
-      "description": "Imports the certificate and key as a local certificate on a FortiGate (FortiOS REST API).",
+      "description": "Imports the certificate and key as a local certificate on a FortiGate (FortiOS REST API) and binds it into SSL/SSH inspection profiles.",
       "supports_verify": true,
       "supports_rollback": true,
       "delivers_by_reference": false,
@@ -250,17 +250,75 @@
           "group": "options"
         },
         {
+          "key": "replace_strategy",
+          "label": "Replace strategy",
+          "type": "enum",
+          "secret": false,
+          "required": false,
+          "default": "ssl_profile",
+          "options": [
+            {
+              "value": "ssl_profile",
+              "label": "SSL profile (import dated, bind into profiles, never delete)"
+            },
+            {
+              "value": "rebind",
+              "label": "Rebind (import dated, repoint all references, prune old)"
+            },
+            {
+              "value": "delete",
+              "label": "Delete (delete and re-import under the same name)"
+            }
+          ],
+          "help": "How a renewal replaces the certificate. SSL profile stops for manual review when the certificate is used outside its profiles; Rebind repoints SSL/SSH profiles, SSL-VPN, admin GUI and VIPs; Delete fails while the certificate is in use.",
+          "group": "options"
+        },
+        {
+          "key": "profile_suffix",
+          "label": "Profile suffix",
+          "type": "string",
+          "secret": false,
+          "required": false,
+          "overridable": true,
+          "default": "_ssl_profile",
+          "help": "SSL profile strategy: suffix of the provider-owned SSL/SSH inspection profile \u003ccertificate name\u003e\u003csuffix\u003e, created by cloning an existing replace-mode profile when missing.",
+          "placeholder": "_ssl_profile",
+          "group": "options",
+          "max_length": 35,
+          "pattern": "^[^\\x00-\\x1f\"\\\\/]{1,35}$"
+        },
+        {
           "key": "default_ssl_profile",
           "label": "Default SSL profile",
           "type": "string",
           "secret": false,
           "required": false,
           "overridable": true,
-          "help": "Existing SSL/SSH inspection profile (server certificate mode replace) whose server certificate list is updated in place; other domains' certificates are kept. Renewals are imported under dated names.",
+          "help": "SSL profile strategy: SSL/SSH inspection profile (server certificate mode replace) whose server certificate list is also updated in place; other domains' certificates are kept. Created when it does not exist.",
           "placeholder": "inbound-www",
           "group": "options",
           "max_length": 35,
           "pattern": "^[^\\x00-\\x1f\"\\\\/.][^\\x00-\\x1f\"\\\\/]{0,34}$"
+        },
+        {
+          "key": "rebind_references",
+          "label": "Rebind references",
+          "type": "bool",
+          "secret": false,
+          "required": false,
+          "default": true,
+          "help": "Rebind strategy: repoint SSL/SSH profiles, SSL-VPN, admin GUI and VIPs from older certificates of the same name family to the new one.",
+          "group": "options"
+        },
+        {
+          "key": "prune_old",
+          "label": "Prune old certificates",
+          "type": "bool",
+          "secret": false,
+          "required": false,
+          "default": true,
+          "help": "Rebind strategy: delete superseded certificates of the same name family; certificates still in use are kept and reported.",
+          "group": "options"
         }
       ],
       "credential_fields": [

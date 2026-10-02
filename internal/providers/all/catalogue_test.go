@@ -90,7 +90,7 @@ func TestOverridableSet(t *testing.T) {
 		"bigip":           {"partition", "ssl_profile"},
 		"cloudflare":      {"zone_id"},
 		"dummy":           {"fail"},
-		"fortigate":       {"default_ssl_profile", "import_scope", "vdom"},
+		"fortigate":       {"default_ssl_profile", "import_scope", "profile_suffix", "vdom"},
 		"webhook":         {"metadata", "timeout_seconds"},
 		"inventory-agent": {"cert_name", "host_ids", "host_tags", "key_policy", "require_all_success", "wait_seconds"},
 	}

@@ -2,6 +2,7 @@ package fortigate
 
 import (
 	"math/big"
+	"strings"
 	"testing"
 )
 
@@ -103,5 +104,57 @@ func TestNormalizeSerial(t *testing.T) {
 	}
 	if s := normalizeSerial(big.NewInt(4242).Text(16)); s != "1092" {
 		t.Fatalf("serial = %s", s)
+	}
+}
+
+func TestLeafCertPEM(t *testing.T) {
+	leaf := "-----BEGIN CERTIFICATE-----\nLEAFLEAFLEAF\n-----END CERTIFICATE-----\n"
+	inter := "-----BEGIN CERTIFICATE-----\nINTERINTER\n-----END CERTIFICATE-----\n"
+	root := "-----BEGIN CERTIFICATE-----\nROOTROOT\n-----END CERTIFICATE-----\n"
+
+	// A multi-cert bundle must collapse to just the first (leaf) block.
+	got := leafCertPEM(leaf + inter + root)
+	if c := countBlocks(got); c != 1 {
+		t.Fatalf("expected 1 cert block, got %d: %q", c, got)
+	}
+	if !strings.Contains(got, "LEAFLEAFLEAF") || strings.Contains(got, "INTERINTER") {
+		t.Errorf("leaf extraction wrong: %q", got)
+	}
+
+	// A single leaf is returned unchanged (one block).
+	if c := countBlocks(leafCertPEM(leaf)); c != 1 {
+		t.Errorf("single leaf should stay 1 block, got %d", c)
+	}
+	// A key block before the certificate is skipped; no PEM at all is kept as-is.
+	key := "-----BEGIN PRIVATE KEY-----\nS0VZ\n-----END PRIVATE KEY-----\n"
+	if got := leafCertPEM(key + leaf); strings.Contains(got, "PRIVATE KEY") || countBlocks(got) != 1 {
+		t.Errorf("key not skipped: %q", got)
+	}
+	if got := leafCertPEM("raw"); got != "raw" {
+		t.Errorf("raw = %q", got)
+	}
+}
+
+func countBlocks(s string) int { return strings.Count(s, "BEGIN CERTIFICATE") }
+
+func TestCfgBool(t *testing.T) {
+	m := map[string]any{"a": true, "b": "false", "c": "yes", "d": "garbage", "e": " ON ", "f": "0", "g": 1}
+	if !cfgBool(m, "a", false) {
+		t.Error("a should be true")
+	}
+	if cfgBool(m, "b", true) {
+		t.Error("b should be false")
+	}
+	if !cfgBool(m, "c", false) {
+		t.Error("c should be true")
+	}
+	if !cfgBool(m, "d", true) {
+		t.Error("d (garbage) should fall back to default true")
+	}
+	if cfgBool(m, "missing", false) {
+		t.Error("missing should fall back to default false")
+	}
+	if !cfgBool(m, "e", false) || cfgBool(m, "f", true) || !cfgBool(m, "g", true) {
+		t.Error("on / 0 / non-string")
 	}
 }
