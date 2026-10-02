@@ -10,11 +10,11 @@ import { TARGET_LIST, useTargets } from '@/stores/targets'
 import { useConfigurations } from '@/stores/configurations'
 import { useProviders } from '@/stores/providers'
 import { ApiError, describe } from '@/api/client'
-import { describeFieldErrors, overridePrefix, targetFormSchema } from '@/schemas'
+import { describeFieldErrors, filterToApi, filterToForm, overridePrefix, targetFormSchema } from '@/schemas'
 import { configFields, labels, overridableFields, overrideValues, PATH_CONFIG } from '@/schemas/providerFields'
 import ProviderConfigForm from '@/components/ProviderConfigForm.vue'
 import HostPicker from '@/components/HostPicker.vue'
-import type { CertificateFilter, Configuration, Target } from '@/api/types'
+import type { Configuration, Target } from '@/api/types'
 
 const store = useTargets()
 const configs = useConfigurations()
@@ -41,7 +41,7 @@ const configById = (id: string) => configs.options.find((c) => c.id === id)
 const providerOf = (c: Configuration) => providers.get(c.provider_type)
 const form = useZodForm(targetFormSchema({ configuration: configById, provider: (t) => providers.get(t) }), {
   onSubmit: async (v) => {
-    const input = { name: v.name, description: v.description, auto_deploy: v.auto_deploy, certificate_filters: v.certificate_filters as CertificateFilter[] }
+    const input = { name: v.name, description: v.description, auto_deploy: v.auto_deploy, certificate_filters: v.certificate_filters.map(filterToApi) }
     const id = selected.value ? (await store.update(selected.value.id, input), selected.value.id) : (await store.create(input)).id
     // One attach call: new configurations and those whose override changed.
     const before = new Set(selected.value?.configuration_ids ?? [])
@@ -101,7 +101,7 @@ async function open(t: Target | null): Promise<void> {
 function reset(t: Target | null): void {
   const overrides: Record<string, unknown> = {}
   for (const id of t?.configuration_ids ?? []) Object.assign(overrides, overrideInputs(id, t?.config_overrides?.[id]))
-  form.reset({ name: t?.name ?? '', description: t?.description ?? '', auto_deploy: t?.auto_deploy ?? false, certificate_filters: (t?.certificate_filters ?? []).map((f) => ({ issuer: f.issuer ?? '', common_name: f.common_name ?? '', san: f.san ?? '', organization: f.organization ?? '' })), configuration_ids: [...(t?.configuration_ids ?? [])], ...overrides })
+  form.reset({ name: t?.name ?? '', description: t?.description ?? '', auto_deploy: t?.auto_deploy ?? false, certificate_filters: (t?.certificate_filters ?? []).map(filterToForm), configuration_ids: [...(t?.configuration_ids ?? [])], ...overrides })
 }
 function overrideInputs(id: string, override?: Record<string, unknown>): Record<string, unknown> {
   const c = configById(id)
@@ -111,7 +111,7 @@ function overrideInputs(id: string, override?: Record<string, unknown>): Record<
 const needsInput = (id: string) => (configById(id)?.target_supplied?.length ?? 0) > 0
 
 function addFilter(): void {
-  form.values.certificate_filters = [...filters.value, { issuer: '', common_name: '', san: '', organization: '' }]
+  form.values.certificate_filters = [...filters.value, { issuer: '', common_name: '', san: '', organization: '', org_unit: '', country: '' }]
 }
 function removeFilter(i: number): void {
   form.values.certificate_filters = filters.value.filter((_, j) => j !== i)

@@ -124,13 +124,14 @@ export interface DeliveryCounts {
   total?: number
 }
 
+/** A target's certificate filter as the API stores it (Go store.CertificateFilter). */
 export interface CertificateFilter {
-  issuer?: string
-  common_name?: string
-  san?: string
-  organization?: string
-  organizational_unit?: string
-  country?: string
+  issuer_name?: string
+  common_name_pattern?: string
+  san_pattern?: string
+  subject_organization?: string
+  subject_org_unit?: string
+  subject_country?: string
 }
 
 export interface Target {

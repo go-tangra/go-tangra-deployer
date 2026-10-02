@@ -95,7 +95,15 @@ components:
         order: { type: string, enum: [asc, desc] }
     CertificateFilter:
       type: object
-      additionalProperties: true
+      additionalProperties: false
+      description: 'All set fields must match (AND). Patterns are regular expressions (anchored) or a leading-wildcard glob like *.example.com; unknown fields are refused (400 malformed_body).'
+      properties:
+        issuer_name: { type: string, description: 'issuer name (exact)' }
+        common_name_pattern: { type: string, description: 'certificate common name pattern' }
+        san_pattern: { type: string, description: 'pattern matched against each SAN' }
+        subject_organization: { type: string, description: 'subject O (exact)' }
+        subject_org_unit: { type: string, description: 'subject OU (exact)' }
+        subject_country: { type: string, description: 'subject C (exact)' }
     Target:
       type: object
       required: [id, name, description, auto_deploy, certificate_filters, configuration_ids]

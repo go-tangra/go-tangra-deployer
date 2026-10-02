@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { CertificateFilter } from '@/api/types'
 import { nonEmpty, optionalString } from '@go-tangra/ui/forms'
 import type { Configuration, Provider } from '@/api/types'
 import { buildOverride, overrideToZod } from '@/schemas/providerFields'
@@ -20,7 +21,27 @@ export const certificateFilterSchema = z.object({
   common_name: regexRule,
   san: regexRule,
   organization: optionalString(500),
+  // No inputs: carried through so a save never drops them from a stored filter.
+  org_unit: optionalString(500),
+  country: optionalString(500),
 })
+
+/** A stored filter as form values (the form uses short field names). */
+export function filterToForm(f: CertificateFilter): Record<string, string> {
+  return { issuer: f.issuer_name ?? '', common_name: f.common_name_pattern ?? '', san: f.san_pattern ?? '', organization: f.subject_organization ?? '', org_unit: f.subject_org_unit ?? '', country: f.subject_country ?? '' }
+}
+
+/** Form filter values as the API stores them; empty fields are left out. */
+export function filterToApi(f: { issuer?: string | undefined; common_name?: string | undefined; san?: string | undefined; organization?: string | undefined; org_unit?: string | undefined; country?: string | undefined }): CertificateFilter {
+  const out: CertificateFilter = {}
+  if (f.issuer) out.issuer_name = f.issuer
+  if (f.common_name) out.common_name_pattern = f.common_name
+  if (f.san) out.san_pattern = f.san
+  if (f.organization) out.subject_organization = f.organization
+  if (f.org_unit) out.subject_org_unit = f.org_unit
+  if (f.country) out.subject_country = f.country
+  return out
+}
 
 /** POST/PUT /targets payload plus the attached configuration ids. */
 export const targetSchema = z.object({
