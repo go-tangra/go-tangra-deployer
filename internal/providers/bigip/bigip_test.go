@@ -116,7 +116,7 @@ func TestRegistrationAndCapabilities(t *testing.T) {
 	if !c.SupportsVerify || !c.SupportsRollback {
 		t.Fatalf("verify/rollback flags: %+v", c)
 	}
-	if len(c.ConfigFields) != 1 {
+	if len(c.ConfigFields) != 2 {
 		t.Fatalf("config fields: %+v", c.ConfigFields)
 	}
 	pf := c.ConfigFields[0]
