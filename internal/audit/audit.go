@@ -42,6 +42,9 @@ const (
 	BackupExported         EventType = "backup_exported"
 	BackupExportedWithCred EventType = "backup_exported_with_credentials"
 	BackupImported         EventType = "backup_imported"
+	// Feature 033.
+	ConfigurationValidated         EventType = "configuration_validated"
+	CertificateRevocationForwarded EventType = "certificate_revocation_forwarded"
 )
 
 // Subject kinds (closed set).
@@ -52,6 +55,7 @@ const (
 	SubjectBackup        = "backup"
 	SubjectGrant         = "grant"
 	SubjectSystem        = "system"
+	SubjectCertificate   = "certificate"
 )
 
 // Outcomes (closed set).
@@ -78,6 +82,7 @@ func init() {
 		JobCreated, JobCancelled, JobRetried,
 		GrantCreated, GrantRevoked, AccessRefused,
 		BackupExported, BackupExportedWithCred, BackupImported,
+		ConfigurationValidated, CertificateRevocationForwarded,
 	} {
 		known[t] = struct{}{}
 	}
@@ -121,7 +126,7 @@ func Validate(e Event) error {
 		return fmt.Errorf("audit: actor_kind %q", e.ActorKind)
 	}
 	switch e.SubjectKind {
-	case SubjectTarget, SubjectConfiguration, SubjectJob, SubjectBackup, SubjectGrant, SubjectSystem:
+	case SubjectTarget, SubjectConfiguration, SubjectJob, SubjectBackup, SubjectGrant, SubjectSystem, SubjectCertificate:
 	default:
 		return fmt.Errorf("audit: subject_kind %q", e.SubjectKind)
 	}

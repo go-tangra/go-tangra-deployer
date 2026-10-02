@@ -15,8 +15,9 @@ import (
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
 
-// ErrNotFound is returned when a row is absent.
-var ErrNotFound = errors.New("memstore: not found")
+// ErrNotFound is returned when a row is absent. It is store.ErrNotFound, so services map the fake exactly like the
+// database store.
+var ErrNotFound = store.ErrNotFound
 
 // Mem is an in-memory store.
 type Mem struct {

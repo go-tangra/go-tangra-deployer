@@ -152,7 +152,7 @@
           "placeholder": "023e105f4ecef8ad9ca31a8372d0c353",
           "group": "connection",
           "max_length": 32,
-          "pattern": "^[a-f0-9]{32}$"
+          "pattern": "^[a-fA-F0-9]{32}$"
         }
       ],
       "credential_fields": [

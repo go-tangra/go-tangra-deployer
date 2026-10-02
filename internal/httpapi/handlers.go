@@ -15,11 +15,17 @@ func (s *Server) Register(d Deps) {
 
 	// Providers.
 	s.MustHandle("GET", p+"/providers", func(w http.ResponseWriter, r *http.Request) {
-		if _, err := subjects(r); err != nil {
+		subj, err := subjects(r)
+		if err != nil {
 			failSvc(w, err)
 			return
 		}
-		WriteJSON(w, http.StatusOK, map[string]any{"items": d.Configs.ListProviders()})
+		items, err := d.Configs.Providers(r.Context(), subj)
+		if err != nil {
+			failSvc(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, map[string]any{"items": items})
 	})
 
 	// Configurations.
@@ -71,19 +77,22 @@ func (s *Server) Register(d Deps) {
 			return
 		}
 		var in struct {
-			ProviderType string         `json:"provider_type"`
-			Credentials  map[string]any `json:"credentials"`
-			Config       map[string]any `json:"config"`
+			ProviderType    string         `json:"provider_type"`
+			ConfigurationID string         `json:"configuration_id"`
+			Credentials     map[string]any `json:"credentials"`
+			Config          map[string]any `json:"config"`
 		}
 		if err := DecodeJSON(r, &in, 0); err != nil {
 			Fail(w, r, nil, err)
 			return
 		}
-		if err := d.Configs.Validate(r.Context(), subj, in.ProviderType, in.Credentials, in.Config); err != nil {
+		res, err := d.Configs.Validate(r.Context(), subj, configs.ValidateRequest{ProviderType: in.ProviderType,
+			ConfigurationID: in.ConfigurationID, Config: in.Config, Credentials: in.Credentials})
+		if err != nil {
 			failSvc(w, err)
 			return
 		}
-		WriteJSON(w, http.StatusOK, map[string]any{"valid": true})
+		WriteJSON(w, http.StatusOK, res)
 	})
 	s.MustHandle("GET", p+"/configurations/{id}", func(w http.ResponseWriter, r *http.Request) {
 		subj, err := subjects(r)
@@ -105,16 +114,19 @@ func (s *Server) Register(d Deps) {
 			return
 		}
 		var in struct {
-			Name        string         `json:"name"`
-			Description string         `json:"description"`
-			Config      map[string]any `json:"config"`
-			Credentials map[string]any `json:"credentials"`
+			Name             string         `json:"name"`
+			Description      string         `json:"description"`
+			ProviderType     string         `json:"provider_type"`
+			Config           map[string]any `json:"config"`
+			Credentials      map[string]any `json:"credentials"`
+			ClearCredentials []string       `json:"clear_credentials"`
 		}
 		if err := DecodeJSON(r, &in, 0); err != nil {
 			Fail(w, r, nil, err)
 			return
 		}
-		v, err := d.Configs.Update(r.Context(), subj, r.PathValue("id"), configs.Input{Name: in.Name, Description: in.Description, Config: in.Config, Credentials: in.Credentials})
+		v, err := d.Configs.Update(r.Context(), subj, r.PathValue("id"), configs.Input{Name: in.Name, Description: in.Description,
+			ProviderType: in.ProviderType, Config: in.Config, Credentials: in.Credentials, ClearCredentials: in.ClearCredentials})
 		if err != nil {
 			failSvc(w, err)
 			return
@@ -310,12 +322,24 @@ func (s *Server) Register(d Deps) {
 		var in struct {
 			ConfigurationIDs []string                  `json:"configuration_ids"`
 			Overrides        map[string]map[string]any `json:"config_overrides"`
+			// overrides is the contracts/deployer-config-ui.md §4a spelling;
+			// config_overrides stays accepted (merged, config_overrides wins).
+			OverridesAlt map[string]map[string]any `json:"overrides"`
 		}
 		if err := DecodeJSON(r, &in, 0); err != nil {
 			Fail(w, r, nil, err)
 			return
 		}
-		if err := d.Targets.Attach(r.Context(), subj, r.PathValue("id"), in.ConfigurationIDs, in.Overrides); err != nil {
+		ov := in.OverridesAlt
+		if len(in.Overrides) > 0 {
+			if ov == nil {
+				ov = map[string]map[string]any{}
+			}
+			for k, v := range in.Overrides {
+				ov[k] = v
+			}
+		}
+		if err := d.Targets.Attach(r.Context(), subj, r.PathValue("id"), in.ConfigurationIDs, ov); err != nil {
 			failSvc(w, err)
 			return
 		}

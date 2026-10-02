@@ -11,6 +11,8 @@ import (
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/targets"
+
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/dummy"
 )
 
 type fakeCerts struct{ cn string }

@@ -55,7 +55,7 @@ func TestRedirectKeysRefusedOnSave(t *testing.T) {
 	// Target override.
 	tid := decode(t, f.req(t, "POST", p+"/targets", "admin", `{"name":"t","certificate_filters":[]}`))["id"].(string)
 	refused(t, f, "POST", p+"/targets/"+tid+"/configurations",
-		`{"configuration_ids":["`+cfgID+`"],"config_overrides":{"`+cfgID+`":{"api_base":"`+attackerURL+`"}}}`, "config_overrides.config.api_base")
+		`{"configuration_ids":["`+cfgID+`"],"config_overrides":{"`+cfgID+`":{"api_base":"`+attackerURL+`"}}}`, "config_overrides.api_base")
 
 	// The stored configuration is unchanged.
 	got := decode(t, f.req(t, "GET", p+"/configurations/"+cfgID, "admin", ""))
@@ -70,7 +70,7 @@ func TestWebhookCredentialHeadersRefused(t *testing.T) {
 	f := newAPI(t)
 	for _, h := range []string{"Authorization", "proxy-authorization", "Cookie", "X-Api-Key", "X-Auth-Token", "X-Webhook-Secret", "X-Signing-Key"} {
 		refused(t, f, "POST", p+"/configurations",
-			`{"name":"wh","provider_type":"webhook","config":{"url":"https://hook.example","headers":{"`+h+`":"s3cr3t"}}}`, "config.headers."+h)
+			`{"name":"wh","provider_type":"webhook","config":{"url":"https://hook.example","headers":{"`+h+`":"s3cr3t"}}}`, "config.headers")
 	}
 	w := f.req(t, "POST", p+"/configurations", "admin",
 		`{"name":"wh-ok","provider_type":"webhook","config":{"url":"https://hook.example","headers":{"X-Request-Source":"tangra"}}}`)
@@ -136,14 +136,16 @@ func TestOverrideCannotMoveDestination(t *testing.T) {
 	tid := decode(t, f.req(t, "POST", p+"/targets", "admin", `{"name":"t","certificate_filters":[]}`))["id"].(string)
 	path := p + "/targets/" + tid + "/configurations"
 
+	// 033 (SR-015): destination keys are never overridable, with or without
+	// sealed credentials.
 	for _, k := range []string{"url", "verify_url", "rollback_url"} {
-		refused(t, f, "POST", path, `{"configuration_ids":["`+sealedID+`"],"config_overrides":{"`+sealedID+`":{"`+k+`":"https://attacker.example/x"}}}`, "config_overrides.config."+k)
+		refused(t, f, "POST", path, `{"configuration_ids":["`+sealedID+`"],"config_overrides":{"`+sealedID+`":{"`+k+`":"https://attacker.example/x"}}}`, "config_overrides."+k)
+		refused(t, f, "POST", path, `{"configuration_ids":["`+openID+`"],"config_overrides":{"`+openID+`":{"`+k+`":"https://attacker.example/x"}}}`, "config_overrides."+k)
 	}
 	// Unknown configuration: fail closed.
-	refused(t, f, "POST", path, `{"configuration_ids":["`+sealedID+`"],"config_overrides":{"`+absentID+`":{"url":"https://attacker.example/x"}}}`, "config_overrides.config.url")
-	// Non-destination overrides still work; so does a destination override for a configuration without credentials.
+	refused(t, f, "POST", path, `{"configuration_ids":["`+sealedID+`"],"config_overrides":{"`+absentID+`":{"url":"https://attacker.example/x"}}}`, "configuration_ids")
+	// Overridable settings still work.
 	ok(t, f, "POST", path, `{"configuration_ids":["`+sealedID+`"],"config_overrides":{"`+sealedID+`":{"timeout_seconds":30}}}`)
-	ok(t, f, "POST", path, `{"configuration_ids":["`+openID+`"],"config_overrides":{"`+openID+`":{"url":"https://other.example/x"}}}`)
 }
 
 // TestCloudflareZoneIDValidated: zone_id is interpolated into the request
@@ -151,7 +153,7 @@ func TestOverrideCannotMoveDestination(t *testing.T) {
 func TestCloudflareZoneIDValidated(t *testing.T) {
 	f := newAPI(t)
 	for _, z := range []string{"z", "../../accounts", "0123456789abcdef0123456789abcdeg", "0123456789abcdef0123456789abcdef/x"} {
-		refused(t, f, "POST", p+"/configurations", `{"name":"cf","provider_type":"cloudflare","config":{"zone_id":"`+z+`"}}`, "config.zone_id")
+		refused(t, f, "POST", p+"/configurations", `{"name":"cf","provider_type":"cloudflare","config":{"zone_id":"`+z+`"},"credentials":{"api_token":"s3cr3t"}}`, "config.zone_id")
 	}
-	mustCreate(t, f, `{"name":"cf","provider_type":"cloudflare","config":{"zone_id":"0123456789ABCDEF0123456789abcdef"}}`)
+	mustCreate(t, f, `{"name":"cf","provider_type":"cloudflare","config":{"zone_id":"0123456789ABCDEF0123456789abcdef"},"credentials":{"api_token":"t"}}`)
 }

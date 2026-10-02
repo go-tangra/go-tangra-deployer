@@ -50,7 +50,7 @@ func (Provider) Capabilities() provider.Capabilities {
 		SchemaVersion:    1,
 		ConfigFields: []provider.Field{
 			{Key: "zone_id", Label: "Zone ID", Type: provider.TypeString, Required: true, Overridable: true, Group: provider.GroupConnection,
-				Pattern: `^[a-f0-9]{32}$`, MaxLength: 32, Placeholder: "023e105f4ecef8ad9ca31a8372d0c353",
+				Pattern: `^[a-fA-F0-9]{32}$`, MaxLength: 32, Placeholder: "023e105f4ecef8ad9ca31a8372d0c353",
 				Help: "Cloudflare dashboard → the zone → Overview → API → Zone ID."},
 		},
 		CredentialFields: []provider.Field{

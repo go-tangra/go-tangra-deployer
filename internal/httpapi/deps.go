@@ -41,10 +41,22 @@ func failSvc(w http.ResponseWriter, err error) {
 	var bve *backup.ValidationError
 	switch {
 	case errors.As(err, &ve):
-		// The field and the fixed message are client-safe; values never are.
-		WriteDetail(w, ErrValidation, map[string]any{"field": ve.Field, "message": ve.Msg})
+		// Paths and codes are client-safe; values never are. "fields" is the
+		// contract (contracts/deployer-config-ui.md §3); field/message repeat
+		// the first error for older clients.
+		d := map[string]any{"field": ve.Field, "message": ve.Msg, "fields": fieldsOf(ve.Fields, ve.Field, ve.Msg)}
+		if len(ve.Targets) > 0 {
+			d["targets"] = ve.Targets
+		}
+		WriteDetail(w, ErrValidation, d)
 	case errors.As(err, &tve):
-		WriteDetail(w, ErrValidation, map[string]any{"field": tve.Field, "message": tve.Msg})
+		d := map[string]any{"field": tve.Field, "message": tve.Msg, "fields": fieldsOf(tve.Fields, tve.Field, tve.Msg)}
+		if tve.ConfigurationID != "" {
+			d["configuration_id"] = tve.ConfigurationID
+		}
+		WriteDetail(w, ErrValidation, d)
+	case errors.Is(err, configs.ErrCredentialsRejected):
+		WriteError(w, http.StatusUnprocessableEntity, "credentials_rejected")
 	case errors.As(err, &bve):
 		WriteDetail(w, ErrValidation, map[string]any{"field": bve.Field, "message": bve.Msg})
 	case errors.Is(err, authz.ErrForbidden):
@@ -60,6 +72,13 @@ func failSvc(w http.ResponseWriter, err error) {
 	default:
 		WriteError(w, http.StatusInternalServerError, "internal")
 	}
+}
+
+func fieldsOf(fields map[string]string, field, msg string) map[string]string {
+	if len(fields) > 0 {
+		return fields
+	}
+	return map[string]string{field: msg}
 }
 
 // parseList reads the list contract parameters (page, page_size, sort, order;

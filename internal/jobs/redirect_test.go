@@ -51,7 +51,15 @@ func (r *configRecorder) ValidateCredentials(context.Context, map[string]any, ma
 	return nil
 }
 func (r *configRecorder) Capabilities() provider.Capabilities {
-	return provider.Capabilities{Type: "test_recorder", DisplayName: "recorder", SupportsVerify: true}
+	return provider.Capabilities{Type: "test_recorder", DisplayName: "recorder", SupportsVerify: true,
+		ConfigFields: []provider.Field{
+			{Key: "zone_id", Label: "Zone", Overridable: true},
+			{Key: "url", Label: "URL", Type: provider.TypeURL},
+			{Key: "verify_url", Label: "Verify URL", Type: provider.TypeURL},
+			{Key: "timeout_seconds", Label: "Timeout", Type: provider.TypeInt, Overridable: true},
+			{Key: "headers", Label: "Headers", Type: provider.TypeKeyValue},
+		},
+		CredentialFields: []provider.Field{{Key: "token", Label: "Token", Secret: true}}}
 }
 
 const attacker = "https://attacker.example/collect"
