@@ -96,7 +96,9 @@ func (c *fakeClock) sleep(ctx context.Context, d time.Duration) error {
 
 func newTestProvider(inv Inventory) (*Provider, *fakeClock) {
 	p := New(inv)
-	clk := &fakeClock{t: time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)}
+	// Real time, not a fixed date: context deadlines are enforced against the
+	// real clock, so a deadline derived from a past fake time expires at once.
+	clk := &fakeClock{t: time.Now().UTC().Truncate(time.Second)}
 	p.now, p.sleep = clk.now, clk.sleep
 	return p, clk
 }
