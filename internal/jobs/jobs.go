@@ -232,16 +232,24 @@ func (s *Service) runAction(ctx context.Context, subj authz.Subjects, jobID, act
 		(action == store.ActionRollback && !caps.SupportsRollback) {
 		return ActionResult{}, ErrUnsupported
 	}
+	tgt, hasTarget := s.parentTarget(ctx, j)
+	effective := s.effective(j, conf, tgt, hasTarget)
+	if missing := provider.MissingRequired(caps, effective); len(missing) > 0 {
+		msg := provider.IncompleteMessage(missing)
+		s.history(ctx, j, action, store.ResultFailure, msg, 0, nil)
+		return ActionResult{Action: action, Success: false, Message: msg}, nil
+	}
 	creds, err := s.cred.OpenCredentials(conf)
 	if err != nil {
 		return ActionResult{}, err
 	}
-	cert, err := s.cert.FetchCertificate(ctx, j.TenantID, j.CertificateID, action == store.ActionRollback)
+	// Only a rollback needs the key, and never for a by-reference provider.
+	includeKey := action == store.ActionRollback && !caps.DeliversByReference
+	cert, err := s.cert.FetchCertificate(ctx, j.TenantID, j.CertificateID, includeKey)
 	if err != nil {
 		return ActionResult{}, err
 	}
-	effective := s.effectiveConfig(ctx, j, conf)
-	actx, cancel := context.WithTimeout(ctx, s.jobTimeout())
+	actx, cancel := context.WithTimeout(provider.WithJob(ctx, s.jobMeta(j, tgt, hasTarget)), s.jobTimeout())
 	defer cancel()
 	start := s.now()
 	var res *provider.Result
@@ -262,7 +270,11 @@ func (s *Service) runAction(ctx context.Context, subj authz.Subjects, jobID, act
 	if success {
 		result = store.ResultSuccess
 	}
-	s.history(ctx, j, action, result, msg, dur)
+	var details map[string]any
+	if res != nil {
+		details = res.Details
+	}
+	s.history(ctx, j, action, result, msg, dur, details)
 	return ActionResult{Action: action, Success: success, Message: msg}, nil
 }
 

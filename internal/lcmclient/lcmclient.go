@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -35,8 +36,14 @@ func New(cc lcmv1.CertificatesClient) *Client { return &Client{cc: cc} }
 func (c *Client) FetchCertificate(ctx context.Context, tenantID, certID string, includeKey bool) (provider.CertificateData, error) {
 	b, err := c.cc.Download(ctx, &lcmv1.DownloadRequest{TenantId: tenantID, CertificateId: certID, IncludeKey: includeKey})
 	if err != nil {
-		if status.Code(err) == codes.NotFound {
+		switch st, _ := status.FromError(err); {
+		case st.Code() == codes.NotFound:
 			return provider.CertificateData{}, ErrNotFound
+		case (st.Code() == codes.InvalidArgument || st.Code() == codes.FailedPrecondition) &&
+			strings.Contains(strings.ToLower(st.Message()), "no stored private key"):
+			// The certificate was issued from a CSR or its key was already
+			// handed out: a retry cannot succeed.
+			return provider.CertificateData{}, fmt.Errorf("lcmclient: download: %w", provider.ErrKeyUnavailable)
 		}
 		return provider.CertificateData{}, fmt.Errorf("lcmclient: download: %w", err)
 	}

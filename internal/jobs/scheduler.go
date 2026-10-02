@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"math"
 	"sync"
@@ -79,14 +80,32 @@ func (s *Service) process(ctx context.Context, log *slog.Logger, j store.Deploym
 		s.fail(ctx, &j, "credentials unavailable")
 		return
 	}
+	caps := p.Capabilities()
+	tgt, hasTarget := s.parentTarget(ctx, j)
+	effective := s.effective(j, conf, tgt, hasTarget)
+	// A configuration missing a required value (a field left to the targets,
+	// a legacy row, a provider upgrade) fails before the certificate is
+	// fetched and before the provider contacts its endpoint (FR-031, FR-036).
+	if missing := provider.MissingRequired(caps, effective); len(missing) > 0 {
+		msg := provider.IncompleteMessage(missing)
+		s.history(ctx, j, store.ActionDeploy, store.ResultFailure, msg, 0, nil)
+		s.fail(ctx, &j, msg)
+		return
+	}
 	s.publish(ctx, j.TenantID, "deployment.started", j)
-	cert, err := s.cert.FetchCertificate(ctx, j.TenantID, j.CertificateID, true)
+	// Providers that deliver by reference never receive the private key
+	// (FR-006): the certificate is fetched without it.
+	cert, err := s.cert.FetchCertificate(ctx, j.TenantID, j.CertificateID, !caps.DeliversByReference)
 	if err != nil {
+		if errors.Is(err, provider.ErrKeyUnavailable) {
+			// lcm holds no key for this certificate: retrying cannot help.
+			s.fail(ctx, &j, "certificate has no stored private key")
+			return
+		}
 		s.retryOrFail(ctx, &j, "certificate fetch failed")
 		return
 	}
-	effective := s.effectiveConfig(ctx, j, conf)
-	dctx, cancel := context.WithTimeout(ctx, s.jobTimeout())
+	dctx, cancel := context.WithTimeout(provider.WithJob(ctx, s.jobMeta(j, tgt, hasTarget)), s.jobTimeout())
 	defer cancel()
 	res, derr := p.Deploy(dctx, &cert, effective, creds, func(pct int, note string) {
 		j.Progress = pct
@@ -96,22 +115,56 @@ func (s *Service) process(ctx context.Context, log *slog.Logger, j store.Deploym
 	dur := int(s.now().Sub(start).Milliseconds())
 	if derr != nil || (res != nil && !res.Success) {
 		msg := "deployment failed"
-		if res != nil && res.Message != "" {
-			msg = res.Message
+		var details map[string]any
+		if res != nil {
+			if res.Message != "" {
+				msg = res.Message
+			}
+			details = res.Details
+			// Failure details (per-host states, manual-review reasons) stay
+			// visible in the job result (research D27).
+			j.Result = resultJSON(map[string]any{"message": msg, "details": details})
 		}
-		s.history(ctx, j, store.ActionDeploy, store.ResultFailure, msg, dur)
+		s.history(ctx, j, store.ActionDeploy, store.ResultFailure, msg, dur, details)
+		if res != nil && res.Permanent {
+			s.fail(ctx, &j, msg)
+			return
+		}
 		s.retryOrFail(ctx, &j, msg)
 		return
 	}
 	// Success.
 	j.Progress = 100
 	j.Result = resultJSON(map[string]any{"message": res.Message, "details": res.Details})
-	s.history(ctx, j, store.ActionDeploy, store.ResultSuccess, res.Message, dur)
+	s.history(ctx, j, store.ActionDeploy, store.ResultSuccess, res.Message, dur, res.Details)
 	s.setStatus(ctx, &j, store.JobCompleted, res.Message)
 	now := s.now()
 	_ = s.st.SetConfigurationStatus(ctx, j.TenantID, conf.ID, store.ConfigActive, "", &now)
 	s.publish(ctx, j.TenantID, "deployment.completed", j)
 	s.aggregateFromChild(ctx, j)
+}
+
+// jobMeta is the job metadata handed to providers (provider.JobFrom).
+func (s *Service) jobMeta(j store.DeploymentJob, tgt store.DeploymentTarget, hasTarget bool) provider.JobMeta {
+	m := provider.JobMeta{TenantID: j.TenantID, JobID: j.ID, ConfigurationID: strp(j.TargetConfigurationID), Trigger: jobTrigger(j)}
+	if hasTarget {
+		m.TargetID = tgt.ID
+	}
+	return m
+}
+
+// jobTrigger maps the stored trigger to the provider vocabulary: automatic
+// deployments (lifecycle events) are auto_deploy, a job running again after a
+// failure is retry, everything else is manual.
+func jobTrigger(j store.DeploymentJob) string {
+	switch {
+	case j.RetryCount > 0:
+		return provider.TriggerRetry
+	case j.TriggeredBy == store.TriggerEvent || j.TriggeredBy == store.TriggerAutoRenewal:
+		return provider.TriggerAutoDeploy
+	default:
+		return provider.TriggerManual
+	}
 }
 
 // retryOrFail schedules an exponential-backoff retry, or fails when exhausted.
@@ -136,11 +189,15 @@ func (s *Service) fail(ctx context.Context, j *store.DeploymentJob, msg string) 
 	s.aggregateFromChild(ctx, *j)
 }
 
-func (s *Service) history(ctx context.Context, j store.DeploymentJob, action, result, msg string, dur int) {
-	_ = s.st.InsertHistory(ctx, store.DeploymentHistory{
+func (s *Service) history(ctx context.Context, j store.DeploymentJob, action, result, msg string, dur int, details map[string]any) {
+	h := store.DeploymentHistory{
 		ID: store.NewID(), TenantID: j.TenantID, JobID: j.ID, Action: action, Result: result,
 		Message: msg, DurationMS: dur, CreatedAt: s.now(),
-	})
+	}
+	if len(details) > 0 {
+		h.Details = resultJSON(details)
+	}
+	_ = s.st.InsertHistory(ctx, h)
 }
 
 // aggregateFromChild recomputes a child's parent status, if any.
@@ -194,22 +251,36 @@ func (s *Service) publish(ctx context.Context, tenantID, typ string, j store.Dep
 // serve multiple zones/partitions (spec US4). Direct jobs have no parent, so
 // no override applies. Overrides never carry credentials.
 func (s *Service) effectiveConfig(ctx context.Context, j store.DeploymentJob, conf store.TargetConfiguration) map[string]any {
-	return s.sanitize(conf, mergeConfig(conf.Config, s.override(ctx, j, conf)))
+	tgt, ok := s.parentTarget(ctx, j)
+	return s.effective(j, conf, tgt, ok)
 }
 
-// override returns the parent target's override for conf, or nil.
-func (s *Service) override(ctx context.Context, j store.DeploymentJob, conf store.TargetConfiguration) map[string]any {
+func (s *Service) effective(j store.DeploymentJob, conf store.TargetConfiguration, tgt store.DeploymentTarget, hasTarget bool) map[string]any {
+	var ov map[string]any
+	if hasTarget {
+		ov = s.override(tgt, conf)
+	}
+	return s.sanitize(conf, mergeConfig(conf.Config, ov))
+}
+
+// parentTarget returns the deployment target of a child job's parent.
+func (s *Service) parentTarget(ctx context.Context, j store.DeploymentJob) (store.DeploymentTarget, bool) {
 	if j.ParentJobID == nil {
-		return nil
+		return store.DeploymentTarget{}, false
 	}
 	parent, err := s.st.GetJob(ctx, j.TenantID, *j.ParentJobID)
 	if err != nil || parent.DeploymentTargetID == nil {
-		return nil
+		return store.DeploymentTarget{}, false
 	}
 	tgt, err := s.st.GetTarget(ctx, j.TenantID, *parent.DeploymentTargetID)
 	if err != nil {
-		return nil
+		return store.DeploymentTarget{}, false
 	}
+	return tgt, true
+}
+
+// override returns the target's override for conf, or nil.
+func (s *Service) override(tgt store.DeploymentTarget, conf store.TargetConfiguration) map[string]any {
 	ov := tgt.ConfigOverrides[conf.ID]
 	// Defense in depth for rows stored before the save-time refusal: an
 	// override never moves the destination of a configuration that holds
@@ -252,16 +323,10 @@ func (s *Service) logger() *slog.Logger {
 	return slog.Default()
 }
 
-// mergeConfig overlays override onto base (override wins). Neither carries creds.
+// mergeConfig overlays override onto base (override wins; empty override
+// values mean "inherit"). Neither carries creds.
 func mergeConfig(base, override map[string]any) map[string]any {
-	out := map[string]any{}
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range override {
-		out[k] = v
-	}
-	return out
+	return provider.MergeOverride(base, override)
 }
 
 func (s *Service) jobTimeout() time.Duration {
