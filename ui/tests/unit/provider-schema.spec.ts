@@ -68,7 +68,7 @@ describe('descriptor helpers', () => {
 
   it('create defaults, edit values (secrets never), payload of declared non-empty keys only', () => {
     const big = byType.bigip!
-    expect(initialValues(big)).toEqual({ 'config.partition': 'Common', 'credentials.host': '', 'credentials.username': '', 'credentials.password': '' })
+    expect(initialValues(big)).toEqual({ 'config.partition': 'Common', 'config.ssl_profile': '', 'credentials.host': '', 'credentials.username': '', 'credentials.password': '' })
     const edit = initialValues(big, { config: { partition: 'Prod', legacy: 1 }, credentials_public: { host: 'bigip.example', username: 'ops', password: 'never' } })
     expect(edit).toEqual({ 'config.partition': 'Prod', 'credentials.host': 'bigip.example', 'credentials.username': 'ops', 'credentials.password': '' })
     expect(buildPayload(big, { ...edit, 'config.legacy': 'x' })).toEqual({ config: { partition: 'Prod' }, credentials: { host: 'bigip.example', username: 'ops' } })

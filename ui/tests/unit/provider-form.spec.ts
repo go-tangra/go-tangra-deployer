@@ -67,7 +67,7 @@ describe('configuration drawer: schema-driven provider form', () => {
     expect(drawer().querySelector('select')!.id).toBe('provider_type') // the first input
     await choose(q('#provider_type'), 'bigip')
     expect(q('[data-provider=bigip]')).not.toBeNull()
-    expect(sectionTitles()).toEqual(['connection', 'credentials']) // no options → hidden
+    expect(sectionTitles()).toEqual(['connection', 'credentials', 'options']) // ssl_profile (US8) lives in Options
     expect(input('config.partition')!.value).toBe('Common')
     expect(input('credentials.host')!.placeholder).toBe('bigip.example.com')
     expect(hintOf('credentials.host')).toContain('Management address')
