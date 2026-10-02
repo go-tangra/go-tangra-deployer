@@ -70,7 +70,7 @@ describe('descriptor helpers', () => {
     const big = byType.bigip!
     expect(initialValues(big)).toEqual({ 'config.partition': 'Common', 'config.ssl_profile': '', 'credentials.host': '', 'credentials.username': '', 'credentials.password': '' })
     const edit = initialValues(big, { config: { partition: 'Prod', legacy: 1 }, credentials_public: { host: 'bigip.example', username: 'ops', password: 'never' } })
-    expect(edit).toEqual({ 'config.partition': 'Prod', 'credentials.host': 'bigip.example', 'credentials.username': 'ops', 'credentials.password': '' })
+    expect(edit).toEqual({ 'config.partition': 'Prod', 'config.ssl_profile': '', 'credentials.host': 'bigip.example', 'credentials.username': 'ops', 'credentials.password': '' })
     expect(buildPayload(big, { ...edit, 'config.legacy': 'x' })).toEqual({ config: { partition: 'Prod' }, credentials: { host: 'bigip.example', username: 'ops' } })
     expect(unknownKeys(big, { partition: 'P', endpoint: 'x', zeta: 1 })).toEqual(['endpoint', 'zeta'])
     const inv = byType['inventory-agent']!
