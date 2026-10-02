@@ -62,6 +62,85 @@ administrators assign them or clone them into custom roles:
 Skipped built-in grants (warn) and rejected roles (error) are logged as
 `auth registration: ...`.
 
+## Provider settings
+
+The configuration drawer is generated from the provider descriptors served by
+`GET /api/deployer/v1/providers` (feature 033): no provider field list lives in
+the UI, and the same descriptors drive save-time validation on the server
+(HTTP 422 naming `config.<key>` / `credentials.<key>`). Secrets are write-only:
+never returned, blank on edit keeps the stored value. A required field that a
+target may override can be left empty on a shared configuration; every
+deployment target attaching it must then supply it in its override. The API response is
+authoritative; this table is a summary of the shipped providers.
+
+### AWS Certificate Manager (`aws_acm`) — validate action: Check settings
+
+| Key | Stored in | Type | Required | Secret | Target may override | Default |
+|---|---|---|---|---|---|---|
+| `region` | config | string | yes |  | yes |  |
+| `certificate_arn` | config | string |  |  | yes |  |
+| `access_key_id` | credentials | string | yes |  |  |  |
+| `secret_access_key` | credentials | string | yes | yes |  |  |
+| `session_token` | credentials | text |  | yes |  |  |
+
+### F5 BIG-IP (`bigip`) — validate action: Test connection
+
+| Key | Stored in | Type | Required | Secret | Target may override | Default |
+|---|---|---|---|---|---|---|
+| `partition` | config | string | yes |  | yes | `Common` |
+| `host` | credentials | string | yes |  |  |  |
+| `username` | credentials | string | yes |  |  |  |
+| `password` | credentials | string | yes | yes |  |  |
+
+### Cloudflare (`cloudflare`) — validate action: Check settings
+
+| Key | Stored in | Type | Required | Secret | Target may override | Default |
+|---|---|---|---|---|---|---|
+| `zone_id` | config | string | yes |  | yes |  |
+| `api_token` | credentials | string | yes | yes |  |  |
+
+### Dummy (testing) (`dummy`) — validate action: Check settings
+
+| Key | Stored in | Type | Required | Secret | Target may override | Default |
+|---|---|---|---|---|---|---|
+| `fail` | config | bool |  |  | yes | `false` |
+
+### FortiGate (`fortigate`) — validate action: Test connection
+
+| Key | Stored in | Type | Required | Secret | Target may override | Default |
+|---|---|---|---|---|---|---|
+| `vdom` | config | string | yes |  | yes | `root` |
+| `import_scope` | config | enum |  |  | yes | `global` |
+| `host` | credentials | string | yes |  |  |  |
+| `api_token` | credentials | string | yes | yes |  |  |
+
+### Inventory agent (`inventory-agent`) — validate action: Preview hosts
+
+| Key | Stored in | Type | Required | Secret | Target may override | Default |
+|---|---|---|---|---|---|---|
+| `host_ids` | config | host_selector | one of `host_ids`, `host_tags` |  | yes |  |
+| `host_tags` | config | string_list | one of `host_ids`, `host_tags` |  | yes |  |
+| `cert_name` | config | string |  |  | yes |  |
+| `key_policy` | config | enum |  |  | yes | `require` |
+| `require_all_success` | config | bool |  |  | yes | `false` |
+| `wait_seconds` | config | int |  |  | yes | `60` |
+
+### Webhook (generic HTTP) (`webhook`) — validate action: Test connection
+
+| Key | Stored in | Type | Required | Secret | Target may override | Default |
+|---|---|---|---|---|---|---|
+| `url` | config | url | yes |  |  |  |
+| `verify_url` | config | url |  |  |  |  |
+| `rollback_url` | config | url |  |  |  |  |
+| `timeout_seconds` | config | int |  |  | yes | `60` |
+| `skip_tls_verify` | config | bool |  |  |  | `false` |
+| `headers` | config | key_value |  |  |  |  |
+| `metadata` | config | key_value |  |  | yes |  |
+| `token` | credentials | string |  | yes |  |  |
+| `authorization` | credentials | string |  | yes |  |  |
+| `api_key` | credentials | string |  | yes |  |  |
+| `secret` | credentials | string |  | yes |  |  |
+
 ## Layout
 
 | Path | What |

@@ -10,7 +10,7 @@ import { DETAIL_LIST, JOB_LIST, useJobs, type JobFilter } from '@/stores/jobs'
 import { useLive } from '@/stores/live'
 import { describe } from '@/api/client'
 import { jobFilterSchema, JOB_STATUSES, JOB_TYPES } from '@/schemas'
-import type { ActionResult, HistoryEntry, Job } from '@/api/types'
+import type { ActionResult, DeliveryCounts, HistoryEntry, HostResult, Job } from '@/api/types'
 
 const store = useJobs()
 const live = useLive()
@@ -98,9 +98,39 @@ async function fetchHistory(): Promise<void> {
 }
 watch(lqc.query, () => drawer.value && void fetchChildren())
 watch(lqh.query, () => drawer.value && void fetchHistory())
+// --- per-host results of a by-reference delivery (inventory-agent) ---
+interface Delivery { name?: string | undefined; counts: DeliveryCounts; hosts: (HostResult & Record<string, unknown>)[]; truncated: boolean; unknown: string[] }
+const delivery = ref<Delivery | null>(null)
+async function fetchResult(): Promise<void> {
+  const j = selected.value
+  if (!j || j.type === 'parent') return
+  try {
+    const d = (await store.result(j.id)).result?.details
+    if (selected.value?.id !== j.id || !d || typeof d.counts !== 'object' || !Array.isArray(d.hosts)) return
+    delivery.value = { name: typeof d.name === 'string' ? d.name : undefined, counts: d.counts as DeliveryCounts, hosts: (d.hosts as HostResult[]).map((h) => ({ ...h, id: h.host_id })), truncated: d.hosts_truncated === true, unknown: Array.isArray(d.unknown_host_ids) ? (d.unknown_host_ids as string[]) : [] }
+  } catch {
+    /* the result is optional detail; history still shows the outcome */
+  }
+}
+const COUNT_LABELS: [keyof DeliveryCounts, string, 'success' | 'info' | 'warning' | 'error' | 'neutral'][] = [
+  ['installed', 'Installed', 'success'],
+  ['unchanged', 'Unchanged', 'success'],
+  ['queued', 'Queued', 'info'],
+  ['failed', 'Failed', 'error'],
+  ['unsupported', 'Unsupported', 'warning'],
+  ['superseded', 'Superseded', 'neutral'],
+]
+const hostStateColors = { installed: 'success', unchanged: 'success', pending: 'neutral', delivered: 'info', fetched: 'info', failed: 'error', hook_failed: 'error', unsupported: 'warning', superseded: 'neutral', cancelled: 'neutral', expired: 'warning' } as const
+const hostColumns: Column<HostResult & Record<string, unknown>>[] = [
+  { key: 'hostname', label: 'Host', format: (h) => h.hostname || h.host_id },
+  { key: 'state', label: 'State', width: 'sm' },
+  { key: 'agent_online', label: 'Agent', width: 'sm', hideOnStack: true },
+  { key: 'reason', label: 'Reason' },
+]
+
 async function load(): Promise<void> {
   error.value = ''
-  await Promise.all([fetchChildren(), fetchHistory()])
+  await Promise.all([fetchChildren(), fetchHistory(), fetchResult()])
 }
 function open(j: Job): void {
   selected.value = j
@@ -109,6 +139,7 @@ function open(j: Job): void {
   childTotal.value = 0
   history.value = []
   historyTotal.value = 0
+  delivery.value = null
   drawer.value = true
   // Another job starts at page 1 of its children and history. A page change
   // also fires the query watchers; track() drops the superseded response.
@@ -166,6 +197,19 @@ const historyColumns: Column<HistoryRow>[] = [{ key: 'action', label: 'Action' }
         <div class="mb-2 flex flex-wrap gap-1"><UiStatusChip :status="job.status" :colors="statusColors" /><UiBadge>{{ job.type }}</UiBadge><UiBadge>{{ job.triggered_by }}</UiBadge></div>
         <progress class="progress mb-3 h-1.5 w-full" :class="progressClass[job.status]" :value="job.progress" max="100" aria-label="Job progress" />
         <UiKeyValueTable :items="meta" class="mb-3" />
+        <section v-if="delivery" class="mb-3" data-test="job-hosts">
+          <h3 class="mb-1 text-sm font-medium">Hosts<template v-if="delivery.name"> · {{ delivery.name }}</template></h3>
+          <div class="mb-2 flex flex-wrap gap-1" data-test="job-counts">
+            <template v-for="[k, label, color] in COUNT_LABELS" :key="k"><UiBadge v-if="delivery.counts[k]" :color="color">{{ label }} {{ delivery.counts[k] }}</UiBadge></template>
+            <UiBadge>Total {{ delivery.counts.total ?? delivery.hosts.length }}</UiBadge>
+          </div>
+          <UiAlert v-if="delivery.unknown.length" kind="warning" class="mb-2">Unknown host ids: {{ delivery.unknown.join(', ') }}</UiAlert>
+          <UiDataTable :items="delivery.hosts" :columns="hostColumns" row-key="host_id" caption="Host results" empty-title="No hosts">
+            <template #cell-state="{ row }"><UiStatusChip :status="row.state" :colors="hostStateColors" /></template>
+            <template #cell-agent_online="{ row }"><UiBadge :color="row.agent_online ? 'success' : 'neutral'" size="xs">{{ row.agent_online ? 'online' : 'offline' }}</UiBadge></template>
+          </UiDataTable>
+          <p v-if="delivery.truncated" class="mt-1 text-xs text-base-content/70">Only the first {{ delivery.hosts.length }} hosts are listed.</p>
+        </section>
         <template v-if="childTotal">
           <h3 class="mb-1 text-sm font-medium">Child deployments</h3>
           <UiDataTable :items="children" :columns="childColumns" :total="childTotal" :page="lqc.page.value" :page-size="lqc.pageSize.value" :sort="lqc.sort.value" caption="Child deployments" class="mb-3" data-test="job-children" @update:page="lqc.setPage" @update:page-size="lqc.setPageSize" @update:sort="lqc.setSort">
