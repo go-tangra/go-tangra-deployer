@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/providers/awsacm"
 )
 
 // TestValidateMissingSecretOnly exercises the credsFrom branch where the access
@@ -55,11 +56,10 @@ func TestDeployReimportWithSessionToken(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, _ := provider.Get("aws_acm")
 	cr := map[string]any{"access_key_id": "AKIDEXAMPLE", "secret_access_key": secret, "session_token": "SESSION-Tok"}
-	res, err := p.Deploy(context.Background(),
+	res, err := awsacm.WithTestEndpoint(srv.URL).Deploy(context.Background(),
 		&provider.CertificateData{CertificatePEM: "C", PrivateKeyPEM: "K", CertificateChain: "CH"},
-		map[string]any{"region": "us-east-1", "endpoint": srv.URL, "certificate_arn": "arn:existing"}, cr, nil)
+		map[string]any{"region": "us-east-1", "certificate_arn": "arn:existing"}, cr, nil)
 	if err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
@@ -95,10 +95,9 @@ func TestDeployErrorMessageVariants(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			p, _ := provider.Get("aws_acm")
-			res, err := p.Deploy(context.Background(),
+			res, err := awsacm.WithTestEndpoint(srv.URL).Deploy(context.Background(),
 				&provider.CertificateData{CertificatePEM: "C", PrivateKeyPEM: "K"},
-				map[string]any{"region": "us-east-1", "endpoint": srv.URL}, creds(), nil)
+				map[string]any{"region": "us-east-1"}, creds(), nil)
 			if err != nil {
 				t.Fatalf("unexpected transport error: %v", err)
 			}
@@ -134,8 +133,8 @@ func TestVerifyErrorPaths(t *testing.T) {
 		_, _ = io.WriteString(w, `{"message":"nope"}`)
 	}))
 	defer srv.Close()
-	res, err = p.Verify(ctx, &provider.CertificateData{},
-		map[string]any{"region": "us-east-1", "endpoint": srv.URL, "certificate_arn": "arn:x"}, creds())
+	res, err = awsacm.WithTestEndpoint(srv.URL).Verify(ctx, &provider.CertificateData{},
+		map[string]any{"region": "us-east-1", "certificate_arn": "arn:x"}, creds())
 	if err != nil || res.Success {
 		t.Fatalf("expected clean transport failure: res=%+v err=%v", res, err)
 	}
@@ -144,8 +143,8 @@ func TestVerifyErrorPaths(t *testing.T) {
 		_, _ = io.WriteString(w, `{"Certificate":{"Serial":"0b","Status":"PENDING_VALIDATION"}}`)
 	}))
 	defer srv2.Close()
-	res, err = p.Verify(ctx, &provider.CertificateData{},
-		map[string]any{"region": "us-east-1", "endpoint": srv2.URL, "certificate_arn": "arn:x"}, creds())
+	res, err = awsacm.WithTestEndpoint(srv2.URL).Verify(ctx, &provider.CertificateData{},
+		map[string]any{"region": "us-east-1", "certificate_arn": "arn:x"}, creds())
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}

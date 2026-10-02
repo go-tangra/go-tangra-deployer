@@ -6,11 +6,14 @@ package targets
 import (
 	"context"
 	"errors"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-tangra/go-tangra/v4/listquery"
 
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
@@ -18,11 +21,30 @@ import (
 // Errors.
 var ErrNotFound = errors.New("targets: not found")
 
-// ValidationError names the offending field.
-type ValidationError struct{ Field, Msg string }
+// ValidationError names the offending field(s). Field/Msg are the first error
+// (sorted by path), Fields all of them (path -> code) and ConfigurationID the
+// attached configuration the override errors concern.
+type ValidationError struct {
+	Field, Msg      string
+	Fields          map[string]string
+	ConfigurationID string
+}
 
 func (e *ValidationError) Error() string { return "targets: " + e.Field + ": " + e.Msg }
-func invalid(field, msg string) error    { return &ValidationError{Field: field, Msg: msg} }
+func invalid(field, msg string) error {
+	return &ValidationError{Field: field, Msg: msg, Fields: map[string]string{field: msg}}
+}
+
+// overrideErrors turns descriptor errors for one configuration into a
+// ValidationError.
+func overrideErrors(cid string, fe provider.FieldErrors) *ValidationError {
+	paths := make([]string, 0, len(fe))
+	for p := range fe {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	return &ValidationError{Field: paths[0], Msg: fe[paths[0]], Fields: map[string]string(fe), ConfigurationID: cid}
+}
 
 // Service manages deployment targets.
 type Service struct {
@@ -49,7 +71,14 @@ type View struct {
 	AutoDeploy         bool                      `json:"auto_deploy"`
 	CertificateFilters []store.CertificateFilter `json:"certificate_filters"`
 	ConfigurationIDs   []string                  `json:"configuration_ids"`
-	CreatedAt          time.Time                 `json:"created_at,omitzero"`
+	// ConfigOverrides holds the per-configuration overrides (provider config,
+	// never credentials).
+	ConfigOverrides map[string]map[string]any `json:"config_overrides"`
+	// MissingRequired lists, per attached configuration, the labels of
+	// required fields the merged configuration lacks (normally empty; only on
+	// single reads).
+	MissingRequired map[string][]string `json:"missing_required,omitempty"`
+	CreatedAt       time.Time           `json:"created_at,omitzero"`
 }
 
 func (s *Service) view(ctx context.Context, tenantID string, t store.DeploymentTarget) View {
@@ -64,8 +93,12 @@ func toView(t store.DeploymentTarget, ids []string) View {
 	if ids == nil {
 		ids = []string{}
 	}
+	ov := t.ConfigOverrides
+	if ov == nil {
+		ov = map[string]map[string]any{}
+	}
 	return View{ID: t.ID, Name: t.Name, Description: t.Description, AutoDeploy: t.AutoDeploy, CertificateFilters: t.CertificateFilters,
-		ConfigurationIDs: ids, CreatedAt: t.CreatedAt}
+		ConfigurationIDs: ids, ConfigOverrides: ov, CreatedAt: t.CreatedAt}
 }
 
 // Create stores a target.
@@ -99,7 +132,24 @@ func (s *Service) Get(ctx context.Context, subj authz.Subjects, id string) (View
 	if err != nil {
 		return View{}, mapNF(err)
 	}
-	return s.view(ctx, subj.TenantID, t), nil
+	v := s.view(ctx, subj.TenantID, t)
+	v.MissingRequired = map[string][]string{}
+	for _, cid := range v.ConfigurationIDs {
+		c, cerr := s.st.GetConfiguration(ctx, subj.TenantID, cid)
+		if cerr != nil {
+			continue
+		}
+		caps, ok := provider.Info(c.ProviderType)
+		if !ok {
+			continue
+		}
+		labels := []string{}
+		for _, m := range provider.MissingRequired(caps, provider.MergeOverride(c.Config, t.ConfigOverrides[cid])) {
+			labels = append(labels, m.Labels...)
+		}
+		v.MissingRequired[cid] = labels
+	}
+	return v, nil
 }
 
 // List returns all the tenant's targets.
@@ -181,43 +231,150 @@ func (s *Service) Delete(ctx context.Context, subj authz.Subjects, id string) er
 	return mapNF(s.st.DeleteTarget(ctx, subj.TenantID, id))
 }
 
-// Attach links configurations to a target, optionally with per-config overrides
-// (provider config only — a credentials-shaped key is rejected).
+// Attach links configurations to a target with optional per-configuration
+// overrides (contracts/deployer-config-ui.md §4a). Every listed configuration
+// is validated before anything is written: override keys must be declared,
+// overridable config fields (never credentials), values follow their
+// descriptors, and the configuration plus override must satisfy every
+// required field and one_of_required group. A listed override replaces the
+// stored one; a configuration listed without an override keeps (and is
+// validated with) its stored override.
 func (s *Service) Attach(ctx context.Context, subj authz.Subjects, id string, configIDs []string, overrides map[string]map[string]any) error {
 	if err := s.az.Check(ctx, subj, authz.Target, id, authz.Manage); err != nil {
 		return mapNF(err)
-	}
-	if err := rejectCredentialKeys(overrides); err != nil {
-		return err
 	}
 	t, err := s.st.GetTarget(ctx, subj.TenantID, id)
 	if err != nil {
 		return mapNF(err)
 	}
-	if err := s.st.AttachConfigurations(ctx, subj.TenantID, id, configIDs); err != nil {
+	for _, cid := range attachOrder(configIDs, overrides) {
+		ov, listed := overrides[cid]
+		if !listed {
+			ov = t.ConfigOverrides[cid]
+		}
+		if err := s.checkOverride(ctx, subj.TenantID, cid, ov); err != nil {
+			return err
+		}
+	}
+	// Defence in depth: credential-shaped names never reach the unsealed row.
+	if err := rejectCredentialKeys(overrides); err != nil {
 		return err
 	}
-	if len(overrides) > 0 {
+	return s.st.Atomic(ctx, subj.TenantID, func(tx repo.Store) error {
+		if len(configIDs) > 0 {
+			if err := tx.AttachConfigurations(ctx, subj.TenantID, id, configIDs); err != nil {
+				return err
+			}
+		}
+		if len(overrides) == 0 {
+			return nil
+		}
 		if t.ConfigOverrides == nil {
 			t.ConfigOverrides = map[string]map[string]any{}
 		}
 		for cid, ov := range overrides {
-			t.ConfigOverrides[cid] = ov
+			if clean := nonEmpty(ov); len(clean) > 0 {
+				t.ConfigOverrides[cid] = clean
+			} else {
+				delete(t.ConfigOverrides, cid)
+			}
 		}
 		t.UpdatedBy = subj.ActorID()
-		if err := s.st.UpdateTarget(ctx, t); err != nil {
-			return err
+		return tx.UpdateTarget(ctx, t)
+	})
+}
+
+// attachOrder is the deterministic validation order: the listed
+// configurations, then configurations that only carry an override.
+func attachOrder(configIDs []string, overrides map[string]map[string]any) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(configIDs)+len(overrides))
+	for _, cid := range configIDs {
+		if !seen[cid] {
+			seen[cid] = true
+			out = append(out, cid)
 		}
+	}
+	extra := make([]string, 0, len(overrides))
+	for cid := range overrides {
+		if !seen[cid] {
+			extra = append(extra, cid)
+		}
+	}
+	sort.Strings(extra)
+	return append(out, extra...)
+}
+
+// checkOverride validates one configuration's override with the provider's
+// descriptors and its ConfigValidator on the merged configuration. Values are
+// never echoed.
+func (s *Service) checkOverride(ctx context.Context, tenantID, cid string, ov map[string]any) error {
+	c, err := s.st.GetConfiguration(ctx, tenantID, cid)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			ve := invalid("configuration_ids", "not_found").(*ValidationError)
+			ve.ConfigurationID = cid
+			return ve
+		}
+		return err
+	}
+	caps, ok := provider.Info(c.ProviderType)
+	if !ok {
+		ve := invalid("configuration_ids", "provider not available").(*ValidationError)
+		ve.ConfigurationID = cid
+		return ve
+	}
+	if fe := provider.ValidateOverride(caps, c.Config, ov); len(fe) > 0 {
+		return overrideErrors(cid, fe)
+	}
+	if verr := provider.ValidateConfig(c.ProviderType, provider.MergeOverride(c.Config, ov)); verr != nil {
+		var fe *provider.FieldError
+		field := "config_overrides"
+		if errors.As(verr, &fe) {
+			field = provider.PathOverrides + strings.TrimPrefix(fe.Field, provider.PathConfig)
+			return overrideErrors(cid, provider.FieldErrors{field: fe.Msg})
+		}
+		return overrideErrors(cid, provider.FieldErrors{field: "rejected"})
 	}
 	return nil
 }
 
-// Detach unlinks configurations from a target.
+func nonEmpty(m map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range m {
+		if !provider.IsEmpty(v) {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// Detach unlinks configurations from a target and drops their overrides.
 func (s *Service) Detach(ctx context.Context, subj authz.Subjects, id string, configIDs []string) error {
 	if err := s.az.Check(ctx, subj, authz.Target, id, authz.Manage); err != nil {
 		return mapNF(err)
 	}
-	return mapNF(s.st.DetachConfigurations(ctx, subj.TenantID, id, configIDs))
+	t, err := s.st.GetTarget(ctx, subj.TenantID, id)
+	if err != nil {
+		return mapNF(err)
+	}
+	return mapNF(s.st.Atomic(ctx, subj.TenantID, func(tx repo.Store) error {
+		if err := tx.DetachConfigurations(ctx, subj.TenantID, id, configIDs); err != nil {
+			return err
+		}
+		changed := false
+		for _, cid := range configIDs {
+			if _, ok := t.ConfigOverrides[cid]; ok {
+				delete(t.ConfigOverrides, cid)
+				changed = true
+			}
+		}
+		if !changed {
+			return nil
+		}
+		t.UpdatedBy = subj.ActorID()
+		return tx.UpdateTarget(ctx, t)
+	}))
 }
 
 // rejectCredentialKeys refuses overrides containing credential-shaped keys.

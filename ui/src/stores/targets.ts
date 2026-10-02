@@ -12,6 +12,11 @@ const FIRST_PAGE: ListParams = { page: 1, page_size: 25, sort: 'name', order: 'a
 export const useTargets = defineStore('deployer-targets', () => {
   const paged = pagedList<Target, Record<string, string | undefined>>('targets', FIRST_PAGE)
 
+  /** A single target with its overrides and per-configuration missing_required. */
+  async function get(id: string): Promise<Target> {
+    return api<Target>('GET', 'targets/' + id)
+  }
+
   async function create(input: TargetInput): Promise<Target> {
     return api<Target>('POST', 'targets', input)
   }
@@ -35,5 +40,5 @@ export const useTargets = defineStore('deployer-targets', () => {
     await api('POST', 'targets/' + id + '/configurations/remove', { configuration_ids: configurationIds })
   }
 
-  return { ...paged, create, update, remove, attach, detach }
+  return { ...paged, get, create, update, remove, attach, detach }
 })

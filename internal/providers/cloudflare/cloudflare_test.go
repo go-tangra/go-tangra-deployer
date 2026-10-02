@@ -77,8 +77,8 @@ func TestDeployHappyPath(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, _ := provider.Get("cloudflare")
-	config := map[string]any{"zone_id": "zone123", "api_base": srv.URL}
+	p := Provider{apiBase: srv.URL}
+	config := map[string]any{"zone_id": "0123456789abcdef0123456789abcdef"}
 	creds := map[string]any{"api_token": testToken}
 
 	var lastPct int
@@ -98,7 +98,7 @@ func TestDeployHappyPath(t *testing.T) {
 	if gotAuth != "Bearer "+testToken {
 		t.Fatalf("wrong Authorization header: %q", gotAuth)
 	}
-	if !strings.HasSuffix(postPath, "/zones/zone123/custom_certificates") {
+	if !strings.HasSuffix(postPath, "/zones/0123456789abcdef0123456789abcdef/custom_certificates") {
 		t.Fatalf("wrong upload path: %q", postPath)
 	}
 	if postBody["certificate"] == nil || !strings.Contains(postBody["certificate"].(string), "LEAF") {
@@ -127,8 +127,8 @@ func TestDeployFailure(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, _ := provider.Get("cloudflare")
-	config := map[string]any{"zone_id": "zone123", "api_base": srv.URL}
+	p := Provider{apiBase: srv.URL}
+	config := map[string]any{"zone_id": "0123456789abcdef0123456789abcdef"}
 	creds := map[string]any{"api_token": testToken}
 
 	res, err := p.Deploy(context.Background(), testCert(), config, creds, nil)
@@ -153,8 +153,8 @@ func TestVerifyHappyPath(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, _ := provider.Get("cloudflare")
-	config := map[string]any{"zone_id": "zone123", "api_base": srv.URL}
+	p := Provider{apiBase: srv.URL}
+	config := map[string]any{"zone_id": "0123456789abcdef0123456789abcdef"}
 	creds := map[string]any{"api_token": testToken}
 
 	res, err := p.Verify(context.Background(), testCert(), config, creds)
@@ -173,20 +173,20 @@ func TestValidateCredentials(t *testing.T) {
 	p, _ := provider.Get("cloudflare")
 	ctx := context.Background()
 
-	if err := p.ValidateCredentials(ctx, map[string]any{"api_token": ""}, map[string]any{"zone_id": "z"}); err == nil {
+	if err := p.ValidateCredentials(ctx, map[string]any{"api_token": ""}, map[string]any{"zone_id": "0123456789abcdef0123456789abcdef"}); err == nil {
 		t.Fatal("expected error for empty api_token")
 	}
 	if err := p.ValidateCredentials(ctx, map[string]any{"api_token": testToken}, map[string]any{"zone_id": ""}); err == nil {
 		t.Fatal("expected error for empty zone_id")
 	}
-	if err := p.ValidateCredentials(ctx, map[string]any{"api_token": testToken}, map[string]any{"zone_id": "z"}); err != nil {
+	if err := p.ValidateCredentials(ctx, map[string]any{"api_token": testToken}, map[string]any{"zone_id": "0123456789abcdef0123456789abcdef"}); err != nil {
 		t.Fatalf("expected valid, got %v", err)
 	}
 }
 
 func TestRollbackUnsupported(t *testing.T) {
 	p, _ := provider.Get("cloudflare")
-	res, err := p.Rollback(context.Background(), testCert(), map[string]any{"zone_id": "z"}, map[string]any{"api_token": testToken})
+	res, err := p.Rollback(context.Background(), testCert(), map[string]any{"zone_id": "0123456789abcdef0123456789abcdef"}, map[string]any{"api_token": testToken})
 	if err != nil {
 		t.Fatalf("rollback should return nil error, got %v", err)
 	}

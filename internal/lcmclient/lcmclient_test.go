@@ -2,6 +2,7 @@ package lcmclient_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	lcmv1 "github.com/go-tangra/go-tangra-lcm/sdk/v4/api/proto/lcm/v1"
 
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/lcmclient"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 )
 
 // fakeCerts is a fake lcm.v1.Certificates client.
@@ -75,5 +77,23 @@ func TestFetchCertificateNotFound(t *testing.T) {
 	c := lcmclient.New(fc)
 	if _, err := c.FetchCertificate(context.Background(), "t", "nope", false); err != lcmclient.ErrNotFound {
 		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+// lcm answers InvalidArgument "no stored private key" for a certificate whose
+// key it does not hold: mapped to provider.ErrKeyUnavailable so the job fails
+// at once instead of retrying.
+func TestFetchCertificateNoStoredKey(t *testing.T) {
+	for _, code := range []codes.Code{codes.InvalidArgument, codes.FailedPrecondition} {
+		fc := &fakeCerts{err: status.Error(code, "no stored private key for this certificate")}
+		_, err := lcmclient.New(fc).FetchCertificate(context.Background(), "t", "c", true)
+		if !errors.Is(err, provider.ErrKeyUnavailable) {
+			t.Fatalf("%v: err = %v, want ErrKeyUnavailable", code, err)
+		}
+	}
+	// Other InvalidArgument errors are not mistaken for it.
+	fc := &fakeCerts{err: status.Error(codes.InvalidArgument, "certificate_id is required")}
+	if _, err := lcmclient.New(fc).FetchCertificate(context.Background(), "t", "", true); errors.Is(err, provider.ErrKeyUnavailable) || err == nil {
+		t.Fatalf("err = %v", err)
 	}
 }

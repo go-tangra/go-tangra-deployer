@@ -27,4 +27,30 @@ test.describe('deployer accessibility', () => {
       }
     })
   }
+
+  // T087: the open configuration drawer (provider form) and the target form.
+  for (const theme of ['freya-light', 'freya-dark']) {
+    test(`configuration drawer and target form are axe clean in ${theme}`, async ({ page }) => {
+      await page.addInitScript((t) => localStorage.setItem('freya.theme', t), theme)
+      await page.goto(base + '/')
+      await signIn(page, email, password)
+      const check = async (what: string) => {
+        const results = await new AxeBuilder({ page }).include('aside[role=dialog]').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()
+        const blocking = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+        expect(blocking, what + ': ' + JSON.stringify(blocking.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) })))).toEqual([])
+      }
+      await page.goto(base + '/deployer/configurations')
+      await page.getByTestId('config-new').click()
+      for (const provider of ['bigip', 'webhook', 'inventory-agent']) {
+        await page.locator('aside[role=dialog] #provider_type').selectOption(provider)
+        await expect(page.locator(`aside[role=dialog] [data-provider="${provider}"]`)).toBeVisible()
+        await check('configuration drawer ' + provider)
+      }
+      await page.keyboard.press('Escape')
+      await page.goto(base + '/deployer/targets')
+      await page.getByTestId('target-new').click()
+      await page.locator('aside[role=dialog] [data-test=target-configs] input').first().check()
+      await check('target form')
+    })
+  }
 })

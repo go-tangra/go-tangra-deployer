@@ -44,22 +44,35 @@ func (Provider) Capabilities() provider.Capabilities {
 	return provider.Capabilities{
 		Type:             "bigip",
 		DisplayName:      "F5 BIG-IP",
+		Description:      "Installs the certificate, key and chain on an F5 BIG-IP and binds them into a client-SSL profile (iControl REST).",
 		SupportsVerify:   true,
 		SupportsRollback: true,
+		TestConnection:   true,
+		SchemaVersion:    1,
 		ConfigFields: []provider.Field{
-			{Key: "partition", Label: "Partition", Required: true},
+			{Key: "partition", Label: "Partition", Type: provider.TypeString, Required: true, Overridable: true, Group: provider.GroupConnection,
+				Default: "Common", Pattern: `^[A-Za-z0-9_.-]{1,64}$`, MaxLength: 64, Placeholder: "Common",
+				Help: "Administrative partition the certificate objects are created in."},
+			{Key: "ssl_profile", Label: "SSL profile", Type: provider.TypeString, Overridable: true, Group: provider.GroupOptions,
+				Pattern: `^(/[A-Za-z0-9_.-]{1,64}/)?[A-Za-z0-9_][A-Za-z0-9_.-]{0,254}$`, MaxLength: 321, Placeholder: "www_clientssl_prod",
+				Help: "Existing client-SSL profile to bind the certificate into (name in the partition or /Partition/name). Empty: the provider maintains its own <name>_clientssl profile."},
 		},
 		CredentialFields: []provider.Field{
-			{Key: "host", Label: "Host", Required: true},
-			{Key: "username", Label: "Username", Required: true},
-			{Key: "password", Label: "Password", Secret: true, Required: true},
+			{Key: "host", Label: "Host", Type: provider.TypeString, Required: true, Group: provider.GroupConnection,
+				Pattern: provider.HostPattern, MaxLength: 270, Placeholder: "bigip.example.com",
+				Help: "Management address of the BIG-IP (host or host:port)."},
+			{Key: "username", Label: "Username", Type: provider.TypeString, Required: true, Group: provider.GroupCredentials,
+				MaxLength: 128, Placeholder: "deployer", Help: "iControl REST user allowed to manage certificates and SSL profiles."},
+			{Key: "password", Label: "Password", Type: provider.TypeString, Secret: true, Required: true, Group: provider.GroupCredentials,
+				MaxLength: 256, Help: "Password of the iControl REST user."},
 		},
 	}
 }
 
 // ValidateCredentials checks that host, username and password are present and,
 // best-effort, probes the appliance. An unreachable appliance is not fatal at
-// validation time; rejected credentials are.
+// validation time; rejected credentials are. With ssl_profile set, the named
+// client-SSL profile must exist on the appliance (not_found_on_endpoint).
 func (p Provider) ValidateCredentials(ctx context.Context, creds, config map[string]any) error {
 	host, username, password, err := requireCreds(creds)
 	if err != nil {
@@ -77,11 +90,28 @@ func (p Provider) ValidateCredentials(ctx context.Context, creds, config map[str
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return fmt.Errorf("%w: BIG-IP rejected the username/password (HTTP %d)", provider.ErrCredentials, resp.StatusCode)
 	}
+	raw, set := sslProfileFrom(config)
+	if !set {
+		return nil
+	}
+	partition := partitionFrom(config)
+	if partition == "" {
+		partition = "Common"
+	}
+	profileFull, ok := resolveProfilePath(raw, partition)
+	if !ok {
+		return &provider.FieldError{Field: provider.PathConfig + "ssl_profile", Msg: provider.CodePattern}
+	}
+	if _, err := getClientSSLProfile(ctx, httpClient(), host, username, password, profileFull); err == errProfileNotFound {
+		return &provider.FieldError{Field: provider.PathConfig + "ssl_profile", Msg: provider.CodeNotFoundOnEndpoint}
+	}
 	return nil
 }
 
 // Deploy uploads the certificate and key, installs them as sys/crypto objects,
-// and binds them into a client-SSL profile in the configured partition.
+// and binds them into a client-SSL profile in the configured partition — the
+// provider's own <base>_clientssl, or, with ssl_profile set, the operator's
+// existing profile (checked before anything is uploaded, updated in place).
 func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, config, creds map[string]any, progress provider.ProgressFn) (*provider.Result, error) {
 	host, username, password, err := requireCreds(creds)
 	if err != nil {
@@ -102,6 +132,21 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 	profileFull := fmt.Sprintf("/%s/%s_clientssl", partition, base)
 
 	client := httpClient()
+
+	raw, existing := sslProfileFrom(config)
+	if existing {
+		var ok bool
+		if profileFull, ok = resolveProfilePath(raw, partition); !ok {
+			return invalidProfileResult(), nil
+		}
+		note(progress, 10, "checking client-SSL profile "+profileFull)
+		if _, err := getClientSSLProfile(ctx, client, host, username, password, profileFull); err != nil {
+			if err == errProfileNotFound {
+				return profileNotFoundResult(host, partition, profileFull), nil
+			}
+			return &provider.Result{Success: false, Message: "client-SSL profile check failed: " + err.Error()}, nil
+		}
+	}
 
 	note(progress, 20, "uploading certificate")
 	if err := installCrypto(ctx, client, host, username, password, "cert", certFull, cert.CertificatePEM); err != nil {
@@ -125,7 +170,11 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 	}
 
 	note(progress, 75, "binding client-SSL profile")
-	if err := bindClientSSLProfile(ctx, client, host, username, password, profileFull, certFull, keyFull, chainFull); err != nil {
+	bind := bindClientSSLProfile
+	if existing {
+		bind = patchExistingProfile
+	}
+	if err := bind(ctx, client, host, username, password, profileFull, certFull, keyFull, chainFull); err != nil {
 		return &provider.Result{Success: false, Message: "client-SSL profile binding failed: " + err.Error()}, nil
 	}
 
@@ -142,6 +191,9 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 		"key_name":         keyFull,
 		"ssl_profile":      profileFull,
 	}
+	if existing {
+		details["ssl_profile_mode"] = "existing"
+	}
 	if chainFull != "" {
 		details["chain_name"] = chainFull
 	}
@@ -152,7 +204,8 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 	}, nil
 }
 
-// Verify confirms the certificate object exists in the partition.
+// Verify confirms the certificate object exists in the partition and, with
+// ssl_profile set, that the profile references the deployed cert and key.
 func (p Provider) Verify(ctx context.Context, cert *provider.CertificateData, config, creds map[string]any) (*provider.Result, error) {
 	host, username, password, err := requireCreds(creds)
 	if err != nil {
@@ -162,18 +215,47 @@ func (p Provider) Verify(ctx context.Context, cert *provider.CertificateData, co
 	if partition == "" {
 		return nil, fmt.Errorf("partition is required")
 	}
-	certFull := fmt.Sprintf("/%s/%s.crt", partition, certBaseName(cert))
-	if err := certExists(ctx, httpClient(), host, username, password, certFull); err != nil {
+	base := certBaseName(cert)
+	certFull := fmt.Sprintf("/%s/%s.crt", partition, base)
+	client := httpClient()
+	if err := certExists(ctx, client, host, username, password, certFull); err != nil {
 		return &provider.Result{Success: false, Message: "certificate not found: " + err.Error()}, nil
+	}
+	details := map[string]any{"host": host, "partition": partition, "certificate_name": certFull}
+	raw, existing := sslProfileFrom(config)
+	if !existing {
+		return &provider.Result{
+			Success: true,
+			Message: fmt.Sprintf("certificate %s present on BIG-IP", certFull),
+			Details: details,
+		}, nil
+	}
+	profileFull, ok := resolveProfilePath(raw, partition)
+	if !ok {
+		return invalidProfileResult(), nil
+	}
+	details["ssl_profile"] = profileFull
+	prof, err := getClientSSLProfile(ctx, client, host, username, password, profileFull)
+	if err != nil {
+		if err == errProfileNotFound {
+			return &provider.Result{Success: false, Message: fmt.Sprintf("client-SSL profile %s not found", profileFull), Details: details}, nil
+		}
+		return &provider.Result{Success: false, Message: "client-SSL profile check failed: " + err.Error(), Details: details}, nil
+	}
+	if !prof.boundTo(certFull, fmt.Sprintf("/%s/%s.key", partition, base)) {
+		return &provider.Result{Success: false, Message: fmt.Sprintf("profile %s is bound to a different certificate", profileFull), Details: details}, nil
 	}
 	return &provider.Result{
 		Success: true,
-		Message: fmt.Sprintf("certificate %s present on BIG-IP", certFull),
-		Details: map[string]any{"host": host, "partition": partition, "certificate_name": certFull},
+		Message: fmt.Sprintf("certificate %s present on BIG-IP and bound to client-SSL profile %s", certFull, profileFull),
+		Details: details,
 	}, nil
 }
 
 // Rollback removes the client-SSL profile, certificate, key and chain objects.
+// With ssl_profile set the operator's profile is never deleted or modified:
+// while it still references the deployed objects the rollback is refused, and
+// otherwise only the certificate, key and chain objects are removed.
 func (p Provider) Rollback(ctx context.Context, cert *provider.CertificateData, config, creds map[string]any) (*provider.Result, error) {
 	host, username, password, err := requireCreds(creds)
 	if err != nil {
@@ -186,8 +268,27 @@ func (p Provider) Rollback(ctx context.Context, cert *provider.CertificateData, 
 	base := certBaseName(cert)
 	client := httpClient()
 
-	// Profile references the cert+key, so it must go first.
-	_ = deleteObject(ctx, client, host, username, password, "ltm/profile/client-ssl", fmt.Sprintf("/%s/%s_clientssl", partition, base))
+	if raw, existing := sslProfileFrom(config); existing {
+		profileFull, ok := resolveProfilePath(raw, partition)
+		if !ok {
+			return invalidProfileResult(), nil
+		}
+		prof, err := getClientSSLProfile(ctx, client, host, username, password, profileFull)
+		if err != nil && err != errProfileNotFound {
+			return &provider.Result{Success: false, Message: "client-SSL profile check failed: " + err.Error()}, nil
+		}
+		if prof.references(fmt.Sprintf("/%s/%s.crt", partition, base), fmt.Sprintf("/%s/%s.key", partition, base), fmt.Sprintf("/%s/%s_chain.crt", partition, base)) {
+			return &provider.Result{
+				Success:   false,
+				Permanent: true,
+				Message:   fmt.Sprintf("certificate is bound to client-SSL profile %s; bind another certificate before rolling back", profileFull),
+				Details:   map[string]any{"host": host, "partition": partition, "ssl_profile": profileFull},
+			}, nil
+		}
+	} else {
+		// Profile references the cert+key, so it must go first.
+		_ = deleteObject(ctx, client, host, username, password, "ltm/profile/client-ssl", fmt.Sprintf("/%s/%s_clientssl", partition, base))
+	}
 
 	var failures []string
 	if err := deleteObject(ctx, client, host, username, password, "sys/crypto/cert", fmt.Sprintf("/%s/%s.crt", partition, base)); err != nil {
@@ -201,6 +302,13 @@ func (p Provider) Rollback(ctx context.Context, cert *provider.CertificateData, 
 
 	if len(failures) > 0 {
 		return &provider.Result{Success: false, Message: "rollback partially failed: " + strings.Join(failures, "; ")}, nil
+	}
+	if _, existing := sslProfileFrom(config); existing {
+		return &provider.Result{
+			Success: true,
+			Message: "certificate and key removed from BIG-IP (client-SSL profile left untouched)",
+			Details: map[string]any{"host": host, "partition": partition},
+		}, nil
 	}
 	return &provider.Result{
 		Success: true,
@@ -370,8 +478,9 @@ func newJSONRequest(ctx context.Context, method, url, username, password string,
 // interfaces present a self-signed certificate.
 func httpClient() *http.Client {
 	return &http.Client{
-		Timeout:   httpTimeout,
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, //nolint:gosec // BIG-IP management uses a self-signed cert
+		Timeout:       httpTimeout,
+		CheckRedirect: provider.NoRedirect,
+		Transport:     &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, // #nosec G402 -- pre-033 behaviour: BIG-IP management uses a self-signed certificate (follow-up: CA pin option)
 	}
 }
 
@@ -399,6 +508,13 @@ func hostString(creds map[string]any) string {
 	h = strings.TrimPrefix(h, "https://")
 	h = strings.TrimPrefix(h, "http://")
 	return strings.TrimRight(h, "/")
+}
+
+// sslProfileFrom returns the configured ssl_profile and whether it is set.
+func sslProfileFrom(config map[string]any) (string, bool) {
+	v, _ := config["ssl_profile"].(string)
+	v = strings.TrimSpace(v)
+	return v, v != ""
 }
 
 func partitionFrom(config map[string]any) string {

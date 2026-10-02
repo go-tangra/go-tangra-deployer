@@ -164,6 +164,60 @@ describe('jobs: server paging, sorting and live events', () => {
     w.unmount()
   })
 
+  it('inventory-agent result: the job drawer renders the delivery counts and the per-host table', async () => {
+    const details = {
+      delivery_id: 'd1', name: 'www',
+      counts: { installed: 2, unchanged: 0, queued: 1, failed: 1, unsupported: 0, superseded: 0, total: 4 },
+      hosts: [
+        { host_id: 'h1', hostname: 'web-1', state: 'failed', agent_online: true, reason: 'hook_failed', attempts: 1 },
+        { host_id: 'h2', hostname: 'web-2', state: 'pending', agent_online: false },
+        { host_id: 'h3', hostname: 'web-3', state: 'installed', agent_online: true },
+      ],
+      hosts_truncated: true,
+    }
+    fetchMock(server(1, (url) => {
+      if (url.includes('/jobs/d1/result')) return { ...job('d1'), result: { message: 'Installed on 2', details }, history: [] }
+      if (url.includes('/history?')) return { items: [], total: 0, page: 1, page_size: 10, sort: 'created_at', order: 'desc' }
+      if (url.startsWith('/api/deployer/v1/jobs?')) return { items: [job('d1', { status: 'partial' })], total: 1, page: 1, page_size: 25, sort: 'created_at', order: 'desc' }
+      return undefined
+    }))
+    const r = mkRouter()
+    await r.push('/deployer/jobs')
+    const w = mount(Jobs, { global: { plugins: [r] }, attachTo: document.body })
+    await flushPromises()
+    await w.find('[data-test="job-row-d1"]').trigger('click')
+    await flushPromises()
+    const d = document.body.querySelector('aside[role=dialog] [data-test=job-hosts]')!
+    const counts = d.querySelector('[data-test=job-counts]')!.textContent!.replace(/\s+/g, ' ')
+    expect(counts).toContain('Installed 2')
+    expect(counts).toContain('Queued 1')
+    expect(counts).toContain('Failed 1')
+    expect(counts).toContain('Total 4')
+    expect(counts).not.toContain('Unsupported')
+    expect(d.textContent).toContain('web-1')
+    expect(d.textContent).toContain('hook_failed')
+    expect(d.textContent).toContain('offline')
+    expect(d.textContent).toContain('Only the first 3 hosts')
+    w.unmount()
+  })
+
+  it('a job without delivery details has no host section', async () => {
+    fetchMock(server(1, (url) => {
+      if (url.includes('/jobs/d2/result')) return { ...job('d2'), result: { message: 'ok' }, history: [] }
+      if (url.includes('/history?')) return { items: [], total: 0, page: 1, page_size: 10, sort: 'created_at', order: 'desc' }
+      if (url.startsWith('/api/deployer/v1/jobs?')) return { items: [job('d2')], total: 1, page: 1, page_size: 25, sort: 'created_at', order: 'desc' }
+      return undefined
+    }))
+    const r = mkRouter()
+    await r.push('/deployer/jobs')
+    const w = mount(Jobs, { global: { plugins: [r] }, attachTo: document.body })
+    await flushPromises()
+    await w.find('[data-test="job-row-d2"]').trigger('click')
+    await flushPromises()
+    expect(document.body.querySelector('aside[role=dialog] [data-test=job-hosts]')).toBeNull()
+    w.unmount()
+  })
+
   it('dashboard falls back to list totals on its own first pages when statistics are unavailable', async () => {
     const calls = fetchMock((url) =>
       url.includes('/statistics')

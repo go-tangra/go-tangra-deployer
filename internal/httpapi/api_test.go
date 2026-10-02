@@ -23,6 +23,7 @@ import (
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/targets"
 
 	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/dummy"
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/webhook"
 )
 
 const (
@@ -137,7 +138,7 @@ func TestConfigurationsCRUDAndRedaction(t *testing.T) {
 	f := newAPI(t)
 	// Create with credentials.
 	w := f.req(t, "POST", p+"/configurations", "admin",
-		`{"name":"dummy-ep","provider_type":"dummy","config":{"region":"eu"},"credentials":{"token":"secret-xyz"}}`)
+		`{"name":"dummy-ep","provider_type":"webhook","config":{"url":"https://hook.example/certs"},"credentials":{"token":"secret-xyz"}}`)
 	if w.Code != 201 {
 		t.Fatalf("create: %d %s", w.Code, w.Body.String())
 	}
@@ -250,7 +251,7 @@ func TestJobsLifecycleEndpoints(t *testing.T) {
 
 func TestStatisticsAndBackup(t *testing.T) {
 	f := newAPI(t)
-	f.req(t, "POST", p+"/configurations", "admin", `{"name":"ep","provider_type":"dummy","credentials":{"token":"s"}}`)
+	f.req(t, "POST", p+"/configurations", "admin", `{"name":"ep","provider_type":"webhook","config":{"url":"https://hook.example/certs"},"credentials":{"token":"s"}}`)
 
 	if w := f.req(t, "GET", p+"/statistics/tenant", "admin", ""); w.Code != 200 {
 		t.Fatalf("tenant stats: %d %s", w.Code, w.Body.String())

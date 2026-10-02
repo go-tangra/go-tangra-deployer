@@ -14,6 +14,7 @@ import (
 
 	// Register the dummy provider so validation and the catalogue have an entry.
 	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/dummy"
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/webhook"
 )
 
 // plaintextSecret is the credential value that must NEVER surface through a read
@@ -58,8 +59,8 @@ func TestCRUDAndShapes(t *testing.T) {
 	created, err := cs.Create(ctx, subj, configs.Input{
 		Name:         "prod-endpoint",
 		Description:  "production",
-		ProviderType: "dummy",
-		Config:       map[string]any{"region": "eu"},
+		ProviderType: "webhook",
+		Config:       map[string]any{"url": "https://hook.example/certs"},
 		Credentials:  map[string]any{"token": plaintextSecret},
 	})
 	if err != nil {
@@ -71,8 +72,8 @@ func TestCRUDAndShapes(t *testing.T) {
 	if !created.HasCredentials {
 		t.Error("Create: expected HasCredentials == true")
 	}
-	if created.ProviderType != "dummy" {
-		t.Errorf("Create: ProviderType = %q, want %q", created.ProviderType, "dummy")
+	if created.ProviderType != "webhook" {
+		t.Errorf("Create: ProviderType = %q, want %q", created.ProviderType, "webhook")
 	}
 
 	// Get round-trips.
@@ -137,7 +138,8 @@ func TestCredentialRedaction(t *testing.T) {
 
 	created, err := cs.Create(ctx, subj, configs.Input{
 		Name:         "sealed-endpoint",
-		ProviderType: "dummy",
+		ProviderType: "webhook",
+		Config:       map[string]any{"url": "https://hook.example/certs"},
 		Credentials:  map[string]any{"token": plaintextSecret},
 	})
 	if err != nil {
@@ -198,16 +200,14 @@ func TestValidate(t *testing.T) {
 	subj := adminSubject()
 
 	t.Run("known provider succeeds", func(t *testing.T) {
-		err := cs.Validate(ctx, subj, "dummy",
-			map[string]any{"token": plaintextSecret},
-			map[string]any{"region": "eu"})
+		_, err := cs.Validate(ctx, subj, configs.ValidateRequest{ProviderType: "dummy", Config: map[string]any{"fail": false}})
 		if err != nil {
 			t.Errorf("Validate(dummy): unexpected error %v", err)
 		}
 	})
 
 	t.Run("unknown provider returns error (no panic)", func(t *testing.T) {
-		err := cs.Validate(ctx, subj, "does-not-exist", nil, nil)
+		_, err := cs.Validate(ctx, subj, configs.ValidateRequest{ProviderType: "does-not-exist"})
 		if err == nil {
 			t.Error("Validate(unknown): expected an error, got nil")
 		}

@@ -22,6 +22,8 @@ func TestCatalogueRegistered(t *testing.T) {
 		"cloudflare": {"Cloudflare", true, false},
 		"bigip":      {"F5 BIG-IP", true, true},
 		"fortigate":  {"FortiGate", true, true},
+		// Registered at app wiring when the inventory peer is configured.
+		"inventory-agent": {"Inventory agent", true, false},
 	}
 	list := provider.List()
 	if len(list) != len(want) {

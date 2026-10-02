@@ -12,7 +12,7 @@ import (
 
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 
-	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/awsacm"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/providers/awsacm"
 )
 
 const secret = "wJalrXUtnFEMI-super-secret-key"
@@ -46,8 +46,8 @@ func TestDeploySignsAndImports(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p, _ := provider.Get("aws_acm")
-	config := map[string]any{"region": "us-east-1", "endpoint": srv.URL}
+	p := awsacm.WithTestEndpoint(srv.URL)
+	config := map[string]any{"region": "us-east-1"}
 	res, err := p.Deploy(context.Background(), &provider.CertificateData{
 		ID: "c1", CertificatePEM: "CERT", PrivateKeyPEM: "KEY", CertificateChain: "CHAIN",
 	}, config, creds(), nil)
@@ -87,9 +87,8 @@ func TestDeployFailureDoesNotLeakSecret(t *testing.T) {
 		_, _ = io.WriteString(w, `{"__type":"ValidationException","message":"bad cert"}`)
 	}))
 	defer srv.Close()
-	p, _ := provider.Get("aws_acm")
-	res, err := p.Deploy(context.Background(), &provider.CertificateData{CertificatePEM: "C", PrivateKeyPEM: "K"},
-		map[string]any{"region": "us-east-1", "endpoint": srv.URL}, creds(), nil)
+	res, err := awsacm.WithTestEndpoint(srv.URL).Deploy(context.Background(), &provider.CertificateData{CertificatePEM: "C", PrivateKeyPEM: "K"},
+		map[string]any{"region": "us-east-1"}, creds(), nil)
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
@@ -109,9 +108,8 @@ func TestVerifyReadsBack(t *testing.T) {
 		_, _ = io.WriteString(w, `{"Certificate":{"Serial":"0a","Status":"ISSUED"}}`)
 	}))
 	defer srv.Close()
-	p, _ := provider.Get("aws_acm")
-	res, err := p.Verify(context.Background(), &provider.CertificateData{},
-		map[string]any{"region": "us-east-1", "endpoint": srv.URL, "certificate_arn": "arn:aws:acm:x"}, creds())
+	res, err := awsacm.WithTestEndpoint(srv.URL).Verify(context.Background(), &provider.CertificateData{},
+		map[string]any{"region": "us-east-1", "certificate_arn": "arn:aws:acm:x"}, creds())
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}

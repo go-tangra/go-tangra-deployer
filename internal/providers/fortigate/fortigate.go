@@ -51,51 +51,94 @@ func (Provider) Capabilities() provider.Capabilities {
 	return provider.Capabilities{
 		Type:             "fortigate",
 		DisplayName:      "FortiGate",
+		Description:      "Imports the certificate and key as a local certificate on a FortiGate (FortiOS REST API).",
 		SupportsVerify:   true,
 		SupportsRollback: true,
+		TestConnection:   true,
+		SchemaVersion:    1,
 		ConfigFields: []provider.Field{
-			{Key: "vdom", Label: "VDOM", Required: true},
+			{Key: "vdom", Label: "VDOM", Type: provider.TypeString, Required: true, Overridable: true, Group: provider.GroupConnection,
+				Default: "root", Pattern: `^[A-Za-z0-9_-]{1,31}$`, MaxLength: 31, Placeholder: "root",
+				Help: "Virtual domain the certificate is managed in."},
+			{Key: "import_scope", Label: "Import scope", Type: provider.TypeEnum, Overridable: true, Group: provider.GroupOptions,
+				Default: "global", Options: []provider.Option{{Value: "global", Label: "Global"}, {Value: "vdom", Label: "VDOM"}},
+				Help: "Import the certificate globally or into the VDOM only."},
+			{Key: "default_ssl_profile", Label: "Default SSL profile", Type: provider.TypeString, Overridable: true, Group: provider.GroupOptions,
+				Pattern: `^[^\x00-\x1f"\\/.][^\x00-\x1f"\\/]{0,34}$`, MaxLength: 35, Placeholder: "inbound-www",
+				Help: "Existing SSL/SSH inspection profile (server certificate mode replace) whose server certificate list is updated in place; other domains' certificates are kept. Renewals are imported under dated names."},
 		},
 		CredentialFields: []provider.Field{
-			{Key: "host", Label: "FortiGate host", Required: true},
-			{Key: "api_token", Label: "API token", Secret: true, Required: true},
+			{Key: "host", Label: "Host", Type: provider.TypeString, Required: true, Group: provider.GroupConnection,
+				Pattern: provider.HostPattern, MaxLength: 270, Placeholder: "fortigate.example.com",
+				Help: "Management address of the FortiGate (host or host:port)."},
+			{Key: "api_token", Label: "API token", Type: provider.TypeString, Secret: true, Required: true, Group: provider.GroupCredentials,
+				MaxLength: 256, Help: "Token of a REST API administrator allowed to manage certificates."},
 		},
 	}
 }
 
 // ValidateCredentials checks the required credentials are present and probes the
 // device for connectivity/authorization. An unreachable device is not fatal;
-// an explicit 401/403 is.
+// an explicit 401/403 is. With default_ssl_profile set, the profile must exist
+// on the device (not_found_on_endpoint).
 func (p Provider) ValidateCredentials(ctx context.Context, creds, config map[string]any) error {
+	reachable, err := p.probe(ctx, creds, config)
+	if err != nil || !reachable {
+		return err
+	}
+	profile := sslProfileFrom(config)
+	if profile == "" {
+		return nil
+	}
+	if !profileNamePattern.MatchString(profile) {
+		return &provider.FieldError{Field: provider.PathConfig + "default_ssl_profile", Msg: provider.CodePattern}
+	}
+	if _, found, err := newClient(creds, config).getSSLSSHProfile(ctx, profile); err == nil && !found {
+		return &provider.FieldError{Field: provider.PathConfig + "default_ssl_profile", Msg: provider.CodeNotFoundOnEndpoint}
+	}
+	return nil
+}
+
+// probe checks the credentials and reports whether the device answered.
+func (p Provider) probe(ctx context.Context, creds, config map[string]any) (bool, error) {
 	host := credString(creds, "host")
 	if host == "" {
-		return fmt.Errorf("host is required")
+		return false, fmt.Errorf("host is required")
 	}
 	if credString(creds, "api_token") == "" {
-		return fmt.Errorf("api_token is required")
+		return false, fmt.Errorf("api_token is required")
 	}
 	c := newClient(creds, config)
 	r, err := c.do(ctx, http.MethodGet, "cmdb/system/global", nil)
 	if err != nil {
-		return nil // unreachable at validation time is not fatal
+		return false, nil // unreachable at validation time is not fatal
 	}
 	if r.StatusCode == http.StatusUnauthorized || r.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("authentication failed: invalid or unauthorized API token (HTTP %d)", r.StatusCode)
+		return false, fmt.Errorf("authentication failed: invalid or unauthorized API token (HTTP %d)", r.StatusCode)
 	}
-	return nil
+	return true, nil
 }
 
 // Deploy imports the certificate + key onto the FortiGate as a local certificate
 // and verifies it is present afterwards. If an object with the same name already
 // exists it is deleted first (FortiOS rejects re-importing over an existing name).
+// With default_ssl_profile set, the certificate is reused or imported under a
+// dated name and bound into that existing profile instead (nothing deleted).
 func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, config, creds map[string]any, progress provider.ProgressFn) (*provider.Result, error) {
-	if err := p.ValidateCredentials(ctx, creds, config); err != nil {
+	if _, err := p.probe(ctx, creds, config); err != nil {
 		return nil, err
 	}
 	if cert.CertificatePEM == "" || cert.PrivateKeyPEM == "" {
 		return nil, fmt.Errorf("certificate and private key are required")
 	}
 	c := newClient(creds, config)
+	if profile := sslProfileFrom(config); profile != "" {
+		job, res, err := newProfileJob(c, profile, cert)
+		if job == nil {
+			return res, err
+		}
+		return job.deploy(ctx, cert, cfgString(config, "import_scope", "global"), progress)
+	}
 
 	note(progress, 10, "preparing certificate")
 	// FortiOS local (server) import expects a single leaf certificate; passing
@@ -141,10 +184,17 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 
 // Verify reads the certificate object back from the device.
 func (p Provider) Verify(ctx context.Context, cert *provider.CertificateData, config, creds map[string]any) (*provider.Result, error) {
-	if err := p.ValidateCredentials(ctx, creds, config); err != nil {
+	if _, err := p.probe(ctx, creds, config); err != nil {
 		return nil, err
 	}
 	c := newClient(creds, config)
+	if profile := sslProfileFrom(config); profile != "" {
+		job, res, err := newProfileJob(c, profile, cert)
+		if job == nil {
+			return res, err
+		}
+		return job.verify(ctx)
+	}
 	name := certName(leafCertPEM(cert.CertificatePEM), cert)
 
 	ok, err := c.certExists(ctx, name)
@@ -165,10 +215,17 @@ func (p Provider) Verify(ctx context.Context, cert *provider.CertificateData, co
 // still-referenced certificate, so an in-use certificate is left in place and
 // reported rather than breaking a live configuration.
 func (p Provider) Rollback(ctx context.Context, cert *provider.CertificateData, config, creds map[string]any) (*provider.Result, error) {
-	if err := p.ValidateCredentials(ctx, creds, config); err != nil {
+	if _, err := p.probe(ctx, creds, config); err != nil {
 		return nil, err
 	}
 	c := newClient(creds, config)
+	if profile := sslProfileFrom(config); profile != "" {
+		job, res, err := newProfileJob(c, profile, cert)
+		if job == nil {
+			return res, err
+		}
+		return job.rollback(ctx)
+	}
 	name := certName(leafCertPEM(cert.CertificatePEM), cert)
 
 	if err := c.deleteCert(ctx, name); err != nil {
@@ -196,9 +253,10 @@ func newClient(creds, config map[string]any) *fgClient {
 	vdom := cfgString(config, "vdom", "root")
 	return &fgClient{
 		http: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout:       60 * time.Second,
+			CheckRedirect: provider.NoRedirect,
 			// FortiGate management interfaces typically use self-signed certs.
-			Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, //nolint:gosec // FortiGate mgmt uses self-signed certs
+			Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, // #nosec G402 -- pre-033 behaviour: FortiGate management interfaces use self-signed certificates (follow-up: CA pin option)
 		},
 		host:  host,
 		token: credString(creds, "api_token"),
@@ -346,6 +404,11 @@ func credString(m map[string]any, key string) string {
 		return v
 	}
 	return ""
+}
+
+// sslProfileFrom returns the configured default_ssl_profile ("" when unset).
+func sslProfileFrom(config map[string]any) string {
+	return strings.TrimSpace(cfgString(config, "default_ssl_profile", ""))
 }
 
 func cfgString(m map[string]any, key, def string) string {

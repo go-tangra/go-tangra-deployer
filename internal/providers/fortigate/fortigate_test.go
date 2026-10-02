@@ -92,12 +92,17 @@ func TestRegistrationAndCapabilities(t *testing.T) {
 		got.SupportsVerify != want.SupportsVerify || got.SupportsRollback != want.SupportsRollback {
 		t.Fatalf("capabilities scalar mismatch:\n got=%+v\nwant=%+v", got, want)
 	}
-	if len(got.ConfigFields) != 1 || got.ConfigFields[0] != want.ConfigFields[0] {
+	// Keys, required and secret flags; the full descriptors are pinned by the
+	// golden catalogue in internal/providers/all.
+	same := func(a, b provider.Field) bool {
+		return a.Key == b.Key && a.Required == b.Required && a.Secret == b.Secret
+	}
+	if len(got.ConfigFields) < 1 || !same(got.ConfigFields[0], want.ConfigFields[0]) {
 		t.Fatalf("config fields mismatch: %+v", got.ConfigFields)
 	}
 	if len(got.CredentialFields) != 2 ||
-		got.CredentialFields[0] != want.CredentialFields[0] ||
-		got.CredentialFields[1] != want.CredentialFields[1] {
+		!same(got.CredentialFields[0], want.CredentialFields[0]) ||
+		!same(got.CredentialFields[1], want.CredentialFields[1]) {
 		t.Fatalf("credential fields mismatch: %+v", got.CredentialFields)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/audit"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
@@ -17,11 +18,29 @@ import (
 // the consumer ignores its own events (loop guard, SR-005).
 const Module = "deployer"
 
-// Cert-lifecycle event types consumed for auto-deploy.
+// Cert-lifecycle event types consumed for auto-deploy, and the revocation
+// forwarded to the inventory (feature 033, research D14).
 const (
 	EventIssued  = "certificate.issued"
 	EventRenewed = "certificate.renewed"
+	EventRevoked = "certificate.revoked"
 )
+
+// inventoryAgentType is the provider whose deliveries a revocation concerns
+// (providers/inventoryagent.Type; not imported to keep this package free of
+// provider implementations).
+const inventoryAgentType = "inventory-agent"
+
+// Revoker forwards a revoked certificate to the inventory, which cancels its
+// queued deliveries and flags hosts holding it (files stay on the hosts).
+type Revoker interface {
+	MarkCertificateRevoked(ctx context.Context, tenantID, certificateID string) (cancelledItems, flaggedHosts int, err error)
+}
+
+// Auditor records audit events (audit.Writer satisfies it).
+type Auditor interface {
+	Record(ctx context.Context, e audit.Event) error
+}
 
 // CertFetcher fetches a certificate bundle from lcm (lcmclient satisfies it).
 type CertFetcher interface {
@@ -34,6 +53,57 @@ type Consumer struct {
 	cert CertFetcher
 	log  *slog.Logger
 	now  func() time.Time
+	rev  Revoker
+	aud  Auditor
+}
+
+// SetRevocationForwarder enables forwarding certificate.revoked to the
+// inventory (nil disables); aud, when set, audits each forward.
+func (c *Consumer) SetRevocationForwarder(r Revoker, aud Auditor) { c.rev, c.aud = r, aud }
+
+// HandleRevoked forwards a revocation to the inventory when the tenant has an
+// active inventory-agent configuration. Best effort: failures are logged and
+// audited, never returned to the event loop (issued/renewed handling goes on).
+// Reports whether the revocation was forwarded successfully.
+func (c *Consumer) HandleRevoked(ctx context.Context, tenantID, certID string) bool {
+	if c.rev == nil || !validCertID(certID) {
+		return false
+	}
+	cfgs, err := c.st.ListConfigurations(ctx, tenantID, repo.ConfigFilter{ProviderType: inventoryAgentType, Status: store.ConfigActive})
+	if err != nil {
+		c.log.Warn("deployer: revocation forward skipped: configurations unavailable", "tenant", tenantID, "err", err)
+		return false
+	}
+	if len(cfgs) == 0 {
+		return false
+	}
+	cancelled, flagged, err := c.rev.MarkCertificateRevoked(ctx, tenantID, certID)
+	ev := audit.Event{TenantID: tenantID, EventType: audit.CertificateRevocationForwarded, ActorKind: audit.ActorSystem,
+		ActorID: Module, SubjectKind: audit.SubjectCertificate, SubjectID: certID, Outcome: audit.OutcomeOK}
+	if err != nil {
+		c.log.Warn("deployer: revocation forward to inventory failed", "tenant", tenantID, "certificate_id", certID, "err", err)
+		ev.Outcome, ev.Reason = audit.OutcomeFailed, "inventory_unavailable"
+	} else {
+		ev.Details = map[string]any{"cancelled_items": cancelled, "flagged_hosts": flagged}
+	}
+	if c.aud != nil {
+		_ = c.aud.Record(ctx, ev)
+	}
+	return err == nil
+}
+
+// validCertID bounds a certificate id taken from an event before it is
+// forwarded or audited: 1..128 characters of [A-Za-z0-9._:-].
+func validCertID(id string) bool {
+	if id == "" || len(id) > 128 {
+		return false
+	}
+	for _, r := range id {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("._:-", r)) {
+			return false
+		}
+	}
+	return true
 }
 
 // NewConsumer builds the consumer.
@@ -192,6 +262,10 @@ func (c *Consumer) Run(ctx context.Context, r Reader, tenantIDs []string, keyFor
 				last[t] = e.ID
 				if e.Fields["module"] == Module {
 					continue // our own event (loop guard)
+				}
+				if strings.TrimSpace(e.Fields["type"]) == EventRevoked {
+					c.HandleRevoked(ctx, t, certIDFrom(e.Fields["data"]))
+					continue
 				}
 				isRenewal, ok := EventType(e.Fields["type"])
 				if !ok {

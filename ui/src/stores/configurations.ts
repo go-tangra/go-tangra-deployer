@@ -2,8 +2,23 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { ListParams, ListQueryOptions } from '@go-tangra/ui'
 import { api } from '@/api/client'
-import type { Configuration, ConfigurationInput } from '@/api/types'
+import { registerReasons } from '@go-tangra/ui/forms'
+import type { Configuration, ConfigurationInput, ValidateResult } from '@/api/types'
 import { fetchAll, pagedList } from '@/stores/paged'
+
+// The deployer's own refusal reasons (closed vocabulary; server detail never shown).
+registerReasons({
+  credentials_rejected: 'The endpoint refused these settings or credentials.',
+  provider_type: 'The provider of a configuration cannot be changed.',
+})
+
+/** POST /configurations/validate body: on edit configuration_id merges the stored credentials. */
+export interface ValidateInput {
+  provider_type: string
+  configuration_id?: string
+  config: Record<string, unknown>
+  credentials: Record<string, unknown>
+}
 
 /** Sortable fields of GET /configurations (server Spec store.ConfigList). */
 export const CONFIG_SORTS = ['name', 'provider_type', 'status', 'created_at'] as const
@@ -28,6 +43,11 @@ export const useConfigurations = defineStore('deployer-configurations', () => {
     }
   }
 
+  /** A single configuration; managers also get credentials_set / credentials_public. */
+  async function get(id: string): Promise<Configuration> {
+    return api<Configuration>('GET', 'configurations/' + id)
+  }
+
   async function create(input: ConfigurationInput): Promise<Configuration> {
     return api<Configuration>('POST', 'configurations', input)
   }
@@ -43,9 +63,16 @@ export const useConfigurations = defineStore('deployer-configurations', () => {
     paged.items.value = paged.items.value.filter((x) => x.id !== id)
   }
 
-  async function validate(providerType: string, credentials: Record<string, unknown>, config?: Record<string, unknown>): Promise<void> {
-    await api('POST', 'configurations/validate', { provider_type: providerType, credentials, config })
+  /** Test connection / Check settings / Preview hosts: nothing is saved. */
+  async function validate(input: ValidateInput): Promise<ValidateResult> {
+    return api<ValidateResult>('POST', 'configurations/validate', input)
   }
 
-  return { ...paged, options, loadOptions, create, update, remove, validate }
+  /** Deploys a certificate to one configuration directly (a "direct" job). */
+  async function deploy(certificateId: string, configurationId: string): Promise<string> {
+    const res = await api<{ job_id: string }>('POST', 'deploy', { certificate_id: certificateId, configuration_id: configurationId })
+    return res.job_id
+  }
+
+  return { ...paged, options, loadOptions, get, create, update, remove, validate, deploy }
 })

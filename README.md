@@ -5,8 +5,8 @@ Certificate deployment service for the
 
 It takes certificates issued by [go-tangra-lcm](https://github.com/go-tangra/go-tangra-lcm)
 and installs them on infrastructure targets through pluggable providers (AWS ACM,
-Cloudflare, F5 BIG-IP, FortiGate, a generic webhook and a dummy provider for
-tests). Deployments run as jobs on a distributed worker pool with leases,
+Cloudflare, F5 BIG-IP, FortiGate, a generic webhook, Linux hosts through the
+go-tangra-inventory agent, and a dummy provider for tests). Deployments run as jobs on a distributed worker pool with leases,
 retries and exponential backoff, and are triggered by hand or automatically
 when lcm publishes `certificate.issued` / `certificate.renewed` events that
 match a target's filters. Provider credentials are sealed with envelope
@@ -40,6 +40,13 @@ go-tangra-auth  <---->  go-tangra-portal (gateway)  <---->  go-tangra-lcm
   through the lcm SDK (`github.com/go-tangra/go-tangra-lcm/sdk/v4`). lcm's
   service policy must allow `spiffe://<td>/svc/deployer` to call
   `/lcm.v1.Certificates/Download`.
+- Asks go-tangra-inventory to deliver certificates to its agents for the
+  `inventory-agent` provider (`inventory.v1.CertificateDeliveryService` over
+  mTLS, inventory SDK `github.com/go-tangra/go-tangra-inventory/sdk/v4`).
+  Inventory's policy must allow `spiffe://<td>/svc/deployer` to call those
+  methods, its `cert_delivery.sources` must list `deployer`, and the
+  deployer needs `discovery.static.inventory` and `inventory: { service:
+  inventory }` in its configuration.
 
 The repository holds one Go module, `github.com/go-tangra/go-tangra-deployer/v4`.
 Other services call it through `pkg/deployerclient` and the `deployer.v1` protos.
@@ -62,6 +69,165 @@ administrators assign them or clone them into custom roles:
 Skipped built-in grants (warn) and rejected roles (error) are logged as
 `auth registration: ...`.
 
+## Provider settings
+
+The configuration drawer is generated from the provider descriptors served by
+`GET /api/deployer/v1/providers` (feature 033): no provider field list lives in
+the UI, and the same descriptors drive save-time validation on the server
+(HTTP 422 naming `config.<key>` / `credentials.<key>`). Secrets are write-only:
+never returned, blank on edit keeps the stored value. A required field that a
+target may override can be left empty on a shared configuration; every
+deployment target attaching it must then supply it in its override. The API response is
+authoritative; this table is a summary of the shipped providers.
+
+### AWS Certificate Manager (`aws_acm`) — validate action: Check settings
+
+| Key | Stored in | Type | Required | Secret | Target may override | Default |
+|---|---|---|---|---|---|---|
+| `region` | config | string | yes |  | yes |  |
+| `certificate_arn` | config | string |  |  | yes |  |
+| `access_key_id` | credentials | string | yes |  |  |  |
+| `secret_access_key` | credentials | string | yes | yes |  |  |
+| `session_token` | credentials | text |  | yes |  |  |
+
+### F5 BIG-IP (`bigip`) — validate action: Test connection
+
+| Key | Stored in | Type | Required | Secret | Target may override | Default |
+|---|---|---|---|---|---|---|
+| `partition` | config | string | yes |  | yes | `Common` |
+| `ssl_profile` | config | string |  |  | yes |  |
+| `host` | credentials | string | yes |  |  |  |
+| `username` | credentials | string | yes |  |  |  |
+| `password` | credentials | string | yes | yes |  |  |
+
+### Cloudflare (`cloudflare`) — validate action: Check settings
+
+| Key | Stored in | Type | Required | Secret | Target may override | Default |
+|---|---|---|---|---|---|---|
+| `zone_id` | config | string | yes |  | yes |  |
+| `api_token` | credentials | string | yes | yes |  |  |
+
+### Dummy (testing) (`dummy`) — validate action: Check settings
+
+| Key | Stored in | Type | Required | Secret | Target may override | Default |
+|---|---|---|---|---|---|---|
+| `fail` | config | bool |  |  | yes | `false` |
+
+### FortiGate (`fortigate`) — validate action: Test connection
+
+| Key | Stored in | Type | Required | Secret | Target may override | Default |
+|---|---|---|---|---|---|---|
+| `vdom` | config | string | yes |  | yes | `root` |
+| `import_scope` | config | enum |  |  | yes | `global` |
+| `default_ssl_profile` | config | string |  |  | yes |  |
+| `host` | credentials | string | yes |  |  |  |
+| `api_token` | credentials | string | yes | yes |  |  |
+
+### Inventory agent (`inventory-agent`) — validate action: Preview hosts
+
+| Key | Stored in | Type | Required | Secret | Target may override | Default |
+|---|---|---|---|---|---|---|
+| `host_ids` | config | host_selector | one of `host_ids`, `host_tags` |  | yes |  |
+| `host_tags` | config | string_list | one of `host_ids`, `host_tags` |  | yes |  |
+| `cert_name` | config | string |  |  | yes |  |
+| `key_policy` | config | enum |  |  | yes | `require` |
+| `require_all_success` | config | bool |  |  | yes | `false` |
+| `wait_seconds` | config | int |  |  | yes | `60` |
+
+### Webhook (generic HTTP) (`webhook`) — validate action: Test connection
+
+| Key | Stored in | Type | Required | Secret | Target may override | Default |
+|---|---|---|---|---|---|---|
+| `url` | config | url | yes |  |  |  |
+| `verify_url` | config | url |  |  |  |  |
+| `rollback_url` | config | url |  |  |  |  |
+| `timeout_seconds` | config | int |  |  | yes | `60` |
+| `skip_tls_verify` | config | bool |  |  |  | `false` |
+| `headers` | config | key_value |  |  |  |  |
+| `metadata` | config | key_value |  |  | yes |  |
+| `token` | credentials | string |  | yes |  |  |
+| `authorization` | credentials | string |  | yes |  |  |
+| `api_key` | credentials | string |  | yes |  |  |
+| `secret` | credentials | string |  | yes |  |  |
+
+### Inventory agent provider
+
+`inventory-agent` installs a certificate on Linux hosts that run the
+go-tangra-inventory agent (4.7.0 or later, `cert.v1` capability). It
+delivers **by reference**: the deployer never fetches the private key for
+this provider; it sends the certificate id, a name and the host selection
+(`host_ids` and/or `host_tags`) to inventory, which pushes an item id to each
+agent. The agent pulls the bundle (and, with `key_policy: require`, the key)
+over its own authenticated connection and installs it under
+`<agent certificate directory>/live/<cert_name>/` in certbot layout. Leave
+`cert_name` empty to derive it from the common name (`*.example.com` →
+`wildcard.example.com`). What happens on the host after the files are
+written (a reload hook, owner, modes) is configured only in the agent's
+local `agent.yaml`, never by the deployer.
+
+The job waits up to `wait_seconds` for the hosts to report. Offline hosts
+stay queued in inventory and get the certificate when they reconnect; they
+never fail a job, not even with `require_all_success`. A failed job retried
+by the deployer re-arms the failed hosts under the same delivery. Verify
+compares the SHA-256 fingerprint each host reports with the deployed
+certificate. There is no rollback. "Preview hosts" in the drawer lists the
+hosts a selection matches and whether their agents can receive
+certificates. A host claimed by more than one non-revoked agent is shown as
+"Several agents claim this host" and receives nothing until the stale or
+foreign agent is revoked in inventory.
+
+### Existing appliance profiles (BIG-IP `ssl_profile`, FortiGate `default_ssl_profile`)
+
+Both options are optional. Left empty, the providers behave as before.
+
+- **BIG-IP `ssl_profile`** names an existing client-SSL profile (a name in
+  the configuration's partition or `/Partition/name`). The deployment
+  checks that the profile exists before it uploads anything (a missing
+  profile is a permanent failure: "client-SSL profile … not found"),
+  installs the certificate, key and chain objects and then updates only
+  that profile's certificate, key and chain. It never creates the provider's
+  own `<name>_clientssl` profile in this mode, and it never deletes or
+  recreates the operator's profile. Verify checks that the profile points
+  to the deployed objects. Rollback removes the objects only once the
+  profile no longer references them; the profile itself is never touched.
+- **FortiGate `default_ssl_profile`** names an existing SSL/SSH inspection
+  profile in server-certificate mode `replace`. A certificate already on
+  the device (identical certificate) is reused; otherwise it is imported
+  under a dated name (`<base>_<yyyymmdd>`, `_01`…`_99` on the same day,
+  ≤ 35 characters). Only the profile's server-certificate entry of the same
+  certificate family is replaced (order kept, other domains kept). All
+  checks run before the first write: a missing profile, another mode, or
+  the family's certificates referenced elsewhere (VIP, SSL-VPN, admin GUI,
+  another profile) stop the deployment with "MANUAL REVIEW REQUIRED" and
+  nothing imported. Deploy never deletes a certificate or profile. Rollback
+  points the profile back to the newest other family member and then
+  removes the deployed certificate if nothing references it.
+
+**Migrating from v3.** Recreate a v3 BIG-IP configuration that used
+`ssl_profile` with the profile
+name in `ssl_profile`; v4 refuses a profile that does not exist instead of
+creating it, so create the profile on the BIG-IP first. For FortiGate, put
+the v3 `default_ssl_profile` value into the same field. The v3 FortiGate
+options `replace_strategy`, `profile_suffix`, `rebind_references`,
+`prune_old` and the per-certificate audit profile are not carried over.
+Both fields may be overridden per deployment target.
+
+### Destination and credential safety
+
+- Fields that decide where credentials go (`url`, `verify_url`,
+  `rollback_url`, the appliance `host`) and the TLS and header settings are
+  never overridable by a deployment target; stored overrides are filtered
+  again at job start.
+- Changing a configuration's destination (a URL or the credential host),
+  on save or in "Test connection" of a stored configuration, requires every
+  stored secret to be re-entered (or cleared) in the same request.
+- Credential-bearing HTTP clients never follow redirects; a redirect is a
+  failed deployment.
+- Custom webhook headers may not carry authentication (`Authorization`,
+  `Cookie`, names containing token, secret, key, auth, password,
+  credential, jwt, session, bearer or signature); use the sealed credential
+  fields.
+
 ## Layout
 
 | Path | What |
@@ -78,6 +244,7 @@ Skipped built-in grants (warn) and rejected roles (error) are logged as
 | `internal/deploy`, `internal/jobs` | deployment orchestration and the worker pool |
 | `internal/events` | auto-deploy consumer of the platform event bus |
 | `internal/lcmclient` | mTLS certificate download from lcm |
+| `internal/inventoryclient` | mTLS client of inventory's `CertificateDeliveryService` (inventory-agent provider) |
 | `internal/stream` | Valkey-backed progress events for the gateway SSE hub |
 | `internal/backup`, `internal/stats` | tenant backup export/import, statistics |
 | `internal/httpapi`, `internal/grpcapi` | browser and service APIs |

@@ -1,0 +1,103 @@
+{
+  "_source": "go-tangra-inventory internal/certmaterial/name_test.go TestDefaultName (033): the deployer derives the same certificate name as the inventory and the agent",
+  "vectors": [
+    {
+      "cn": "www.example.com",
+      "name": "www.example.com",
+      "ok": true
+    },
+    {
+      "cn": "*.example.com",
+      "name": "wildcard.example.com",
+      "ok": true
+    },
+    {
+      "cn": "Www.Example.COM",
+      "name": "www.example.com",
+      "ok": true
+    },
+    {
+      "cn": "my host/with:bad chars",
+      "name": "my_host_with_bad_chars",
+      "ok": true
+    },
+    {
+      "cn": "..evil..name..",
+      "name": "evil.name.",
+      "ok": true
+    },
+    {
+      "cn": "__x",
+      "name": "x",
+      "ok": true
+    },
+    {
+      "cn": "a..b",
+      "name": "a.b",
+      "ok": true
+    },
+    {
+      "cn": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "name": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "ok": true
+    },
+    {
+      "cn": "",
+      "name": "",
+      "ok": false
+    },
+    {
+      "cn": "   ",
+      "name": "",
+      "ok": false
+    },
+    {
+      "cn": "*",
+      "name": "",
+      "ok": false
+    },
+    {
+      "cn": "...",
+      "name": "",
+      "ok": false
+    },
+    {
+      "cn": "üüü",
+      "name": "",
+      "ok": false
+    }
+  ],
+  "valid_names": [
+    "www",
+    "a",
+    "A",
+    "0",
+    "web-1.example_com",
+    "wildcard.example.com",
+    "x.",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  "invalid_names": [
+    "",
+    ".",
+    "..",
+    ".hidden",
+    "-x",
+    "_x",
+    "a/b",
+    "a\\b",
+    "../x",
+    "a..b",
+    "x..",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "a\u0000b",
+    "a\nb",
+    "a b",
+    "a\tb",
+    "ü",
+    "wwwé",
+    "a:b",
+    "*.example.com",
+    "a/"
+  ]
+}

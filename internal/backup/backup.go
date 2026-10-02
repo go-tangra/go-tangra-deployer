@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
@@ -29,6 +30,13 @@ const (
 
 // ErrBadSchema is returned when importing an unsupported schema version.
 var ErrBadSchema = errors.New("backup: unsupported schema version")
+
+// ValidationError is an import refused by the configuration policy (the same
+// save-time rules as configuration create and target overrides). Field names
+// the entry by position and key; values are never echoed.
+type ValidationError struct{ Field, Msg string }
+
+func (e *ValidationError) Error() string { return "backup: " + e.Field + ": " + e.Msg }
 
 // ConfigExport is a configuration in a backup. CredentialsSealed is present only
 // when the export requested credentials; it is the envelope blob, never plaintext.
@@ -151,6 +159,9 @@ func (s *Service) Import(ctx context.Context, subj authz.Subjects, b Backup, mod
 	if mode != ModeOverwrite {
 		mode = ModeSkip
 	}
+	if err := s.validate(ctx, subj.TenantID, b); err != nil {
+		return res, err
+	}
 	err := s.st.Atomic(ctx, subj.TenantID, func(tx repo.Store) error {
 		existingConfigs, err := tx.ListConfigurations(ctx, subj.TenantID, repo.ConfigFilter{})
 		if err != nil {
@@ -223,6 +234,58 @@ func (s *Service) Import(ctx context.Context, subj authz.Subjects, b Backup, mod
 		return nil
 	})
 	return res, err
+}
+
+// validate applies the save-time configuration policy to everything an import
+// would store, before anything is written: no redirect keys or credential
+// headers, the provider's own checks, and no override that moves the
+// destination of a configuration holding sealed credentials (unknown
+// configurations fail closed).
+func (s *Service) validate(ctx context.Context, tenantID string, b Backup) error {
+	withCreds := map[string]bool{}
+	for i, ce := range b.Configurations {
+		if err := provider.ValidateConfig(ce.ProviderType, ce.Config); err != nil {
+			return policyError(fmt.Sprintf("configurations[%d]", i), err)
+		}
+		withCreds[ce.ID] = len(ce.CredentialsSealed) > 0
+	}
+	for i, te := range b.Targets {
+		for cid, ov := range te.ConfigOverrides {
+			field := fmt.Sprintf("targets[%d].config_overrides", i)
+			if fe := provider.CheckConfig(ov); fe != nil {
+				return policyError(field, fe)
+			}
+			stored, gerr := s.st.GetConfiguration(ctx, tenantID, cid)
+			has, inBackup := withCreds[cid]
+			if gerr == nil {
+				has = has || len(stored.CredentialsSealed) > 0
+			}
+			if keys := provider.OverrideDestinationKeys(ov); len(keys) > 0 && (has || (!inBackup && gerr != nil)) {
+				return &ValidationError{Field: field + ".config." + keys[0], Msg: "an override cannot change the destination of a configuration with credentials"}
+			}
+			typ := ""
+			for _, ce := range b.Configurations {
+				if ce.ID == cid {
+					typ = ce.ProviderType
+				}
+			}
+			if typ == "" && gerr == nil {
+				typ = stored.ProviderType
+			}
+			if err := provider.ValidateConfig(typ, ov); err != nil {
+				return policyError(field, err)
+			}
+		}
+	}
+	return nil
+}
+
+func policyError(prefix string, err error) error {
+	var fe *provider.FieldError
+	if errors.As(err, &fe) {
+		return &ValidationError{Field: prefix + "." + fe.Field, Msg: fe.Msg}
+	}
+	return &ValidationError{Field: prefix + ".config", Msg: "configuration rejected by the provider"}
 }
 
 func strp(p *string) string {

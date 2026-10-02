@@ -16,6 +16,7 @@ import (
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/sealed"
 
 	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/dummy"
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/webhook"
 )
 
 const tenant = "11111111-1111-1111-1111-111111111111"
@@ -45,13 +46,13 @@ func TestConfigurationCreateGetList(t *testing.T) {
 	ctx := context.Background()
 
 	created, err := cs.Create(ctx, &deployerv1.CreateConfigurationRequest{
-		TenantId: tenant, Name: "dummy-ep", ProviderType: "dummy",
-		ConfigJson: `{"region":"eu"}`, CredentialsJson: `{"token":"secret"}`,
+		TenantId: tenant, Name: "dummy-ep", ProviderType: "webhook",
+		ConfigJson: `{"url":"https://hook.example/certs"}`, CredentialsJson: `{"token":"secret"}`,
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if created.GetId() == "" || created.GetProviderType() != "dummy" || !created.GetHasCredentials() {
+	if created.GetId() == "" || created.GetProviderType() != "webhook" || !created.GetHasCredentials() {
 		t.Fatalf("created: %+v", created)
 	}
 

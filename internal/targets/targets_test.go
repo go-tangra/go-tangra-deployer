@@ -16,6 +16,7 @@ import (
 
 	// Register the dummy provider so real configurations can be created.
 	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/dummy"
+	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/webhook"
 )
 
 func adminSubject() authz.Subjects {
@@ -43,8 +44,8 @@ func makeConfig(t *testing.T, cs *configs.Service, subj authz.Subjects, name str
 	t.Helper()
 	v, err := cs.Create(context.Background(), subj, configs.Input{
 		Name:         name,
-		ProviderType: "dummy",
-		Config:       map[string]any{"region": "eu"},
+		ProviderType: "webhook",
+		Config:       map[string]any{"url": "https://hook.example/certs"},
 		Credentials:  map[string]any{"token": "secret-abc"},
 	})
 	if err != nil {
@@ -180,7 +181,7 @@ func TestAttachRejectsCredentialOverrides(t *testing.T) {
 	c1 := makeConfig(t, cs, subj, "cfg-ov")
 
 	// A config-only override is accepted.
-	okOverride := map[string]map[string]any{c1: {"region": "us"}}
+	okOverride := map[string]map[string]any{c1: {"timeout_seconds": 30}}
 	if err := ts.Attach(ctx, subj, tgt.ID, []string{c1}, okOverride); err != nil {
 		t.Fatalf("Attach(config override): unexpected error %v", err)
 	}

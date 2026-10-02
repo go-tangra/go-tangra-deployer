@@ -7,14 +7,50 @@ export type TriggeredBy = 'manual' | 'event' | 'auto_renewal'
 export type HistoryAction = 'deploy' | 'verify' | 'rollback'
 export type HistoryResult = 'success' | 'failure' | 'partial'
 
-// A provider's declared capabilities (drives the configuration form).
+export type FieldType = 'string' | 'text' | 'url' | 'int' | 'bool' | 'enum' | 'string_list' | 'key_value' | 'host_selector'
+export type FieldGroup = 'connection' | 'credentials' | 'options'
+
+export interface FieldOption {
+  value: string
+  label: string
+}
+
+/** A provider field descriptor (contracts/deployer-config-ui.md §2); optional keys are omitted when unset. */
+export interface ProviderField {
+  key: string
+  label: string
+  /** Absent = string. */
+  type?: FieldType
+  secret?: boolean
+  required?: boolean
+  overridable?: boolean
+  default?: unknown
+  options?: FieldOption[]
+  help?: string
+  placeholder?: string
+  group?: FieldGroup
+  min?: number
+  max?: number
+  max_length?: number
+  pattern?: string
+  max_items?: number
+}
+
+/** A provider's declared capabilities: the single source of truth for the configuration form. */
 export interface Provider {
   type: string
   display_name: string
+  description?: string
   supports_verify: boolean
   supports_rollback: boolean
-  required_config?: string[]
-  required_credentials?: string[]
+  delivers_by_reference?: boolean
+  /** Absent = false (validate only checks the input). */
+  test_connection?: boolean
+  schema_version?: number
+  config_fields: ProviderField[] | null
+  credential_fields: ProviderField[] | null
+  /** Absent = []. */
+  one_of_required?: string[][]
 }
 
 export interface Configuration {
@@ -26,6 +62,13 @@ export interface Configuration {
   status: ConfigStatus
   status_message?: string
   has_credentials: boolean
+  /** Required keys left empty for the deployment targets to supply. */
+  target_supplied?: string[]
+  /** Single reads by managers: names of the stored credential fields. */
+  credentials_set?: string[]
+  /** Single reads by managers: values of the non-secret credential fields. */
+  credentials_public?: Record<string, unknown>
+  ignored_config_keys?: string[]
   last_deployment_at?: string
   created_at?: string
   updated_at?: string
@@ -37,6 +80,48 @@ export interface ConfigurationInput {
   provider_type: string
   config?: Record<string, unknown>
   credentials?: Record<string, unknown>
+  clear_credentials?: string[]
+}
+
+/** POST /configurations/validate result. */
+export interface ValidateResult {
+  valid: boolean
+  checked: 'probe' | 'static' | 'partial'
+  deferred?: string[]
+  details?: Record<string, unknown>
+}
+
+/** inventory-agent preview: one matched host. */
+export interface MatchedHost {
+  host_id: string
+  hostname: string
+  os_name?: string
+  tags?: Record<string, string>
+  agent_online?: boolean
+  capability?: string
+}
+
+/** inventory-agent job result: one host's delivery state. */
+export interface HostResult {
+  host_id: string
+  hostname?: string
+  state: string
+  agent_online?: boolean
+  attempts?: number
+  hook_exit_code?: number
+  reason?: string
+  serial?: string
+  fingerprint?: string
+}
+
+export interface DeliveryCounts {
+  installed?: number
+  unchanged?: number
+  queued?: number
+  failed?: number
+  unsupported?: number
+  superseded?: number
+  total?: number
 }
 
 export interface CertificateFilter {
@@ -55,6 +140,10 @@ export interface Target {
   auto_deploy: boolean
   certificate_filters: CertificateFilter[]
   configuration_ids: string[]
+  /** Per attached configuration (id -> override): overridable provider config only. */
+  config_overrides?: Record<string, Record<string, unknown>>
+  /** Single reads: per attached configuration, labels of required fields the merged configuration lacks. */
+  missing_required?: Record<string, string[]>
   created_at?: string
   updated_at?: string
 }
@@ -94,7 +183,7 @@ export interface HistoryEntry {
 }
 
 export interface JobResult extends Job {
-  result?: unknown
+  result?: { message?: string; details?: Record<string, unknown> } | null
   history: HistoryEntry[]
   children?: Job[]
 }

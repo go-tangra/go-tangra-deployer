@@ -438,6 +438,16 @@ export interface components {
                 [key: string]: unknown;
             };
             has_credentials: boolean;
+            /** @description Required configuration keys left empty for the deployment targets to supply (feature 033, D25); [] when complete. */
+            target_supplied?: string[];
+            /** @description Names of the stored credential fields (single reads by callers allowed to manage the configuration only). */
+            credentials_set?: string[];
+            /** @description Values of non-secret credential fields (host, username, access key id); managers only, single reads. Secrets are never returned. */
+            credentials_public?: {
+                [key: string]: unknown;
+            };
+            /** @description Stored settings no longer honoured (endpoint, api_base): ignored at deploy time and refused on save. Names only. */
+            ignored_config_keys?: string[];
             status: string;
             status_message: string;
             /** Format: date-time */
@@ -468,8 +478,143 @@ export interface components {
             auto_deploy: boolean;
             certificate_filters: components["schemas"]["CertificateFilter"][];
             configuration_ids: string[];
+            /** @description Per attached configuration (id -> override); overridable provider config only, never credentials. */
+            config_overrides?: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+            /** @description Single reads: per attached configuration, labels of required fields the merged configuration lacks (normally empty). */
+            missing_required?: {
+                [key: string]: string[];
+            };
             /** Format: date-time */
             created_at?: string;
+        };
+        FieldOption: {
+            value: string;
+            label: string;
+        };
+        /** @description Field descriptor (contracts/deployer-config-ui.md §2); optional keys are omitted when unset. */
+        ProviderField: {
+            key: string;
+            label: string;
+            /**
+             * @description absent = string
+             * @enum {string}
+             */
+            type?: "string" | "text" | "url" | "int" | "bool" | "enum" | "string_list" | "key_value" | "host_selector";
+            secret: boolean;
+            required: boolean;
+            /** @description may be supplied or changed by a deployment target override */
+            overridable?: boolean;
+            /** @description pre-filled on create; type matches type */
+            default?: unknown;
+            options?: components["schemas"]["FieldOption"][];
+            help?: string;
+            placeholder?: string;
+            /** @enum {string} */
+            group?: "connection" | "credentials" | "options";
+            min?: number;
+            max?: number;
+            /** @description string/text/url and each list item; default 1024 */
+            max_length?: number;
+            /** @description anchored RE2 for string and each string_list item */
+            pattern?: string;
+            max_items?: number;
+        };
+        ProviderCapabilities: {
+            type: string;
+            display_name: string;
+            description?: string;
+            supports_verify: boolean;
+            supports_rollback: boolean;
+            /** @description the provider never receives the private key (inventory-agent) */
+            delivers_by_reference: boolean;
+            /** @description validate contacts the endpoint ("Test connection"); absent = input checks only */
+            test_connection?: boolean;
+            schema_version?: number;
+            config_fields: components["schemas"]["ProviderField"][];
+            credential_fields: components["schemas"]["ProviderField"][];
+            /** @description groups of config keys of which at least one must be non-empty */
+            one_of_required?: string[][];
+        };
+        ProviderCatalogue: {
+            items: components["schemas"]["ProviderCapabilities"][];
+        };
+        /** @description Unknown top-level fields are refused by the handler (400 malformed_body). */
+        ConfigurationInput: {
+            name?: string;
+            description?: string;
+            /** @description create only; an update with another provider is refused (422 provider_type) */
+            provider_type?: string;
+            config?: {
+                [key: string]: unknown;
+            };
+            /** @description update: empty values keep the stored value; a value replaces only that field */
+            credentials?: {
+                [key: string]: unknown;
+            };
+            /** @description update: optional credential fields to remove */
+            clear_credentials?: string[];
+        };
+        /** @description Unknown top-level fields are refused by the handler (400 malformed_body). */
+        ValidateRequest: {
+            provider_type?: string;
+            /** @description merge this configuration's stored credentials (blank secrets on edit) */
+            configuration_id?: string;
+            config?: {
+                [key: string]: unknown;
+            };
+            credentials?: {
+                [key: string]: unknown;
+            };
+        };
+        ValidateResult: {
+            valid: boolean;
+            /** @enum {string} */
+            checked: "probe" | "static" | "partial";
+            /** @description target-supplied keys the probe could not use */
+            deferred: string[];
+            /** @description Previewer providers, e.g. inventory-agent matched_hosts */
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description Unknown top-level fields are refused by the handler (400 malformed_body). */
+        AttachRequest: {
+            configuration_ids?: string[];
+            config_overrides?: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+            /** @description alias of config_overrides (contracts/deployer-config-ui.md §4a) */
+            overrides?: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        /** @description 422 validation_failed: detail.fields maps config.<key> | credentials.<key> | config_overrides.<key> to a code; values are never echoed. */
+        FieldErrors: {
+            /** @enum {string} */
+            reason?: "validation_failed";
+            detail?: {
+                fields?: {
+                    [key: string]: string;
+                };
+                /** @description first entry of fields (older clients) */
+                field?: string;
+                message?: string;
+                /** @description attach: the configuration the override errors concern */
+                configuration_id?: string;
+                /** @description required_by_targets: targets that would become incomplete (<= 20) */
+                targets?: {
+                    id?: string;
+                    name?: string;
+                }[];
+            };
         };
         TargetPage: {
             items: components["schemas"]["Target"][];
@@ -568,12 +713,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description provider catalogue */
+            /** @description provider catalogue with field descriptors */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ProviderCatalogue"];
+                };
             };
         };
     };
@@ -624,14 +771,29 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ConfigurationInput"];
+            };
+        };
         responses: {
             /** @description created */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["Configuration"];
+                };
+            };
+            /** @description validation_failed (detail.fields) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldErrors"];
+                };
             };
         };
     };
@@ -644,14 +806,36 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ValidateRequest"];
+            };
+        };
         responses: {
             /** @description validation result */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
+                content: {
+                    "application/json": components["schemas"]["ValidateResult"];
+                };
+            };
+            /** @description configuration_id unknown in the tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
                 content?: never;
+            };
+            /** @description validation_failed (detail.fields) or credentials_rejected (provider refused; no detail) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldErrors"];
+                };
             };
         };
     };
@@ -671,7 +855,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["Configuration"];
+                };
             };
             /** @description not_found */
             404: {
@@ -693,14 +879,29 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ConfigurationInput"];
+            };
+        };
         responses: {
             /** @description updated */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["Configuration"];
+                };
+            };
+            /** @description validation_failed (detail.fields; detail.targets for required_by_targets) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldErrors"];
+                };
             };
         };
     };
@@ -798,7 +999,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["Target"];
+                };
             };
             /** @description not_found */
             404: {
@@ -884,7 +1087,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AttachRequest"];
+            };
+        };
         responses: {
             /** @description attached */
             200: {
@@ -892,6 +1099,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description validation_failed (detail.fields config_overrides.<key>, detail.configuration_id); nothing saved */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldErrors"];
+                };
             };
         };
     };
