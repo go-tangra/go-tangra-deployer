@@ -96,7 +96,3 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260831171406-18b4a7587f8a // indirect
 )
-
-// TEMPORARY (feature 033, T004): the inventory SDK with the certificate
-// delivery client is not tagged yet. Remove when sdk/v4.4.0 is released (T118).
-replace github.com/go-tangra/go-tangra-inventory/sdk/v4 => ../go-tangra-inventory-v4/sdk
