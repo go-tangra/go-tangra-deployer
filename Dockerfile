@@ -19,6 +19,10 @@ RUN --mount=type=secret,id=npm_token,required=true \
       "$(cat /run/secrets/npm_token)" > /run/npmrc/.npmrc; \
     NPM_CONFIG_USERCONFIG=/run/npmrc/.npmrc npm ci --no-audit --no-fund
 COPY ui/ ./
+# The unit tests type-checked by the build read the shared provider vectors
+# and the capabilities golden file from outside ui/ (feature 033).
+COPY internal/providers/all/testdata/capabilities.golden.json /src/internal/providers/all/testdata/
+COPY api/testdata/provider-field-vectors.json /src/api/testdata/
 RUN npm run build
 
 FROM golang:1.26-alpine AS build
