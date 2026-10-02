@@ -119,7 +119,11 @@ authoritative; this table is a summary of the shipped providers.
 |---|---|---|---|---|---|---|
 | `vdom` | config | string | yes |  | yes | `root` |
 | `import_scope` | config | enum |  |  | yes | `global` |
+| `replace_strategy` | config | enum (`ssl_profile`, `rebind`, `delete`) |  |  |  | `ssl_profile` |
+| `profile_suffix` | config | string |  |  | yes | `_ssl_profile` |
 | `default_ssl_profile` | config | string |  |  | yes |  |
+| `rebind_references` | config | bool |  |  |  | `true` |
+| `prune_old` | config | bool |  |  |  | `true` |
 | `host` | credentials | string | yes |  |  |  |
 | `api_token` | credentials | string | yes | yes |  |  |
 
@@ -178,7 +182,8 @@ foreign agent is revoked in inventory.
 
 ### Existing appliance profiles (BIG-IP `ssl_profile`, FortiGate `default_ssl_profile`)
 
-Both options are optional. Left empty, the providers behave as before.
+Both options are optional. Left empty, BIG-IP behaves as before; FortiGate
+still binds the certificate into its own profile (see below).
 
 - **BIG-IP `ssl_profile`** names an existing client-SSL profile (a name in
   the configuration's partition or `/Partition/name`). The deployment
@@ -190,27 +195,48 @@ Both options are optional. Left empty, the providers behave as before.
   recreates the operator's profile. Verify checks that the profile points
   to the deployed objects. Rollback removes the objects only once the
   profile no longer references them; the profile itself is never touched.
-- **FortiGate `default_ssl_profile`** names an existing SSL/SSH inspection
-  profile in server-certificate mode `replace`. A certificate already on
-  the device (identical certificate) is reused; otherwise it is imported
-  under a dated name (`<base>_<yyyymmdd>`, `_01`…`_99` on the same day,
-  ≤ 35 characters). Only the profile's server-certificate entry of the same
-  certificate family is replaced (order kept, other domains kept). All
-  checks run before the first write: a missing profile, another mode, or
-  the family's certificates referenced elsewhere (VIP, SSL-VPN, admin GUI,
-  another profile) stop the deployment with "MANUAL REVIEW REQUIRED" and
-  nothing imported. Deploy never deletes a certificate or profile. Rollback
-  points the profile back to the newest other family member and then
-  removes the deployed certificate if nothing references it.
+- **FortiGate** behaves exactly as the v3 provider (3.5.1), selected by
+  `replace_strategy`:
+  - `ssl_profile` (default): the leaf certificate (never the chain) is
+    imported under a dated name (`<base>_<yyyymmdd>`, `_01`…`_99` for a
+    second certificate on the same day, ≤ 35 characters; `<base>` comes from
+    the certificate subject), or the identical certificate already on the
+    device is reused. If the certificate family is referenced anywhere other
+    than the provider-owned profile `<base><profile_suffix>` and
+    `default_ssl_profile` (VIP, SSL-VPN, admin GUI, another profile), the job
+    stops with "MANUAL REVIEW REQUIRED" (the certificate stays imported,
+    nothing else changes). Otherwise the owned profile is created by cloning
+    the first existing replace-mode profile that has a server certificate
+    (no such profile → manual review) or its server-certificate list is
+    updated (family entry replaced in place, other domains kept), and the
+    family entry of `default_ssl_profile` — which must exist in server
+    certificate mode `replace` — is replaced in place (appended when
+    absent; no write when already current). Nothing is ever deleted.
+  - `rebind`: dated import as above, then every SSL/SSH profile, the SSL-VPN
+    and admin GUI certificate and every VIP pointing at an older family
+    member is repointed (`rebind_references`), and superseded family members
+    are deleted (`prune_old`; certificates still in use are kept and
+    reported). A failed rebind fails the job.
+  - `delete`: the legacy delete-then-import under the bare name; it fails
+    while the certificate is in use.
+
+  Verify reports the newest family member on the device. Rollback deletes
+  every family member that nothing references any more.
 
 **Migrating from v3.** Recreate a v3 BIG-IP configuration that used
 `ssl_profile` with the profile
 name in `ssl_profile`; v4 refuses a profile that does not exist instead of
-creating it, so create the profile on the BIG-IP first. For FortiGate, put
-the v3 `default_ssl_profile` value into the same field. The v3 FortiGate
-options `replace_strategy`, `profile_suffix`, `rebind_references`,
-`prune_old` and the per-certificate audit profile are not carried over.
-Both fields may be overridden per deployment target.
+creating it, so create the profile on the BIG-IP first. A v3 FortiGate
+configuration carries over unchanged: every v3 option has the same key and
+default (`rebind_references` and `prune_old` stored as v3 strings such as
+`"yes"` are still read). Differences from v3: an existing device certificate
+is reused only when it is identical (v3 compared the serial only), and
+profile names with a slash, backslash, quote, control character or (for
+`default_ssl_profile`) a leading dot are refused. The BIG-IP `ssl_profile`
+and the FortiGate `default_ssl_profile`, `profile_suffix`, `import_scope`
+and `vdom` may be overridden per deployment target; the FortiGate
+`replace_strategy`, `rebind_references` and `prune_old` (which decide what
+the provider deletes) may not.
 
 ### Destination and credential safety
 

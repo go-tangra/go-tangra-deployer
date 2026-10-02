@@ -17,6 +17,10 @@ const fgToken = "SUPERSECRETTOKEN-do-not-leak-123"
 
 func fgHost(srv *httptest.Server) string { return strings.TrimPrefix(srv.URL, "https://") }
 
+// deleteStrategy selects the v3 legacy delete-then-import strategy, the only
+// one that does not parse the certificate.
+var deleteStrategy = map[string]any{"vdom": "root", "replace_strategy": "delete"}
+
 // fgCert uses non-PEM material on purpose: the provider only ships and
 // base64-encodes it, and the object name falls back to the sanitized common name
 // ("www_example_com").
@@ -109,7 +113,7 @@ func TestDeployFortigateReplacesExisting(t *testing.T) {
 	defer srv.Close()
 
 	p, _ := provider.Get("fortigate")
-	res, err := p.Deploy(context.Background(), fgCert(), map[string]any{"vdom": "root"},
+	res, err := p.Deploy(context.Background(), fgCert(), deleteStrategy,
 		map[string]any{"host": fgHost(srv), "api_token": fgToken}, nil)
 	if err != nil {
 		t.Fatalf("deploy: %v", err)
@@ -142,7 +146,7 @@ func TestDeployFortigateCheckError(t *testing.T) {
 	defer srv.Close()
 
 	p, _ := provider.Get("fortigate")
-	res, err := p.Deploy(context.Background(), fgCert(), map[string]any{"vdom": "root"},
+	res, err := p.Deploy(context.Background(), fgCert(), deleteStrategy,
 		map[string]any{"host": fgHost(srv), "api_token": fgToken}, nil)
 	if err == nil {
 		t.Fatalf("expected error, got res=%+v", res)
@@ -169,7 +173,7 @@ func TestDeployFortigateVerifyFailure(t *testing.T) {
 	defer srv.Close()
 
 	p, _ := provider.Get("fortigate")
-	res, err := p.Deploy(context.Background(), fgCert(), map[string]any{"vdom": "root"},
+	res, err := p.Deploy(context.Background(), fgCert(), deleteStrategy,
 		map[string]any{"host": fgHost(srv), "api_token": fgToken}, nil)
 	if err == nil {
 		t.Fatalf("expected verification error, got res=%+v", res)
@@ -179,13 +183,17 @@ func TestDeployFortigateVerifyFailure(t *testing.T) {
 	}
 }
 
-// TestVerifyFortigateFailures covers the not-found and transport-error Verify paths.
+// TestVerifyFortigateFailures covers the not-found and listing-error Verify paths.
 func TestVerifyFortigateFailures(t *testing.T) {
 	p, _ := provider.Get("fortigate")
 
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/cmdb/system/global") {
 			_, _ = io.WriteString(w, `{"status":"success"}`)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/cmdb/certificate/local") {
+			_, _ = io.WriteString(w, `{"status":"success","results":[{"name":"www_example_com_LE"},{"name":"other"}]}`)
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -196,7 +204,7 @@ func TestVerifyFortigateFailures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
-	if res.Success || !strings.Contains(res.Message, "not found") {
+	if res.Success || res.Message != "Certificate not found on FortiGate" {
 		t.Fatalf("expected not-found failure: %+v", res)
 	}
 
@@ -214,7 +222,7 @@ func TestVerifyFortigateFailures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
-	if res.Success || !strings.Contains(res.Message, "verify failed") {
+	if res.Success || !strings.HasPrefix(res.Message, "Failed to verify: ") || strings.Contains(res.Message, fgToken) {
 		t.Fatalf("expected verify-failed message: %+v", res)
 	}
 }
@@ -228,14 +236,29 @@ func TestVerifyFortigateValidationFail(t *testing.T) {
 	}
 }
 
-// TestRollbackFortigateHappy covers a successful rollback delete.
+// familyListing answers the connectivity check and lists two family members
+// and an unrelated certificate.
+func familyListing(w http.ResponseWriter, r *http.Request) bool {
+	if strings.HasSuffix(r.URL.Path, "/cmdb/system/global") {
+		_, _ = io.WriteString(w, `{"status":"success"}`)
+		return true
+	}
+	if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/cmdb/certificate/local") {
+		_, _ = io.WriteString(w, `{"status":"success","results":[{"name":"www_example_com"},{"name":"www_example_com_20260101"},{"name":"other"}]}`)
+		return true
+	}
+	return false
+}
+
+// TestRollbackFortigateHappy covers a successful rollback of the family.
 func TestRollbackFortigateHappy(t *testing.T) {
+	var deleted []string
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/cmdb/system/global") {
-			_, _ = io.WriteString(w, `{"status":"success"}`)
+		if familyListing(w, r) {
 			return
 		}
 		if r.Method == http.MethodDelete {
+			deleted = append(deleted, strings.TrimPrefix(r.URL.Path, "/api/v2/cmdb/certificate/local/"))
 			_, _ = io.WriteString(w, `{"status":"success"}`)
 			return
 		}
@@ -249,25 +272,25 @@ func TestRollbackFortigateHappy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
-	if !res.Success {
+	if !res.Success || res.Message != "Rollback removed 2 certificate(s); 0 still referenced" {
 		t.Fatalf("expected rollback success: %+v", res)
+	}
+	if strings.Join(deleted, ",") != "www_example_com,www_example_com_20260101" {
+		t.Fatalf("deleted = %v", deleted)
 	}
 }
 
-// TestRollbackFortigateError covers the rollback failure path and confirms the
-// api_token is never leaked.
+// TestRollbackFortigateError covers the rollback failure paths (listing error;
+// a refused delete is skipped, not fatal) and confirms the api_token is never
+// leaked.
 func TestRollbackFortigateError(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/cmdb/system/global") {
 			_, _ = io.WriteString(w, `{"status":"success"}`)
 			return
 		}
-		if r.Method == http.MethodDelete {
-			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = io.WriteString(w, `{"status":"error","cli_error":"boom"}`)
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, `{"status":"error","cli_error":"boom `+fgToken+`"}`)
 	}))
 	defer srv.Close()
 
@@ -277,11 +300,25 @@ func TestRollbackFortigateError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
-	if res.Success || !strings.Contains(res.Message, "rollback failed") {
+	if res.Success || !strings.HasPrefix(res.Message, "Rollback failed: ") {
 		t.Fatalf("expected rollback-failed message: %+v", res)
 	}
 	if strings.Contains(res.Message, fgToken) {
 		t.Fatal("api_token leaked into failure message")
+	}
+
+	refused := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if familyListing(w, r) {
+			return
+		}
+		w.WriteHeader(http.StatusFailedDependency)
+		_, _ = io.WriteString(w, `{"status":"error","error":-23}`)
+	}))
+	defer refused.Close()
+	res, err = p.Rollback(context.Background(), fgCert(), map[string]any{"vdom": "root"},
+		map[string]any{"host": fgHost(refused), "api_token": fgToken})
+	if err != nil || !res.Success || res.Message != "Rollback removed 0 certificate(s); 2 still referenced" {
+		t.Fatalf("refused rollback = %+v, %v", res, err)
 	}
 }
 

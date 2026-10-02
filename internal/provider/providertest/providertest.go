@@ -17,7 +17,7 @@ import (
 // keys: m["key"], helper(m, "key"[, default]) and the webhook probe URL key.
 var readPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\b(?:config|creds|credsMap|cfg|m)\["([a-z_]+)"\]`),
-	regexp.MustCompile(`\b(?:str|strFrom|cfgString|credString|urlFrom)\(\s*\w+,\s*"([a-z_]+)"`),
+	regexp.MustCompile(`\b(?:str|strFrom|cfgString|cfgBool|credString|urlFrom)\(\s*\w+,\s*"([a-z_]+)"`),
 	regexp.MustCompile(`\bprobe\(\s*\w+,\s*"[a-z]+",\s*"([a-z_]+)"`),
 }
 
