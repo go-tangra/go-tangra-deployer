@@ -102,7 +102,7 @@
           "secret": false,
           "required": false,
           "overridable": true,
-          "help": "Client-SSL profile to bind the certificate into (name in the partition or /Partition/name). Created (chain none, ciphers DEFAULT) when it does not exist; otherwise its certificate and key are updated. Rollback deletes it. Empty: no profile is touched.",
+          "help": "Client-SSL profile to bind the certificate into (name in the partition or /Partition/name). Created (ciphers DEFAULT) when it does not exist; otherwise its certificate and key are updated. The uploaded chain is bound in both cases. Rollback never deletes it. Empty: no profile is touched.",
           "placeholder": "www_clientssl",
           "group": "options",
           "max_length": 321,

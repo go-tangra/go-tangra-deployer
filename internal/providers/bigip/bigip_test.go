@@ -758,10 +758,10 @@ func TestClientEdgeCases(t *testing.T) {
 	if err := dead.deleteResource(ctx, "sys/crypto/cert", "/Common/x.crt"); err == nil {
 		t.Error("delete")
 	}
-	if err := dead.createOrUpdateSSLProfile(ctx, "/Common/p", "c", "k"); err == nil {
+	if err := dead.createOrUpdateSSLProfile(ctx, "/Common/p", "c", "k", ""); err == nil {
 		t.Error("profile create")
 	}
-	if err := dead.updateSSLProfile(ctx, "/Common/p", "c", "k"); err == nil {
+	if err := dead.updateSSLProfile(ctx, "/Common/p", "c", "k", ""); err == nil {
 		t.Error("profile update")
 	}
 }

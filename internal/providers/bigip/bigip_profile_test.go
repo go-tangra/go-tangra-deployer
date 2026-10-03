@@ -60,7 +60,7 @@ func TestProfileCreatedWhenMissing(t *testing.T) {
 	if !res.Success || res.Message != "Certificate deployed successfully to F5 BIG-IP" {
 		t.Fatalf("result = %+v", res)
 	}
-	if res.Details["ssl_profile"] != "www_clientssl" || len(res.Details) != 5 {
+	if res.Details["ssl_profile"] != "www_clientssl" || res.Details["chain_name"] != "/Prod/www_example_com_chain.crt" || len(res.Details) != 6 {
 		t.Fatalf("details = %v", res.Details)
 	}
 	assertSeq(t, f.recorded(),
@@ -82,7 +82,7 @@ func TestProfileCreatedWhenMissing(t *testing.T) {
 		"name":    "/Prod/www_clientssl",
 		"cert":    "/Prod/www_example_com.crt",
 		"key":     "/Prod/www_example_com.key",
-		"chain":   "none",
+		"chain":   "/Prod/www_example_com_chain.crt", // v4: the uploaded chain is bound
 		"ciphers": "DEFAULT",
 	})
 	if p := f.profile("/Prod/www_clientssl"); p == nil || p["cert"] != "/Prod/www_example_com.crt" {
@@ -91,6 +91,19 @@ func TestProfileCreatedWhenMissing(t *testing.T) {
 	if !containsStep(steps, step{70, "Creating/updating SSL profile"}) {
 		t.Fatalf("progress = %v", steps)
 	}
+
+	// No chain (or a chain that could not be installed): chain "none" (v3).
+	g := newFake(t)
+	noChain := *testCert
+	noChain.CertificateChain = ""
+	res, _ = deployWith(t, g, map[string]any{"partition": "Prod", "ssl_profile": "www_clientssl"}, &noChain)
+	if !res.Success || res.Details["chain_name"] != nil {
+		t.Fatalf("no chain = %+v", res)
+	}
+	assertBody(t, profileCalls(g)[0], map[string]any{
+		"name": "/Prod/www_clientssl", "cert": "/Prod/www_example_com.crt", "key": "/Prod/www_example_com.key",
+		"chain": "none", "ciphers": "DEFAULT",
+	})
 }
 
 // TestProfileUpdatedWhenExisting: an existing profile answers 409 on create;
@@ -113,19 +126,32 @@ func TestProfileUpdatedWhenExisting(t *testing.T) {
 	)
 	assertBody(t, pc[0], map[string]any{
 		"name": "/Prod/www_clientssl", "cert": "/Prod/www_example_com.crt", "key": "/Prod/www_example_com.key",
-		"chain": "none", "ciphers": "DEFAULT",
+		"chain": "/Prod/www_example_com_chain.crt", "ciphers": "DEFAULT",
 	})
-	assertBody(t, pc[1], map[string]any{"cert": "/Prod/www_example_com.crt", "key": "/Prod/www_example_com.key"})
+	assertBody(t, pc[1], map[string]any{"cert": "/Prod/www_example_com.crt", "key": "/Prod/www_example_com.key", "chain": "/Prod/www_example_com_chain.crt"})
 	if pc[1].contentType != "application/json" || !pc[1].authOK {
 		t.Fatalf("patch headers: %+v", pc[1])
 	}
 	want := map[string]any{
 		"fullPath": "/Prod/www_clientssl",
-		"cert":     "/Prod/www_example_com.crt", "key": "/Prod/www_example_com.key", "chain": "/Common/intermediate.crt",
+		"cert":     "/Prod/www_example_com.crt", "key": "/Prod/www_example_com.key", "chain": "/Prod/www_example_com_chain.crt",
 		"ciphers": "ECDHE+AES-GCM", "defaultsFrom": "/Common/clientssl-secure", "serverName": "www.example.com", "sniDefault": "true",
 	}
 	if got := f.profile("/Prod/www_clientssl"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("profile after update = %v", got)
+	}
+
+	// No chain to bind: the PATCH leaves the profile's chain as it is.
+	g := newFake(t)
+	g.addProfile("/Prod/www_clientssl", map[string]any{"cert": "/Prod/old.crt", "key": "/Prod/old.key", "chain": "/Common/intermediate.crt"})
+	noChain := *testCert
+	noChain.CertificateChain = ""
+	if res, _ := deployWith(t, g, map[string]any{"partition": "Prod", "ssl_profile": "www_clientssl"}, &noChain); !res.Success {
+		t.Fatalf("no chain update = %+v", res)
+	}
+	assertBody(t, profileCalls(g)[1], map[string]any{"cert": "/Prod/www_example_com.crt", "key": "/Prod/www_example_com.key"})
+	if got := g.profile("/Prod/www_clientssl")["chain"]; got != "/Common/intermediate.crt" {
+		t.Fatalf("chain after update = %v", got)
 	}
 }
 
@@ -230,9 +256,10 @@ func TestProfileFailures(t *testing.T) {
 	}
 }
 
-// TestRollbackDeletesProfileFirst: with ssl_profile the profile is deleted
-// first (best effort), then the certificate, key and chain.
-func TestRollbackDeletesProfileFirst(t *testing.T) {
+// Rollback never deletes the ssl_profile (v4, user decision 2026-10-03; v3
+// deleted it best effort): it may be pre-existing and used elsewhere. Only
+// the uploaded certificate, key and chain objects are removed.
+func TestRollbackNeverDeletesProfile(t *testing.T) {
 	ctx := context.Background()
 	f := newFake(t)
 	cfg := map[string]any{"partition": "Prod", "ssl_profile": "www_clientssl"}
@@ -246,26 +273,28 @@ func TestRollbackDeletesProfileFirst(t *testing.T) {
 	}
 	assertSeq(t, f.recorded(),
 		"GET /mgmt/tm/sys/version",
-		"DELETE /mgmt/tm/ltm/profile/client-ssl/~Prod~www_clientssl",
 		"DELETE /mgmt/tm/sys/crypto/cert/~Prod~www_example_com.crt",
 		"DELETE /mgmt/tm/sys/crypto/key/~Prod~www_example_com.key",
 		"DELETE /mgmt/tm/sys/crypto/cert/~Prod~www_example_com_chain.crt",
 	)
-	if len(f.profiles) != 0 {
-		t.Fatalf("profile left: %v", f.profiles)
+	if f.profile("/Prod/www_clientssl") == nil {
+		t.Fatal("rollback deleted the profile")
 	}
 
-	// Full path; profile already gone (404) is fine.
+	// Full path: the profile is not touched either.
 	f.reset()
 	res, _ = Provider{}.Rollback(ctx, testCert, map[string]any{"partition": "Prod", "ssl_profile": "/Shared/x"}, f.creds())
-	if !res.Success || f.recorded()[1].path != "/mgmt/tm/ltm/profile/client-ssl/~Shared~x" {
-		t.Fatalf("full path rollback = %+v %v", res, sig(f.recorded()))
+	for _, c := range f.recorded() {
+		if strings.Contains(c.path, "/ltm/profile/") {
+			t.Fatalf("profile touched: %v", sig(f.recorded()))
+		}
+	}
+	if !res.Success {
+		t.Fatalf("full path rollback = %+v", res)
 	}
 
-	// A profile still attached to a virtual server cannot be deleted: the
-	// failure is ignored and the certificate deletes report their own errors.
+	// A certificate still in use cannot be deleted: reported.
 	g := newFake(t)
-	g.failAlways(http.MethodDelete, "/mgmt/tm/ltm/profile/client-ssl/~Common~p", 400, `{"message":"profile in use by virtual server"}`)
 	g.failAlways(http.MethodDelete, "/mgmt/tm/sys/crypto/cert/~Common~www_example_com.crt", 400, `{"message":"in use"}`)
 	res, _ = Provider{}.Rollback(ctx, testCert, map[string]any{"ssl_profile": "p"}, g.creds())
 	if res.Success || res.Message != `Rollback partially failed: certificate: API error (HTTP 400): {"message":"in use"}` {

@@ -3,7 +3,9 @@ package bigip
 // Client-SSL profile (v3 createOrUpdateSSLProfile / updateSSLProfile). With
 // ssl_profile set, Deploy POSTs a new profile referencing the deployed
 // certificate and key; when the profile already exists (HTTP 409) only its
-// cert and key are PATCHed, every other setting is left as it is.
+// cert and key are PATCHed, every other setting is left as it is. Unlike v3,
+// the uploaded chain is bound too (v4, user decision 2026-10-03): v3 left
+// chain "none", so clients that do not fetch intermediates got no chain.
 
 import (
 	"context"
@@ -32,14 +34,20 @@ func resolveProfilePath(value, partition string) (string, bool) {
 }
 
 // createOrUpdateSSLProfile creates the client-SSL profile (v3 body: name,
-// cert, key, chain "none", ciphers "DEFAULT"; BIG-IP fills the rest from its
-// clientssl parent) or, on HTTP 409, updates the existing one.
-func (c *client) createOrUpdateSSLProfile(ctx context.Context, profileFull, certFull, keyFull string) error {
+// cert, key, chain, ciphers "DEFAULT"; BIG-IP fills the rest from its
+// clientssl parent) or, on HTTP 409, updates the existing one. chainFull is
+// the installed chain object, or "" when there is none: then a new profile
+// gets chain "none" (v3) and an update leaves the profile's chain alone.
+func (c *client) createOrUpdateSSLProfile(ctx context.Context, profileFull, certFull, keyFull, chainFull string) error {
+	chain := chainFull
+	if chain == "" {
+		chain = "none"
+	}
 	payload := map[string]any{
 		"name":    profileFull,
 		"cert":    certFull,
 		"key":     keyFull,
-		"chain":   "none",
+		"chain":   chain,
 		"ciphers": "DEFAULT",
 	}
 	r, err := c.do(ctx, http.MethodPost, "/mgmt/tm/ltm/profile/client-ssl", payload)
@@ -50,17 +58,21 @@ func (c *client) createOrUpdateSSLProfile(ctx context.Context, profileFull, cert
 		return nil
 	}
 	if r.status == http.StatusConflict {
-		return c.updateSSLProfile(ctx, profileFull, certFull, keyFull)
+		return c.updateSSLProfile(ctx, profileFull, certFull, keyFull, chainFull)
 	}
 	return apiError(r)
 }
 
-// updateSSLProfile PATCHes only cert and key of an existing profile; its
-// chain, ciphers, parent and every other setting are kept.
-func (c *client) updateSSLProfile(ctx context.Context, profileFull, certFull, keyFull string) error {
+// updateSSLProfile PATCHes cert and key of an existing profile, plus its
+// chain when one was installed; ciphers, parent and every other setting are
+// kept.
+func (c *client) updateSSLProfile(ctx context.Context, profileFull, certFull, keyFull, chainFull string) error {
 	payload := map[string]any{
 		"cert": certFull,
 		"key":  keyFull,
+	}
+	if chainFull != "" {
+		payload["chain"] = chainFull
 	}
 	r, err := c.do(ctx, http.MethodPatch, "/mgmt/tm/ltm/profile/client-ssl/"+encodeName(profileFull), payload)
 	if err != nil {

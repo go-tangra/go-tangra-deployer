@@ -186,11 +186,12 @@ Both options are optional. Left empty, BIG-IP installs the certificate
 objects only and touches no profile; FortiGate still binds the certificate
 into its own profile (see below).
 
-- **BIG-IP** behaves exactly as the v3 provider (3.5.1). Every Deploy,
-  Verify and Rollback first checks that the appliance answers
-  `/mgmt/tm/sys/version` (401: "authentication failed: invalid username or
-  password"). The certificate, key and chain (when present) are uploaded
-  to `/mgmt/shared/file-transfer/uploads/` (one chunk, `Content-Range`) and
+- **BIG-IP** behaves as the v3 provider (3.5.1), with two deliberate
+  differences (chain binding and rollback, below). Every Deploy, Verify and
+  Rollback first checks that the appliance answers `/mgmt/tm/sys/version`
+  (401: "authentication failed: invalid username or password"). The
+  certificate, key and chain (when present) are uploaded to
+  `/mgmt/shared/file-transfer/uploads/` (one chunk, `Content-Range`) and
   installed as `/<partition>/<name>.crt`, `/<partition>/<name>.key` and
   `/<partition>/<name>_chain.crt`, where `<name>` is the common name with
   `*` → `star` and every other character outside `[A-Za-z0-9_-]` → `_`
@@ -200,14 +201,16 @@ into its own profile (see below).
   installed with `overwrite`. A failed chain upload is only a warning.
   `ssl_profile` names a client-SSL profile (a name in the partition or
   `/Partition/name`): when it does not exist it is **created** with
-  `{name, cert, key, chain: "none", ciphers: "DEFAULT"}` (every other
-  setting from BIG-IP's `clientssl` parent); when it exists (HTTP 409) only
-  its `cert` and `key` are PATCHed — its chain, ciphers, parent, SNI and
-  every other setting are kept. Verify checks that the certificate object
-  exists. Rollback deletes the `ssl_profile` profile (best effort — BIG-IP
-  refuses while a virtual server uses it), then the certificate and key
-  (failures reported) and the chain (ignored); objects already gone count
-  as removed.
+  `{name, cert, key, chain, ciphers: "DEFAULT"}` (every other setting from
+  BIG-IP's `clientssl` parent); when it exists (HTTP 409) its `cert` and
+  `key` are PATCHed — its ciphers, parent, SNI and every other setting are
+  kept. Unlike v3, the installed chain is bound as the profile's `chain`
+  (create and update); without a chain a new profile gets `chain: "none"`
+  and an update leaves the profile's chain alone. Without `ssl_profile` no
+  profile is created or touched. Verify checks that the certificate object
+  exists. Rollback removes the certificate and key (failures reported) and
+  the chain (ignored); objects already gone count as removed. Unlike v3,
+  Rollback never deletes the `ssl_profile` profile.
 - **FortiGate** behaves exactly as the v3 provider (3.5.1), selected by
   `replace_strategy`:
   - `ssl_profile` (default): the leaf certificate (never the chain) is

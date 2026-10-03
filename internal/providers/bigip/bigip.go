@@ -59,7 +59,7 @@ func (Provider) Capabilities() provider.Capabilities {
 				Help: "Administrative partition the certificate, key, chain and client-SSL profile are created in (default Common)."},
 			{Key: "ssl_profile", Label: "SSL profile", Type: provider.TypeString, Overridable: true, Group: provider.GroupOptions,
 				Pattern: sslProfilePattern.String(), MaxLength: 321, Placeholder: "www_clientssl",
-				Help: "Client-SSL profile to bind the certificate into (name in the partition or /Partition/name). Created (chain none, ciphers DEFAULT) when it does not exist; otherwise its certificate and key are updated. Rollback deletes it. Empty: no profile is touched."},
+				Help: "Client-SSL profile to bind the certificate into (name in the partition or /Partition/name). Created (ciphers DEFAULT) when it does not exist; otherwise its certificate and key are updated. The uploaded chain is bound in both cases. Rollback never deletes it. Empty: no profile is touched."},
 		},
 		CredentialFields: []provider.Field{
 			{Key: "host", Label: "Host", Type: provider.TypeString, Required: true, Group: provider.GroupConnection,
@@ -230,17 +230,21 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 	}
 
 	// Step 3: upload and install the CA chain if provided (non-fatal).
+	boundChain := ""
 	if cert.CertificateChain != "" {
 		note(progress, 55, "Uploading certificate chain to BIG-IP")
 		if err := c.installCrypto(ctx, "cert", "certificate", chainFull, cert.CertificateChain); err != nil {
 			note(progress, 60, "Warning: failed to upload certificate chain")
+		} else {
+			boundChain = chainFull
 		}
 	}
 
-	// Step 4: create or update the client-SSL profile if specified.
+	// Step 4: create or update the client-SSL profile if specified; the
+	// installed chain is bound with the certificate (v4).
 	if s.profile != "" {
 		note(progress, 70, "Creating/updating SSL profile")
-		if err := c.createOrUpdateSSLProfile(ctx, s.profile, certFull, keyFull); err != nil {
+		if err := c.createOrUpdateSSLProfile(ctx, s.profile, certFull, keyFull, boundChain); err != nil {
 			return failed("failed to create/update SSL profile: %v", err), nil
 		}
 	}
@@ -259,6 +263,9 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 	}
 	if s.sslProfile != "" {
 		details["ssl_profile"] = s.sslProfile
+		if boundChain != "" {
+			details["chain_name"] = boundChain
+		}
 	}
 	return &provider.Result{
 		Success: true,
@@ -299,10 +306,8 @@ func (p Provider) Rollback(ctx context.Context, cert *provider.CertificateData, 
 	}
 	certFull, keyFull, chainFull := objectNames(s.partition, certBaseName(cert))
 
-	if s.profile != "" {
-		_ = c.deleteResource(ctx, "ltm/profile/client-ssl", s.profile) // best effort
-	}
-
+	// The ssl_profile is never deleted (v4, user decision 2026-10-03): it
+	// may be pre-existing and used elsewhere. v3 deleted it best effort.
 	var errs []string
 	if err := c.deleteResource(ctx, "sys/crypto/cert", certFull); err != nil {
 		errs = append(errs, fmt.Sprintf("certificate: %v", err))
