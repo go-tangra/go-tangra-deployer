@@ -1,40 +1,44 @@
-// Package bigip is a deployment provider for F5 BIG-IP load balancers. It
-// installs an issued certificate and its private key onto an appliance through
-// the iControl REST API and binds them into a client-SSL profile inside a
-// partition. Material is uploaded to the appliance's file-transfer endpoint,
-// installed as sys/crypto cert+key objects, then referenced from an
-// ltm/profile/client-ssl profile. The appliance authenticates the caller with
-// HTTP Basic auth (username/password) and normally presents a self-signed
-// management certificate, so the client is configured to skip TLS verification.
+// Package bigip is a deployment provider for F5 BIG-IP load balancers.
 //
-// Security: the password and private-key PEM are never logged and never placed
-// into a Result.Message or an error returned to the caller.
+// It is a 1:1 port of the go-tangra v3 BIG-IP provider (v3.5.1). Over the
+// iControl REST API (HTTP Basic auth) it uploads the certificate, the private
+// key and — when present — the chain to the file-transfer endpoint, installs
+// them as sys/crypto objects /<partition>/<name>.crt, /<partition>/<name>.key
+// and /<partition>/<name>_chain.crt (overwriting an existing object of the
+// same name) and, when ssl_profile is set, creates that client-SSL profile
+// (cert, key, chain none, ciphers DEFAULT) or, when it already exists,
+// points its cert and key at the deployed objects. Every Deploy, Verify and
+// Rollback first checks that the appliance answers /mgmt/tm/sys/version.
+//
+// v4 keeps these safety properties on top of v3: redirects are never
+// followed, the password and the private key never appear in a message, an
+// error or details (appliance responses are scrubbed), partition and profile
+// names that could form a path segment are refused before anything is sent,
+// and a failure is returned as a Result carrying v3's message so the job
+// history shows it.
 package bigip
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
+	"regexp"
 	"strings"
-	"time"
 
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 )
 
 func init() { provider.Register(Provider{}) }
 
-const (
-	// httpTimeout bounds every call to the appliance.
-	httpTimeout = 60 * time.Second
-	// maxErrBody caps how much of a response body is read into an error.
-	maxErrBody = 2 << 10
-	// downloadsDir is where the file-transfer endpoint lands uploaded files.
-	downloadsDir = "/var/config/rest/downloads"
-)
+// defaultPartition is v3's partition when none is configured.
+const defaultPartition = "Common"
+
+// namePattern is a BIG-IP partition or object name segment: no slash, no
+// tilde, no leading dot (so never "." or "..").
+const namePattern = `[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}`
+
+// partitionPattern is the descriptor and runtime pattern of partition.
+var partitionPattern = regexp.MustCompile(`^` + namePattern + `$`)
 
 // Provider installs certificates onto an F5 BIG-IP via iControl REST.
 type Provider struct{}
@@ -44,18 +48,18 @@ func (Provider) Capabilities() provider.Capabilities {
 	return provider.Capabilities{
 		Type:             "bigip",
 		DisplayName:      "F5 BIG-IP",
-		Description:      "Installs the certificate, key and chain on an F5 BIG-IP and binds them into a client-SSL profile (iControl REST).",
+		Description:      "Deploys the certificate, key and chain to an F5 BIG-IP via the iControl REST API and, optionally, binds them into a client-SSL profile.",
 		SupportsVerify:   true,
 		SupportsRollback: true,
 		TestConnection:   true,
 		SchemaVersion:    1,
 		ConfigFields: []provider.Field{
 			{Key: "partition", Label: "Partition", Type: provider.TypeString, Required: true, Overridable: true, Group: provider.GroupConnection,
-				Default: "Common", Pattern: `^[A-Za-z0-9_.-]{1,64}$`, MaxLength: 64, Placeholder: "Common",
-				Help: "Administrative partition the certificate objects are created in."},
+				Default: defaultPartition, Pattern: partitionPattern.String(), MaxLength: 64, Placeholder: defaultPartition,
+				Help: "Administrative partition the certificate, key, chain and client-SSL profile are created in (default Common)."},
 			{Key: "ssl_profile", Label: "SSL profile", Type: provider.TypeString, Overridable: true, Group: provider.GroupOptions,
-				Pattern: `^(/[A-Za-z0-9_.-]{1,64}/)?[A-Za-z0-9_][A-Za-z0-9_.-]{0,254}$`, MaxLength: 321, Placeholder: "www_clientssl_prod",
-				Help: "Existing client-SSL profile to bind the certificate into (name in the partition or /Partition/name). Empty: the provider maintains its own <name>_clientssl profile."},
+				Pattern: sslProfilePattern.String(), MaxLength: 321, Placeholder: "www_clientssl",
+				Help: "Client-SSL profile to bind the certificate into (name in the partition or /Partition/name). Created (ciphers DEFAULT) when it does not exist; otherwise its certificate and key are updated. The uploaded chain is bound in both cases. Rollback never deletes it. Empty: no profile is touched."},
 		},
 		CredentialFields: []provider.Field{
 			{Key: "host", Label: "Host", Type: provider.TypeString, Required: true, Group: provider.GroupConnection,
@@ -69,526 +73,345 @@ func (Provider) Capabilities() provider.Capabilities {
 	}
 }
 
-// ValidateCredentials checks that host, username and password are present and,
-// best-effort, probes the appliance. An unreachable appliance is not fatal at
-// validation time; rejected credentials are. With ssl_profile set, the named
-// client-SSL profile must exist on the appliance (not_found_on_endpoint).
+// settings is the resolved configuration of one call.
+type settings struct {
+	partition  string
+	sslProfile string // as configured (v3 details); "" = no profile
+	profile    string // resolved /Partition/name; "" = no profile
+}
+
+// parseSettings resolves partition (default Common) and ssl_profile. v4: a
+// value that could form a path segment is refused here, before any request.
+func parseSettings(config map[string]any) (settings, *provider.FieldError) {
+	s := settings{partition: strings.Trim(strings.TrimSpace(cfgString(config, "partition", "")), "/")}
+	if s.partition == "" {
+		s.partition = defaultPartition
+	}
+	if !partitionPattern.MatchString(s.partition) {
+		return s, &provider.FieldError{Field: provider.PathConfig + "partition", Msg: provider.CodePattern}
+	}
+	s.sslProfile = strings.TrimSpace(cfgString(config, "ssl_profile", ""))
+	if s.sslProfile == "" {
+		return s, nil
+	}
+	full, ok := resolveProfilePath(s.sslProfile, s.partition)
+	if !ok {
+		return s, &provider.FieldError{Field: provider.PathConfig + "ssl_profile", Msg: provider.CodePattern}
+	}
+	s.profile = full
+	return s, nil
+}
+
+// invalidSettingResult refuses a stored value outside the descriptor pattern
+// (legacy row or bad override); the value itself is not echoed.
+func invalidSettingResult(fe *provider.FieldError) *provider.Result {
+	what := "partition is not a valid BIG-IP partition name"
+	if fe.Field == provider.PathConfig+"ssl_profile" {
+		what = "ssl_profile is not a valid client-SSL profile name or /Partition/name path"
+	}
+	return &provider.Result{Success: false, Permanent: true, Message: what}
+}
+
+// ValidateCredentials ("Test connection") checks the required credentials and
+// probes /mgmt/tm/sys/version. An unreachable appliance is not fatal at save
+// time (v4 contract shared by the appliance providers); 401 and any other
+// non-200 answer are (v3). A missing ssl_profile is fine: Deploy creates it.
 func (p Provider) ValidateCredentials(ctx context.Context, creds, config map[string]any) error {
-	host, username, password, err := requireCreds(creds)
+	c, err := clientFrom(creds)
 	if err != nil {
 		return err
 	}
-	req, err := newJSONRequest(ctx, http.MethodGet, fmt.Sprintf("https://%s/mgmt/tm/sys/version", host), username, password, nil)
-	if err != nil {
-		return fmt.Errorf("invalid host: %w", err)
+	if _, fe := parseSettings(config); fe != nil {
+		return fe
 	}
-	resp, err := httpClient().Do(req)
+	r, err := c.do(ctx, http.MethodGet, "/mgmt/tm/sys/version", nil)
 	if err != nil {
+		if isBuildError(err) {
+			return err
+		}
 		return nil // unreachable at validation time is not fatal
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("%w: BIG-IP rejected the username/password (HTTP %d)", provider.ErrCredentials, resp.StatusCode)
+	return checkProbe(r)
+}
+
+// clientFrom checks the required credentials (v3 order and messages) and
+// builds the client.
+func clientFrom(creds map[string]any) (*client, error) {
+	host := hostString(creds)
+	if host == "" {
+		return nil, fmt.Errorf("host is required")
 	}
-	raw, set := sslProfileFrom(config)
-	if !set {
-		return nil
+	username := credString(creds, "username")
+	if username == "" {
+		return nil, fmt.Errorf("username is required")
 	}
-	partition := partitionFrom(config)
-	if partition == "" {
-		partition = "Common"
+	password := credString(creds, "password")
+	if password == "" {
+		return nil, fmt.Errorf("password is required")
 	}
-	profileFull, ok := resolveProfilePath(raw, partition)
-	if !ok {
-		return &provider.FieldError{Field: provider.PathConfig + "ssl_profile", Msg: provider.CodePattern}
+	return newClient(host, username, password), nil
+}
+
+// checkProbe maps the sys/version answer (v3 messages).
+func checkProbe(r *response) error {
+	if r.status == http.StatusUnauthorized {
+		return fmt.Errorf("authentication failed: invalid username or password")
 	}
-	if _, err := getClientSSLProfile(ctx, httpClient(), host, username, password, profileFull); err == errProfileNotFound {
-		return &provider.FieldError{Field: provider.PathConfig + "ssl_profile", Msg: provider.CodeNotFoundOnEndpoint}
+	if r.status != http.StatusOK {
+		return fmt.Errorf("BIG-IP API error (HTTP %d): %s", r.status, r.snippet())
 	}
 	return nil
 }
 
-// Deploy uploads the certificate and key, installs them as sys/crypto objects,
-// and binds them into a client-SSL profile in the configured partition — the
-// provider's own <base>_clientssl, or, with ssl_profile set, the operator's
-// existing profile (checked before anything is uploaded, updated in place).
-func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, config, creds map[string]any, progress provider.ProgressFn) (*provider.Result, error) {
-	host, username, password, err := requireCreds(creds)
+// connect is v3's ValidateCredentials as run before every Deploy, Verify and
+// Rollback: the appliance must answer the version probe.
+func (c *client) connect(ctx context.Context) error {
+	r, err := c.do(ctx, http.MethodGet, "/mgmt/tm/sys/version", nil)
 	if err != nil {
-		return nil, err
+		if isBuildError(err) {
+			return err
+		}
+		return fmt.Errorf("failed to connect to BIG-IP: %w", err)
 	}
-	partition := partitionFrom(config)
-	if partition == "" {
-		return nil, fmt.Errorf("partition is required")
+	return checkProbe(r)
+}
+
+// prepare runs the shared preamble of Deploy, Verify and Rollback: required
+// credentials (Go error, v3), settings (permanent Result, v4) and the
+// connectivity probe (failed Result carrying v3's message).
+func prepare(ctx context.Context, config, creds map[string]any) (*client, settings, *provider.Result, error) {
+	c, err := clientFrom(creds)
+	if err != nil {
+		return nil, settings{}, nil, err
 	}
+	s, fe := parseSettings(config)
+	if fe != nil {
+		return nil, s, invalidSettingResult(fe), nil
+	}
+	if err := c.connect(ctx); err != nil {
+		return nil, s, failed("%v", err), nil
+	}
+	return c, s, nil, nil
+}
+
+// objectNames returns the v3 object paths of a certificate in a partition.
+func objectNames(partition, base string) (certFull, keyFull, chainFull string) {
+	return fmt.Sprintf("/%s/%s.crt", partition, base),
+		fmt.Sprintf("/%s/%s.key", partition, base),
+		fmt.Sprintf("/%s/%s_chain.crt", partition, base)
+}
+
+// Deploy deploys a certificate to BIG-IP.
+func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, config, creds map[string]any, progress provider.ProgressFn) (*provider.Result, error) {
+	c, s, refused, err := prepare(ctx, config, creds)
+	if err != nil || refused != nil {
+		return refused, err
+	}
+
+	note(progress, 10, "Validating certificate data")
 	if cert == nil || cert.CertificatePEM == "" || cert.PrivateKeyPEM == "" {
 		return nil, fmt.Errorf("certificate and private key are required")
 	}
+	c.addSecret(cert.PrivateKeyPEM)
 
-	note(progress, 5, "preparing certificate objects")
 	base := certBaseName(cert)
-	certFull := fmt.Sprintf("/%s/%s.crt", partition, base)
-	keyFull := fmt.Sprintf("/%s/%s.key", partition, base)
-	profileFull := fmt.Sprintf("/%s/%s_clientssl", partition, base)
+	certFull, keyFull, chainFull := objectNames(s.partition, base)
 
-	client := httpClient()
-
-	raw, existing := sslProfileFrom(config)
-	if existing {
-		var ok bool
-		if profileFull, ok = resolveProfilePath(raw, partition); !ok {
-			return invalidProfileResult(), nil
-		}
-		note(progress, 10, "checking client-SSL profile "+profileFull)
-		if _, err := getClientSSLProfile(ctx, client, host, username, password, profileFull); err != nil {
-			if err == errProfileNotFound {
-				return profileNotFoundResult(host, partition, profileFull), nil
-			}
-			return &provider.Result{Success: false, Message: "client-SSL profile check failed: " + err.Error()}, nil
-		}
+	// Step 1: upload and install the certificate.
+	note(progress, 20, "Uploading certificate to BIG-IP")
+	if err := c.installCrypto(ctx, "cert", "certificate", certFull, cert.CertificatePEM); err != nil {
+		return failed("failed to upload certificate: %v", err), nil
 	}
 
-	note(progress, 20, "uploading certificate")
-	if err := installCrypto(ctx, client, host, username, password, "cert", certFull, cert.CertificatePEM); err != nil {
-		return &provider.Result{Success: false, Message: "certificate upload failed: " + err.Error()}, nil
+	// Step 2: upload and install the private key.
+	note(progress, 40, "Uploading private key to BIG-IP")
+	if err := c.installCrypto(ctx, "key", "key", keyFull, cert.PrivateKeyPEM); err != nil {
+		return failed("failed to upload private key: %v", err), nil
 	}
 
-	note(progress, 45, "uploading private key")
-	if err := installCrypto(ctx, client, host, username, password, "key", keyFull, cert.PrivateKeyPEM); err != nil {
-		return &provider.Result{Success: false, Message: "private key upload failed: " + err.Error()}, nil
-	}
-
-	chainFull := ""
+	// Step 3: upload and install the CA chain if provided (non-fatal).
+	boundChain := ""
 	if cert.CertificateChain != "" {
-		note(progress, 60, "uploading certificate chain")
-		chainFull = fmt.Sprintf("/%s/%s_chain.crt", partition, base)
-		if err := installCrypto(ctx, client, host, username, password, "cert", chainFull, cert.CertificateChain); err != nil {
-			// Non-fatal: the profile can still bind cert+key without the chain.
-			note(progress, 62, "warning: certificate chain upload failed")
-			chainFull = ""
+		note(progress, 55, "Uploading certificate chain to BIG-IP")
+		if err := c.installCrypto(ctx, "cert", "certificate", chainFull, cert.CertificateChain); err != nil {
+			note(progress, 60, "Warning: failed to upload certificate chain")
+		} else {
+			boundChain = chainFull
 		}
 	}
 
-	note(progress, 75, "binding client-SSL profile")
-	bind := bindClientSSLProfile
-	if existing {
-		bind = patchExistingProfile
-	}
-	if err := bind(ctx, client, host, username, password, profileFull, certFull, keyFull, chainFull); err != nil {
-		return &provider.Result{Success: false, Message: "client-SSL profile binding failed: " + err.Error()}, nil
-	}
-
-	note(progress, 90, "verifying installation")
-	if err := certExists(ctx, client, host, username, password, certFull); err != nil {
-		return &provider.Result{Success: false, Message: "post-deploy verification failed: " + err.Error()}, nil
+	// Step 4: create or update the client-SSL profile if specified; the
+	// installed chain is bound with the certificate (v4).
+	if s.profile != "" {
+		note(progress, 70, "Creating/updating SSL profile")
+		if err := c.createOrUpdateSSLProfile(ctx, s.profile, certFull, keyFull, boundChain); err != nil {
+			return failed("failed to create/update SSL profile: %v", err), nil
+		}
 	}
 
-	note(progress, 100, "deployment complete")
+	note(progress, 90, "Verifying deployment")
+	if err := c.verifyCertExists(ctx, certFull); err != nil {
+		return failed("verification failed: %v", err), nil
+	}
+
+	note(progress, 100, "Deployment complete")
 	details := map[string]any{
-		"host":             host,
-		"partition":        partition,
+		"host":             c.host,
+		"partition":        s.partition,
 		"certificate_name": certFull,
 		"key_name":         keyFull,
-		"ssl_profile":      profileFull,
 	}
-	if existing {
-		details["ssl_profile_mode"] = "existing"
-	}
-	if chainFull != "" {
-		details["chain_name"] = chainFull
+	if s.sslProfile != "" {
+		details["ssl_profile"] = s.sslProfile
+		if boundChain != "" {
+			details["chain_name"] = boundChain
+		}
 	}
 	return &provider.Result{
 		Success: true,
-		Message: fmt.Sprintf("certificate installed and bound to client-SSL profile %s", profileFull),
+		Message: "Certificate deployed successfully to F5 BIG-IP",
 		Details: details,
 	}, nil
 }
 
-// Verify confirms the certificate object exists in the partition and, with
-// ssl_profile set, that the profile references the deployed cert and key.
+// Verify checks that the certificate object exists in the partition.
 func (p Provider) Verify(ctx context.Context, cert *provider.CertificateData, config, creds map[string]any) (*provider.Result, error) {
-	host, username, password, err := requireCreds(creds)
-	if err != nil {
-		return nil, err
+	c, s, refused, err := prepare(ctx, config, creds)
+	if err != nil || refused != nil {
+		return refused, err
 	}
-	partition := partitionFrom(config)
-	if partition == "" {
-		return nil, fmt.Errorf("partition is required")
-	}
-	base := certBaseName(cert)
-	certFull := fmt.Sprintf("/%s/%s.crt", partition, base)
-	client := httpClient()
-	if err := certExists(ctx, client, host, username, password, certFull); err != nil {
-		return &provider.Result{Success: false, Message: "certificate not found: " + err.Error()}, nil
-	}
-	details := map[string]any{"host": host, "partition": partition, "certificate_name": certFull}
-	raw, existing := sslProfileFrom(config)
-	if !existing {
-		return &provider.Result{
-			Success: true,
-			Message: fmt.Sprintf("certificate %s present on BIG-IP", certFull),
-			Details: details,
-		}, nil
-	}
-	profileFull, ok := resolveProfilePath(raw, partition)
-	if !ok {
-		return invalidProfileResult(), nil
-	}
-	details["ssl_profile"] = profileFull
-	prof, err := getClientSSLProfile(ctx, client, host, username, password, profileFull)
-	if err != nil {
-		if err == errProfileNotFound {
-			return &provider.Result{Success: false, Message: fmt.Sprintf("client-SSL profile %s not found", profileFull), Details: details}, nil
-		}
-		return &provider.Result{Success: false, Message: "client-SSL profile check failed: " + err.Error(), Details: details}, nil
-	}
-	if !prof.boundTo(certFull, fmt.Sprintf("/%s/%s.key", partition, base)) {
-		return &provider.Result{Success: false, Message: fmt.Sprintf("profile %s is bound to a different certificate", profileFull), Details: details}, nil
+	certFull, _, _ := objectNames(s.partition, certBaseName(cert))
+	if err := c.verifyCertExists(ctx, certFull); err != nil {
+		return failed("Certificate not found: %v", err), nil
 	}
 	return &provider.Result{
 		Success: true,
-		Message: fmt.Sprintf("certificate %s present on BIG-IP and bound to client-SSL profile %s", certFull, profileFull),
-		Details: details,
+		Message: "Certificate verified on BIG-IP",
+		Details: map[string]any{
+			"host":             c.host,
+			"partition":        s.partition,
+			"certificate_name": certFull,
+		},
 	}, nil
 }
 
-// Rollback removes the client-SSL profile, certificate, key and chain objects.
-// With ssl_profile set the operator's profile is never deleted or modified:
-// while it still references the deployed objects the rollback is refused, and
-// otherwise only the certificate, key and chain objects are removed.
+// Rollback removes the deployed objects: the client-SSL profile named by
+// ssl_profile first (best effort — it references the certificate), then the
+// certificate and key (failures reported) and the optional chain (ignored).
+// A 404 counts as already removed.
 func (p Provider) Rollback(ctx context.Context, cert *provider.CertificateData, config, creds map[string]any) (*provider.Result, error) {
-	host, username, password, err := requireCreds(creds)
-	if err != nil {
-		return nil, err
+	c, s, refused, err := prepare(ctx, config, creds)
+	if err != nil || refused != nil {
+		return refused, err
 	}
-	partition := partitionFrom(config)
-	if partition == "" {
-		return nil, fmt.Errorf("partition is required")
-	}
-	base := certBaseName(cert)
-	client := httpClient()
+	certFull, keyFull, chainFull := objectNames(s.partition, certBaseName(cert))
 
-	if raw, existing := sslProfileFrom(config); existing {
-		profileFull, ok := resolveProfilePath(raw, partition)
-		if !ok {
-			return invalidProfileResult(), nil
-		}
-		prof, err := getClientSSLProfile(ctx, client, host, username, password, profileFull)
-		if err != nil && err != errProfileNotFound {
-			return &provider.Result{Success: false, Message: "client-SSL profile check failed: " + err.Error()}, nil
-		}
-		if prof.references(fmt.Sprintf("/%s/%s.crt", partition, base), fmt.Sprintf("/%s/%s.key", partition, base), fmt.Sprintf("/%s/%s_chain.crt", partition, base)) {
-			return &provider.Result{
-				Success:   false,
-				Permanent: true,
-				Message:   fmt.Sprintf("certificate is bound to client-SSL profile %s; bind another certificate before rolling back", profileFull),
-				Details:   map[string]any{"host": host, "partition": partition, "ssl_profile": profileFull},
-			}, nil
-		}
-	} else {
-		// Profile references the cert+key, so it must go first.
-		_ = deleteObject(ctx, client, host, username, password, "ltm/profile/client-ssl", fmt.Sprintf("/%s/%s_clientssl", partition, base))
+	// The ssl_profile is never deleted (v4, user decision 2026-10-03): it
+	// may be pre-existing and used elsewhere. v3 deleted it best effort.
+	var errs []string
+	if err := c.deleteResource(ctx, "sys/crypto/cert", certFull); err != nil {
+		errs = append(errs, fmt.Sprintf("certificate: %v", err))
 	}
+	if err := c.deleteResource(ctx, "sys/crypto/key", keyFull); err != nil {
+		errs = append(errs, fmt.Sprintf("key: %v", err))
+	}
+	_ = c.deleteResource(ctx, "sys/crypto/cert", chainFull) // optional: may not exist
 
-	var failures []string
-	if err := deleteObject(ctx, client, host, username, password, "sys/crypto/cert", fmt.Sprintf("/%s/%s.crt", partition, base)); err != nil {
-		failures = append(failures, "certificate: "+err.Error())
-	}
-	if err := deleteObject(ctx, client, host, username, password, "sys/crypto/key", fmt.Sprintf("/%s/%s.key", partition, base)); err != nil {
-		failures = append(failures, "key: "+err.Error())
-	}
-	// Chain is optional; a 404 is treated as success by deleteObject.
-	_ = deleteObject(ctx, client, host, username, password, "sys/crypto/cert", fmt.Sprintf("/%s/%s_chain.crt", partition, base))
-
-	if len(failures) > 0 {
-		return &provider.Result{Success: false, Message: "rollback partially failed: " + strings.Join(failures, "; ")}, nil
-	}
-	if _, existing := sslProfileFrom(config); existing {
-		return &provider.Result{
-			Success: true,
-			Message: "certificate and key removed from BIG-IP (client-SSL profile left untouched)",
-			Details: map[string]any{"host": host, "partition": partition},
-		}, nil
+	if len(errs) > 0 {
+		return failed("Rollback partially failed: %s", strings.Join(errs, "; ")), nil
 	}
 	return &provider.Result{
 		Success: true,
-		Message: "certificate, key and client-SSL profile removed from BIG-IP",
-		Details: map[string]any{"host": host, "partition": partition},
+		Message: "Certificate and key removed from BIG-IP",
+		Details: map[string]any{
+			"deleted_cert": certFull,
+			"deleted_key":  keyFull,
+		},
 	}, nil
 }
 
-// installCrypto uploads a PEM to the appliance's file-transfer endpoint and then
-// installs it as a sys/crypto object of the given kind ("cert" or "key"). If the
-// object already exists it is reinstalled with overwrite set.
-func installCrypto(ctx context.Context, client *http.Client, host, username, password, kind, fullName, pem string) error {
-	tempFile := lastSegment(fullName)
-	if err := uploadFile(ctx, client, host, username, password, tempFile, pem); err != nil {
-		return err
-	}
-	url := fmt.Sprintf("https://%s/mgmt/tm/sys/crypto/%s", host, kind)
-	payload := map[string]any{
-		"command":         "install",
-		"name":            fullName,
-		"from-local-file": downloadsDir + "/" + tempFile,
-	}
-	status, body, err := doJSON(ctx, client, http.MethodPost, url, username, password, payload)
-	if err != nil {
-		return err
-	}
-	if status == http.StatusOK || status == http.StatusCreated {
-		return nil
-	}
-	if status == http.StatusConflict || strings.Contains(strings.ToLower(body), "already exists") {
-		payload["overwrite"] = true
-		status, body, err = doJSON(ctx, client, http.MethodPost, url, username, password, payload)
-		if err != nil {
-			return err
-		}
-		if status == http.StatusOK || status == http.StatusCreated {
-			return nil
-		}
-	}
-	return apiError(status, body)
+// failed is a retryable failure carrying v3's message.
+func failed(format string, args ...any) *provider.Result {
+	return &provider.Result{Success: false, Message: fmt.Sprintf(format, args...)}
 }
 
-// uploadFile POSTs a file to /mgmt/shared/file-transfer/uploads using the
-// Content-Range header the appliance expects for a single-chunk upload.
-func uploadFile(ctx context.Context, client *http.Client, host, username, password, filename, content string) error {
-	url := fmt.Sprintf("https://%s/mgmt/shared/file-transfer/uploads/%s", host, filename)
-	data := []byte(content)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
-	if err != nil {
-		return err
+// ---- helpers ----------------------------------------------------------------
+
+func credString(m map[string]any, key string) string {
+	if v, ok := m[key].(string); ok {
+		return v
 	}
-	req.SetBasicAuth(username, password)
-	req.Header.Set("Content-Type", "application/octet-stream")
-	req.Header.Set("Content-Range", fmt.Sprintf("0-%d/%d", len(data)-1, len(data)))
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("upload request failed: %w", transportError(err))
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrBody))
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return apiError(resp.StatusCode, string(body))
-	}
-	return nil
+	return ""
 }
 
-// bindClientSSLProfile creates the client-SSL profile referencing the cert+key,
-// or PATCHes an existing profile to point at them.
-func bindClientSSLProfile(ctx context.Context, client *http.Client, host, username, password, profileFull, certFull, keyFull, chainFull string) error {
-	chain := "none"
-	if chainFull != "" {
-		chain = chainFull
+func cfgString(m map[string]any, key, def string) string {
+	if v, ok := m[key].(string); ok && v != "" {
+		return v
 	}
-	create := map[string]any{
-		"name":    profileFull,
-		"cert":    certFull,
-		"key":     keyFull,
-		"chain":   chain,
-		"ciphers": "DEFAULT",
-	}
-	url := fmt.Sprintf("https://%s/mgmt/tm/ltm/profile/client-ssl", host)
-	status, body, err := doJSON(ctx, client, http.MethodPost, url, username, password, create)
-	if err != nil {
-		return err
-	}
-	if status == http.StatusOK || status == http.StatusCreated {
-		return nil
-	}
-	if status == http.StatusConflict || strings.Contains(strings.ToLower(body), "already exists") {
-		patchURL := fmt.Sprintf("https://%s/mgmt/tm/ltm/profile/client-ssl/%s", host, encodeName(profileFull))
-		patch := map[string]any{"cert": certFull, "key": keyFull, "chain": chain}
-		status, body, err = doJSON(ctx, client, http.MethodPatch, patchURL, username, password, patch)
-		if err != nil {
-			return err
-		}
-		if status == http.StatusOK {
-			return nil
-		}
-	}
-	return apiError(status, body)
+	return def
 }
 
-// certExists issues a GET for the crypto/cert object; 404 means absent.
-func certExists(ctx context.Context, client *http.Client, host, username, password, certFull string) error {
-	url := fmt.Sprintf("https://%s/mgmt/tm/sys/crypto/cert/%s", host, encodeName(certFull))
-	status, body, err := doJSON(ctx, client, http.MethodGet, url, username, password, nil)
-	if err != nil {
-		return err
-	}
-	if status == http.StatusOK {
-		return nil
-	}
-	if status == http.StatusNotFound {
-		return fmt.Errorf("certificate object not present")
-	}
-	return apiError(status, body)
-}
-
-// deleteObject issues a DELETE for a tm object; a 404 counts as already-removed.
-func deleteObject(ctx context.Context, client *http.Client, host, username, password, objType, fullName string) error {
-	url := fmt.Sprintf("https://%s/mgmt/tm/%s/%s", host, objType, encodeName(fullName))
-	status, body, err := doJSON(ctx, client, http.MethodDelete, url, username, password, nil)
-	if err != nil {
-		return err
-	}
-	if status == http.StatusOK || status == http.StatusNotFound {
-		return nil
-	}
-	return apiError(status, body)
-}
-
-// doJSON performs a JSON iControl request and returns status, body and any
-// transport error. A nil payload sends no body.
-func doJSON(ctx context.Context, client *http.Client, method, url, username, password string, payload any) (int, string, error) {
-	var bodyReader io.Reader
-	if payload != nil {
-		raw, err := json.Marshal(payload)
-		if err != nil {
-			return 0, "", fmt.Errorf("marshal request: %w", err)
-		}
-		bodyReader = bytes.NewReader(raw)
-	}
-	req, err := newJSONRequest(ctx, method, url, username, password, bodyReader)
-	if err != nil {
-		return 0, "", fmt.Errorf("build request: %w", err)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, "", fmt.Errorf("request failed: %w", transportError(err))
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrBody))
-	return resp.StatusCode, string(raw), nil
-}
-
-func newJSONRequest(ctx context.Context, method, url, username, password string, body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, method, url, body)
-	if err != nil {
-		return nil, err
-	}
-	req.SetBasicAuth(username, password)
-	req.Header.Set("Content-Type", "application/json")
-	return req, nil
-}
-
-// httpClient returns a client that skips TLS verification: BIG-IP management
-// interfaces present a self-signed certificate.
-func httpClient() *http.Client {
-	return &http.Client{
-		Timeout:       httpTimeout,
-		CheckRedirect: provider.NoRedirect,
-		Transport:     &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, // #nosec G402 -- pre-033 behaviour: BIG-IP management uses a self-signed certificate (follow-up: CA pin option)
-	}
-}
-
-// requireCreds extracts and validates the three required credentials. The
-// returned host has any scheme/trailing slash trimmed.
-func requireCreds(creds map[string]any) (host, username, password string, err error) {
-	host = hostString(creds)
-	if host == "" {
-		return "", "", "", fmt.Errorf("host is required")
-	}
-	username, _ = creds["username"].(string)
-	if username == "" {
-		return "", "", "", fmt.Errorf("username is required")
-	}
-	password, _ = creds["password"].(string)
-	if password == "" {
-		return "", "", "", fmt.Errorf("password is required")
-	}
-	return host, username, password, nil
-}
-
+// hostString returns the host credential with surrounding space, an
+// http(s):// scheme and trailing slashes removed.
 func hostString(creds map[string]any) string {
-	h, _ := creds["host"].(string)
-	h = strings.TrimSpace(h)
+	h := strings.TrimSpace(credString(creds, "host"))
 	h = strings.TrimPrefix(h, "https://")
 	h = strings.TrimPrefix(h, "http://")
 	return strings.TrimRight(h, "/")
 }
 
-// sslProfileFrom returns the configured ssl_profile and whether it is set.
-func sslProfileFrom(config map[string]any) (string, bool) {
-	v, _ := config["ssl_profile"].(string)
-	v = strings.TrimSpace(v)
-	return v, v != ""
-}
-
-func partitionFrom(config map[string]any) string {
-	if p, ok := config["partition"].(string); ok {
-		return strings.Trim(strings.TrimSpace(p), "/")
-	}
-	return ""
-}
-
-// certBaseName derives a BIG-IP-safe object base name from the certificate.
+// certBaseName is v3's object base name: the sanitised common name, else
+// "cert-" and the first eight characters of the certificate ID. v4: a short
+// or empty ID does not panic (serial, then "freya_cert", as fallbacks) and the
+// ID prefix keeps only object-name characters.
 func certBaseName(cert *provider.CertificateData) string {
 	if cert == nil {
 		return "freya_cert"
 	}
-	name := sanitizeName(cert.CommonName)
-	if name == "" {
-		id := cert.ID
-		if len(id) > 8 {
-			id = id[:8]
-		}
-		if id == "" {
-			id = sanitizeName(cert.SerialNumber)
-		}
-		if id == "" {
-			return "freya_cert"
-		}
-		name = "cert_" + id
+	if name := sanitizeName(cert.CommonName); name != "" {
+		return name
 	}
-	return name
-}
-
-// encodeName encodes a full object path (/partition/name) for use in an
-// iControl URL path segment: slashes become tildes.
-func encodeName(fullName string) string {
-	return strings.ReplaceAll(fullName, "/", "~")
-}
-
-func lastSegment(fullName string) string {
-	parts := strings.Split(fullName, "/")
-	return parts[len(parts)-1]
-}
-
-// apiError builds a client-safe error from an appliance response. The status
-// code and a bounded snippet of the body are included; credentials are never
-// part of a response body, so nothing secret is echoed.
-func apiError(status int, body string) error {
-	snippet := strings.TrimSpace(body)
-	if len(snippet) > 300 {
-		snippet = snippet[:300]
+	id := sanitizeID(cert.ID)
+	if len(id) > 8 {
+		id = id[:8]
 	}
-	if snippet == "" {
-		return fmt.Errorf("BIG-IP API error (HTTP %d)", status)
+	if id == "" {
+		id = sanitizeName(cert.SerialNumber)
 	}
-	return fmt.Errorf("BIG-IP API error (HTTP %d): %s", status, snippet)
+	if id == "" {
+		return "freya_cert"
+	}
+	return "cert-" + id
 }
 
-// transportError returns a client-safe transport error. The URL (which never
-// contains credentials, since Basic auth is set via a header) is preserved by
-// the stdlib error; this keeps the wording stable and secret-free.
-func transportError(err error) error {
-	return err
+// sanitizeID drops the characters not allowed in an object name.
+func sanitizeID(id string) string {
+	return strings.Map(func(r rune) rune {
+		if isNameRune(r) {
+			return r
+		}
+		return -1
+	}, id)
 }
 
-// sanitizeName converts a common name to a valid BIG-IP object name.
+func isNameRune(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-'
+}
+
+// sanitizeName converts a domain/common name to a valid BIG-IP resource name
+// (v3): the first "*" becomes "star", dots and every other character outside
+// [A-Za-z0-9_-] become "_", runs of "_" collapse, leading/trailing "_" are
+// trimmed and a leading digit gets a "cert_" prefix.
+//
+//	"www.example.com" → "www_example_com", "*.example.com" → "star_example_com"
 func sanitizeName(name string) string {
 	result := strings.Replace(name, "*", "star", 1)
 	result = strings.ReplaceAll(result, ".", "_")
 	result = strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
+		if isNameRune(r) {
 			return r
-		default:
-			return '_'
 		}
+		return '_'
 	}, result)
 	for strings.Contains(result, "__") {
 		result = strings.ReplaceAll(result, "__", "_")

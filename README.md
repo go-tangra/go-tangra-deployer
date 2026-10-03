@@ -180,21 +180,37 @@ certificates. A host claimed by more than one non-revoked agent is shown as
 "Several agents claim this host" and receives nothing until the stale or
 foreign agent is revoked in inventory.
 
-### Existing appliance profiles (BIG-IP `ssl_profile`, FortiGate `default_ssl_profile`)
+### Appliance profiles (BIG-IP `ssl_profile`, FortiGate `default_ssl_profile`)
 
-Both options are optional. Left empty, BIG-IP behaves as before; FortiGate
-still binds the certificate into its own profile (see below).
+Both options are optional. Left empty, BIG-IP installs the certificate
+objects only and touches no profile; FortiGate still binds the certificate
+into its own profile (see below).
 
-- **BIG-IP `ssl_profile`** names an existing client-SSL profile (a name in
-  the configuration's partition or `/Partition/name`). The deployment
-  checks that the profile exists before it uploads anything (a missing
-  profile is a permanent failure: "client-SSL profile … not found"),
-  installs the certificate, key and chain objects and then updates only
-  that profile's certificate, key and chain. It never creates the provider's
-  own `<name>_clientssl` profile in this mode, and it never deletes or
-  recreates the operator's profile. Verify checks that the profile points
-  to the deployed objects. Rollback removes the objects only once the
-  profile no longer references them; the profile itself is never touched.
+- **BIG-IP** behaves as the v3 provider (3.5.1), with two deliberate
+  differences (chain binding and rollback, below). Every Deploy, Verify and
+  Rollback first checks that the appliance answers `/mgmt/tm/sys/version`
+  (401: "authentication failed: invalid username or password"). The
+  certificate, key and chain (when present) are uploaded to
+  `/mgmt/shared/file-transfer/uploads/` (one chunk, `Content-Range`) and
+  installed as `/<partition>/<name>.crt`, `/<partition>/<name>.key` and
+  `/<partition>/<name>_chain.crt`, where `<name>` is the common name with
+  `*` → `star` and every other character outside `[A-Za-z0-9_-]` → `_`
+  (`cert-<first 8 characters of the certificate ID>` without a usable
+  common name) and `<partition>` defaults to `Common`. An object that
+  already exists (HTTP 409 or "already exists") is uploaded again and
+  installed with `overwrite`. A failed chain upload is only a warning.
+  `ssl_profile` names a client-SSL profile (a name in the partition or
+  `/Partition/name`): when it does not exist it is **created** with
+  `{name, cert, key, chain, ciphers: "DEFAULT"}` (every other setting from
+  BIG-IP's `clientssl` parent); when it exists (HTTP 409) its `cert` and
+  `key` are PATCHed — its ciphers, parent, SNI and every other setting are
+  kept. Unlike v3, the installed chain is bound as the profile's `chain`
+  (create and update); without a chain a new profile gets `chain: "none"`
+  and an update leaves the profile's chain alone. Without `ssl_profile` no
+  profile is created or touched. Verify checks that the certificate object
+  exists. Rollback removes the certificate and key (failures reported) and
+  the chain (ignored); objects already gone count as removed. Unlike v3,
+  Rollback never deletes the `ssl_profile` profile.
 - **FortiGate** behaves exactly as the v3 provider (3.5.1), selected by
   `replace_strategy`:
   - `ssl_profile` (default): the leaf certificate (never the chain) is
@@ -226,11 +242,12 @@ still binds the certificate into its own profile (see below).
   Verify reports the newest family member on the device. Rollback deletes
   every family member that nothing references any more.
 
-**Migrating from v3.** Recreate a v3 BIG-IP configuration that used
-`ssl_profile` with the profile
-name in `ssl_profile`; v4 refuses a profile that does not exist instead of
-creating it, so create the profile on the BIG-IP first. A v3 FortiGate
-configuration carries over unchanged: every v3 option has the same key and
+**Migrating from v3.** A v3 BIG-IP configuration carries over unchanged
+(`partition`, `ssl_profile`); differences from v3: `ssl_profile` may also
+be a full `/Partition/name` path, partition and profile names with a slash,
+tilde, space or a leading dot are refused before anything is sent, and
+appliance answers are scrubbed of the password and private key. A v3
+FortiGate configuration carries over unchanged: every v3 option has the same key and
 default (`rebind_references` and `prune_old` stored as v3 strings such as
 `"yes"` are still read). Differences from v3: an existing device certificate
 is reused only when it is identical (v3 compared the serial only), and
