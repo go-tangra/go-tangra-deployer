@@ -252,6 +252,7 @@ components:
         certificate_serial: { type: string }
         status: { type: string }
         status_message: { type: string }
+        error: { type: string, description: 'cause of the last failure (provider or lcm error, credentials redacted); cleared by a success' }
         progress: { type: integer }
         retry_count: { type: integer }
         max_retries: { type: integer }

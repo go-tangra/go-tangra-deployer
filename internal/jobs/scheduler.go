@@ -62,22 +62,23 @@ func (s *Service) process(ctx context.Context, log *slog.Logger, j store.Deploym
 	start := s.now()
 	cfgID := strp(j.TargetConfigurationID)
 	if cfgID == "" {
-		s.fail(ctx, &j, "job has no configuration")
+		s.failWith(ctx, &j, "job has no configuration", nil)
 		return
 	}
 	conf, err := s.st.GetConfiguration(ctx, j.TenantID, cfgID)
 	if err != nil {
-		s.fail(ctx, &j, "configuration unavailable")
+		s.failWith(ctx, &j, "configuration unavailable", err)
 		return
 	}
 	p, err := provider.Get(conf.ProviderType)
 	if err != nil {
-		s.fail(ctx, &j, "unknown provider")
+		s.failWith(ctx, &j, "unknown provider", err)
 		return
 	}
 	creds, err := s.cred.OpenCredentials(conf)
 	if err != nil {
-		s.fail(ctx, &j, "credentials unavailable")
+		// The unseal error names no secret material.
+		s.failWith(ctx, &j, "credentials unavailable", err)
 		return
 	}
 	caps := p.Capabilities()
@@ -89,19 +90,20 @@ func (s *Service) process(ctx context.Context, log *slog.Logger, j store.Deploym
 	if missing := provider.MissingRequired(caps, effective); len(missing) > 0 {
 		msg := provider.IncompleteMessage(missing)
 		s.history(ctx, j, store.ActionDeploy, store.ResultFailure, msg, 0, nil)
-		s.fail(ctx, &j, msg)
+		s.failWith(ctx, &j, msg, nil)
 		return
 	}
-	s.publish(ctx, j.TenantID, "deployment.started", j)
+	s.publish(ctx, "deployment.started", j)
 	// Providers that deliver by reference never receive the private key
 	// (FR-006): the certificate is fetched without it.
 	cert, err := s.cert.FetchCertificate(ctx, j.TenantID, j.CertificateID, !caps.DeliversByReference)
 	if err != nil {
 		if errors.Is(err, provider.ErrKeyUnavailable) {
 			// lcm holds no key for this certificate: retrying cannot help.
-			s.fail(ctx, &j, "certificate has no stored private key")
+			s.failWith(ctx, &j, "certificate has no stored private key", err)
 			return
 		}
+		setError(&j, "certificate fetch failed", err.Error(), nil)
 		s.retryOrFail(ctx, &j, "certificate fetch failed")
 		return
 	}
@@ -111,6 +113,7 @@ func (s *Service) process(ctx context.Context, log *slog.Logger, j store.Deploym
 		j.Progress = pct
 		j.StatusMessage = note
 		_ = s.st.UpdateJob(ctx, j)
+		s.publish(ctx, "job.updated", j)
 	})
 	dur := int(s.now().Sub(start).Milliseconds())
 	if derr != nil || (res != nil && !res.Success) {
@@ -118,14 +121,20 @@ func (s *Service) process(ctx context.Context, log *slog.Logger, j store.Deploym
 		var details map[string]any
 		if res != nil {
 			if res.Message != "" {
-				msg = res.Message
+				// Providers often pass an endpoint's error text through.
+				msg = provider.Redact(res.Message, creds)
 			}
 			details = res.Details
-			// Failure details (per-host states, manual-review reasons) stay
-			// visible in the job result (research D27).
-			j.Result = resultJSON(map[string]any{"message": msg, "details": details})
 		}
-		s.history(ctx, j, store.ActionDeploy, store.ResultFailure, msg, dur, details)
+		// The provider's own error is kept with the job (an endpoint echoing
+		// a credential is redacted); failure details (per-host states,
+		// manual-review reasons) stay visible in the job result (research D27).
+		detail := msg
+		if derr != nil {
+			detail = provider.Redact(derr.Error(), creds)
+		}
+		setError(&j, msg, detail, details)
+		s.history(ctx, j, store.ActionDeploy, store.ResultFailure, historyMessage(msg, detail), dur, details)
 		if res != nil && res.Permanent {
 			s.fail(ctx, &j, msg)
 			return
@@ -140,7 +149,7 @@ func (s *Service) process(ctx context.Context, log *slog.Logger, j store.Deploym
 	s.setStatus(ctx, &j, store.JobCompleted, res.Message)
 	now := s.now()
 	_ = s.st.SetConfigurationStatus(ctx, j.TenantID, conf.ID, store.ConfigActive, "", &now)
-	s.publish(ctx, j.TenantID, "deployment.completed", j)
+	s.publish(ctx, "deployment.completed", j)
 	s.aggregateFromChild(ctx, j)
 }
 
@@ -178,15 +187,36 @@ func (s *Service) retryOrFail(ctx context.Context, j *store.DeploymentJob, msg s
 		j.NextRetryAt = &next
 		j.LeaseUntil = nil
 		_ = s.st.UpdateJob(ctx, *j)
+		s.publish(ctx, "job.updated", *j)
 		return
 	}
 	s.fail(ctx, j, msg)
 }
 
+// failWith records the failure's cause on the job (err's text, or msg when
+// there is none) and fails it.
+func (s *Service) failWith(ctx context.Context, j *store.DeploymentJob, msg string, err error) {
+	detail := msg
+	if err != nil {
+		detail = err.Error()
+	}
+	setError(j, msg, detail, nil)
+	s.fail(ctx, j, msg)
+}
+
 func (s *Service) fail(ctx context.Context, j *store.DeploymentJob, msg string) {
 	s.setStatus(ctx, j, store.JobFailed, msg)
-	s.publish(ctx, j.TenantID, "deployment.failed", *j)
+	s.publish(ctx, "deployment.failed", *j)
 	s.aggregateFromChild(ctx, *j)
+}
+
+// historyMessage is the history text of a failure: the summary, plus the
+// underlying error when it says more.
+func historyMessage(msg, detail string) string {
+	if detail == "" || detail == msg {
+		return msg
+	}
+	return msg + ": " + detail
 }
 
 func (s *Service) history(ctx context.Context, j store.DeploymentJob, action, result, msg string, dur int, details map[string]any) {
@@ -238,12 +268,7 @@ func (s *Service) aggregateParent(ctx context.Context, parent store.DeploymentJo
 		parent.Status = store.JobProcessing
 		_ = s.st.UpdateJob(ctx, parent)
 	}
-}
-
-func (s *Service) publish(ctx context.Context, tenantID, typ string, j store.DeploymentJob) {
-	if s.pub != nil {
-		s.pub.Publish(ctx, tenantID, typ, map[string]any{"job_id": j.ID, "status": j.Status, "progress": j.Progress})
-	}
+	s.publish(ctx, "job.updated", parent)
 }
 
 // effective layers the parent target's per-configuration override (if any)

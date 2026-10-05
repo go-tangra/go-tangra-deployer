@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -89,21 +90,23 @@ func (s *Service) SetLogger(l *slog.Logger) { s.log = l }
 
 // View is a job as returned to clients.
 type View struct {
-	ID                    string     `json:"id"`
-	Type                  string     `json:"type"`
-	DeploymentTargetID    string     `json:"deployment_target_id,omitempty"`
-	TargetConfigurationID string     `json:"target_configuration_id,omitempty"`
-	ParentJobID           string     `json:"parent_job_id,omitempty"`
-	CertificateID         string     `json:"certificate_id"`
-	CertificateSerial     string     `json:"certificate_serial,omitempty"`
-	Status                string     `json:"status"`
-	StatusMessage         string     `json:"status_message,omitempty"`
-	Progress              int        `json:"progress"`
-	RetryCount            int        `json:"retry_count"`
-	MaxRetries            int        `json:"max_retries"`
-	TriggeredBy           string     `json:"triggered_by"`
-	CreatedAt             time.Time  `json:"created_at"`
-	CompletedAt           *time.Time `json:"completed_at,omitempty"`
+	ID                    string `json:"id"`
+	Type                  string `json:"type"`
+	DeploymentTargetID    string `json:"deployment_target_id,omitempty"`
+	TargetConfigurationID string `json:"target_configuration_id,omitempty"`
+	ParentJobID           string `json:"parent_job_id,omitempty"`
+	CertificateID         string `json:"certificate_id"`
+	CertificateSerial     string `json:"certificate_serial,omitempty"`
+	Status                string `json:"status"`
+	StatusMessage         string `json:"status_message,omitempty"`
+	// Error is the cause of the last failure (cleared by a success).
+	Error       string     `json:"error,omitempty"`
+	Progress    int        `json:"progress"`
+	RetryCount  int        `json:"retry_count"`
+	MaxRetries  int        `json:"max_retries"`
+	TriggeredBy string     `json:"triggered_by"`
+	CreatedAt   time.Time  `json:"created_at"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
 }
 
 func view(j store.DeploymentJob) View {
@@ -111,9 +114,54 @@ func view(j store.DeploymentJob) View {
 		ID: j.ID, Type: j.JobType(), DeploymentTargetID: strp(j.DeploymentTargetID),
 		TargetConfigurationID: strp(j.TargetConfigurationID), ParentJobID: strp(j.ParentJobID),
 		CertificateID: j.CertificateID, CertificateSerial: j.CertificateSerial, Status: j.Status,
-		StatusMessage: j.StatusMessage, Progress: j.Progress, RetryCount: j.RetryCount, MaxRetries: j.MaxRetries,
+		StatusMessage: j.StatusMessage, Error: jobError(j), Progress: j.Progress, RetryCount: j.RetryCount, MaxRetries: j.MaxRetries,
 		TriggeredBy: j.TriggeredBy, CreatedAt: j.CreatedAt, CompletedAt: j.CompletedAt,
 	}
+}
+
+// MaxErrorLen bounds the stored failure cause (it travels in live events).
+const MaxErrorLen = 4096
+
+// setError records a failure on the job's result: the summary (message), the
+// underlying cause (error, bounded) and the provider's details.
+func setError(j *store.DeploymentJob, msg, cause string, details map[string]any) {
+	if len(cause) > MaxErrorLen {
+		cause = strings.ToValidUTF8(cause[:MaxErrorLen], "") + "…"
+	}
+	r := map[string]any{"message": msg, "error": cause}
+	if len(details) > 0 {
+		r["details"] = details
+	}
+	j.Result = resultJSON(r)
+}
+
+// jobError reads the failure cause from the job's result ("" when none).
+func jobError(j store.DeploymentJob) string {
+	if len(j.Result) == 0 {
+		return ""
+	}
+	var r struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(j.Result, &r) != nil {
+		return ""
+	}
+	return r.Error
+}
+
+// publish emits a realtime job event on the platform bus: the job's id, its
+// parent, status, progress, message and failure cause, so an open list or
+// detail drawer updates in place.
+func (s *Service) publish(ctx context.Context, typ string, j store.DeploymentJob) {
+	if s.pub == nil {
+		return
+	}
+	v := view(j)
+	s.pub.Publish(ctx, j.TenantID, typ, map[string]any{
+		"job_id": v.ID, "type": v.Type, "parent_job_id": v.ParentJobID, "status": v.Status,
+		"status_message": v.StatusMessage, "error": v.Error, "progress": v.Progress,
+		"retry_count": v.RetryCount, "max_retries": v.MaxRetries, "completed_at": v.CompletedAt,
+	})
 }
 
 func strp(p *string) string {
@@ -372,11 +420,13 @@ func (s *Service) Cancel(ctx context.Context, subj authz.Subjects, id string, ca
 		return view(j), nil
 	}
 	s.setStatus(ctx, &j, store.JobCancelled, "cancelled")
+	s.publish(ctx, "job.updated", j)
 	if cascade {
 		kids, _ := s.st.ListChildJobs(ctx, subj.TenantID, id)
 		for _, k := range kids {
 			if k.Status == store.JobPending || k.Status == store.JobProcessing || k.Status == store.JobRetrying {
 				s.setStatus(ctx, &k, store.JobCancelled, "parent cancelled")
+				s.publish(ctx, "job.updated", k)
 			}
 		}
 	}
@@ -405,6 +455,7 @@ func (s *Service) Retry(ctx context.Context, subj authz.Subjects, id string, for
 		j.RetryCount = 0
 	}
 	_ = s.st.UpdateJob(ctx, j)
+	s.publish(ctx, "job.updated", j)
 	return view(j), nil
 }
 

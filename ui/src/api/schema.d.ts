@@ -650,6 +650,8 @@ export interface components {
             certificate_serial?: string;
             status: string;
             status_message?: string;
+            /** @description cause of the last failure (provider or lcm error, credentials redacted); cleared by a success */
+            error?: string;
             progress: number;
             retry_count: number;
             max_retries: number;

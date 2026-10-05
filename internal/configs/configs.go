@@ -20,7 +20,6 @@ import (
 	"log/slog"
 	"slices"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/go-tangra/go-tangra/v4/listquery"
@@ -602,7 +601,7 @@ func (s *Service) Validate(ctx context.Context, subj authz.Subjects, req Validat
 		}
 		s.logger().Warn("deployer: provider rejected the configuration",
 			"tenant_id", subj.TenantID, "provider_type", req.ProviderType, "configuration_id", req.ConfigurationID,
-			"err", redact(err.Error(), req.Config, creds))
+			"err", provider.Redact(err.Error(), req.Config, creds))
 		s.auditValidated(ctx, subj, req, "rejected", res.Checked)
 		return ValidateResult{}, ErrCredentialsRejected
 	}
@@ -630,38 +629,6 @@ func actorKind(subj authz.Subjects) string {
 		return subj.ActorKind
 	}
 	return audit.ActorUser
-}
-
-// redact replaces every submitted string value (config and credentials) in a
-// provider error text, so a provider that echoes its input cannot leak it
-// into the log (SR-012).
-func redact(msg string, maps ...map[string]any) string {
-	var values []string
-	var walk func(v any)
-	walk = func(v any) {
-		switch x := v.(type) {
-		case string:
-			if len(x) >= 3 {
-				values = append(values, x)
-			}
-		case []any:
-			for _, it := range x {
-				walk(it)
-			}
-		case map[string]any:
-			for _, it := range x {
-				walk(it)
-			}
-		}
-	}
-	for _, m := range maps {
-		walk(m)
-	}
-	sort.Slice(values, func(i, j int) bool { return len(values[i]) > len(values[j]) })
-	for _, v := range values {
-		msg = strings.ReplaceAll(msg, v, "[redacted]")
-	}
-	return msg
 }
 
 // OpenCredentials unseals a configuration's credentials for the worker/deploy
