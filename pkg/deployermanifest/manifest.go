@@ -93,7 +93,9 @@ func Registration() authclient.Registration {
 	for _, p := range Permissions {
 		perms = append(perms, authclient.Permission{Resource: p.Resource, Action: p.Action, Description: p.Description})
 	}
-	return authclient.Registration{Module: Module, DisplayName: DisplayName, Permissions: perms, Roles: Roles, BuiltinGrants: Grants}
+	// Grants is the complete set: a grant withdrawn here (e.g. member's
+	// jobs:read) is revoked from the built-in roles of existing tenants.
+	return authclient.Registration{Module: Module, DisplayName: DisplayName, Permissions: perms, Roles: Roles, BuiltinGrants: Grants, DeclaresGrants: true}
 }
 
 // PermissionRefs lists "resource:action" for every declared permission.
