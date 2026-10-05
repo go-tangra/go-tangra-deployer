@@ -46,11 +46,13 @@ var Permissions = []gatewayclient.Permission{
 	{Resource: "backup", Action: "manage", Description: "Export and import tenant deployment configuration"},
 }
 
-// Grants maps built-in role slugs to the permissions they hold.
+// Grants maps built-in role slugs to the permissions they hold. member does
+// not read jobs: job details and live job events (status, failure causes) go
+// to owners, admins, operators, auditors and the deployer roles only.
 var Grants = map[string][]string{
 	"owner":    PermissionRefs(),
 	"admin":    PermissionRefs(),
-	"member":   {"configurations:read", "targets:read", "jobs:read", "stats:read"},
+	"member":   {"configurations:read", "targets:read", "stats:read"},
 	"auditor":  {"stats:read", "jobs:read"},
 	"operator": {"configurations:read", "configurations:manage", "targets:read", "targets:manage", "jobs:read", "jobs:manage", "deploy:execute", "stats:read"},
 }

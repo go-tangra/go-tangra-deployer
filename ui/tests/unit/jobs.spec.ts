@@ -8,6 +8,8 @@ import Jobs from '@/views/jobs/index.vue'
 import Dashboard from '@/views/dashboard/index.vue'
 import { useLive, setPlatformBus, PLATFORM_STREAM } from '@/stores/live'
 import { LIVE_RELOAD_MS } from '@/stores/jobs'
+import { createMongoAbility } from '@casl/ability'
+import { ABILITY_TOKEN } from '@casl/vue'
 
 type Call = { url: string; init: RequestInit }
 function fetchMock(handler: (url: string, init: RequestInit) => unknown) {
@@ -283,6 +285,16 @@ describe('jobs: server paging, sorting and live events', () => {
     } finally {
       setPlatformBus(null)
     }
+  })
+
+  it('dashboard does not request jobs without jobs:read (built-in member)', async () => {
+    const calls = fetchMock((url) => (url.includes('/statistics') ? { targets_total: 3 } : { items: [], total: 0, page: 1, page_size: 25, sort: 'name', order: 'asc' }))
+    const ability = createMongoAbility([{ action: 'read', subject: 'DeployerStats' }, { action: 'read', subject: 'DeployerTarget' }])
+    const w = mount(Dashboard, { global: { plugins: [mkRouter()], provide: { [ABILITY_TOKEN as symbol]: ability } } })
+    await flushPromises()
+    expect(calls.some((c) => c.url.includes('/jobs?'))).toBe(false)
+    expect(calls.some((c) => c.url.includes('/targets?'))).toBe(true)
+    w.unmount()
   })
 
   it('dashboard falls back to list totals on its own first pages when statistics are unavailable', async () => {

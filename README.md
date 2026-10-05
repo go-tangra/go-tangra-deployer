@@ -66,6 +66,14 @@ administrators assign them or clone them into custom roles:
 | `operator` | Deployer operator | configurations:read, targets:read, jobs:read, jobs:manage, deploy:execute |
 | `viewer` | Deployer viewer | configurations:read, targets:read, jobs:read, stats:read |
 
+Built-in role grants (`pkg/deployermanifest.Grants`): `owner` and `admin`
+hold every deployer permission; `operator` everything but `backup:manage`;
+`auditor` holds `stats:read` and `jobs:read`; `member` holds
+`configurations:read`, `targets:read` and `stats:read` — **not** `jobs:read`,
+so members neither open deployment jobs nor receive live job events. auth only
+ever adds built-in grants, so a tenant created before this change keeps
+`member` → `jobs:read` until it is removed there.
+
 Skipped built-in grants (warn) and rejected roles (error) are logged as
 `auth registration: ...`.
 
