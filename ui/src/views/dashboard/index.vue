@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, inject, onMounted } from 'vue'
+import { ABILITY_TOKEN } from '@casl/vue'
 import { useTargets } from '@/stores/targets'
 import { useConfigurations } from '@/stores/configurations'
 import { useJobs } from '@/stores/jobs'
@@ -13,13 +14,18 @@ const targets = useTargets()
 const configs = useConfigurations()
 const jobs = useJobs()
 const stats = useStats()
+// The jobs fallback needs jobs:read (DeployerJob), which the dashboard's own
+// stats:read does not imply (built-in member reads statistics, not jobs).
+// Without a shell ability (standalone dev) the request is made.
+const ability = inject(ABILITY_TOKEN, null)
+const canReadJobs = !ability || ability.can('read', 'DeployerJob')
 
 // Explicit first pages: the stores are shared with the list views, whose
 // filter and page must not leak into the dashboard fallback.
 onMounted(() => {
   void targets.list({}, { page: 1, page_size: 25, sort: 'name', order: 'asc' })
   void configs.list({}, { page: 1, page_size: 25, sort: 'name', order: 'asc' })
-  void jobs.list({}, { page: 1, page_size: 25, sort: 'created_at', order: 'desc' })
+  if (canReadJobs) void jobs.list({}, { page: 1, page_size: 25, sort: 'created_at', order: 'desc' })
   void stats.load()
 })
 

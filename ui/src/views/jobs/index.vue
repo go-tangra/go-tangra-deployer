@@ -1,12 +1,13 @@
 <script setup lang="ts">
 // Deployment jobs: a filter bar (status, type), a server-paged table (whole-list
 // header sorting on the server's sort fields; page / size / sort in the URL:
-// ?jobs.page=…), live status patches, and a detail drawer whose child jobs and
-// history are server-paged too.
+// ?jobs.page=…), live status patches over the platform stream, and a detail
+// drawer — the failure cause, child jobs and history (server-paged) — that
+// follows the job live.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { UiPage, UiAlert, UiCard, UiForm, UiSelect, UiButton, UiDataTable, UiStatusChip, UiBadge, UiLiveIndicator, UiDrawer, UiKeyValueTable, useListQuery, type Column, type SelectOption } from '@go-tangra/ui'
 import { useZodForm } from '@go-tangra/ui/forms'
-import { DETAIL_LIST, JOB_LIST, useJobs, type JobFilter } from '@/stores/jobs'
+import { DETAIL_LIST, JOB_LIST, LIVE_RELOAD_MS, patchJob, useJobs, type JobEvent, type JobFilter } from '@/stores/jobs'
 import { useLive } from '@/stores/live'
 import { describe } from '@/api/client'
 import { jobFilterSchema, JOB_STATUSES, JOB_TYPES } from '@/schemas'
@@ -36,11 +37,17 @@ function applyFilter(f: JobFilter): void {
 }
 
 let release: (() => void) | null = null
+let offLive: (() => void) | null = null
 onMounted(() => {
   void fetchJobs()
+  offLive = live.on(onLive)
   release = live.connect()
 })
-onUnmounted(() => release?.())
+onUnmounted(() => {
+  offLive?.()
+  release?.()
+  if (detailTimer) clearTimeout(detailTimer)
+})
 const statusOptions: SelectOption[] = JOB_STATUSES.map((s) => ({ title: s, value: s }))
 const typeOptions: SelectOption[] = JOB_TYPES.map((s) => ({ title: s, value: s }))
 const filter = useZodForm(jobFilterSchema, { onSubmit: (f) => applyFilter({ status: f.status, job_type: f.job_type }) })
@@ -128,6 +135,36 @@ const hostColumns: Column<HostResult & Record<string, unknown>>[] = [
   { key: 'reason', label: 'Reason' },
 ]
 
+// --- live updates of the open drawer ---
+let detailTimer: ReturnType<typeof setTimeout> | null = null
+/** Reloads the drawer's children, history and result after a quiet period. */
+function refreshDetail(): void {
+  if (detailTimer) clearTimeout(detailTimer)
+  detailTimer = setTimeout(() => {
+    detailTimer = null
+    if (drawer.value) void load()
+  }, LIVE_RELOAD_MS)
+}
+/**
+ * A job event for the open job patches it (status, progress, message, error);
+ * a status change also reloads its history and result. An event for one of its
+ * children patches that row, or reloads the children when it is not listed.
+ */
+function onLive(type: string, data: unknown): void {
+  const sel = selected.value
+  const ev = (data ?? {}) as JobEvent
+  const id = ev.job_id ?? ev.id
+  if (!drawer.value || !sel || !id) return
+  if (id === sel.id) {
+    selected.value = patchJob(sel, ev)
+    if (type !== 'job.updated' || (ev.status && ev.status !== sel.status)) refreshDetail()
+  } else if (ev.parent_job_id === sel.id) {
+    const i = children.value.findIndex((c) => c.id === id)
+    if (i >= 0) children.value[i] = patchJob(children.value[i]!, ev)
+    else refreshDetail()
+  }
+}
+
 async function load(): Promise<void> {
   error.value = ''
   await Promise.all([fetchChildren(), fetchHistory(), fetchResult()])
@@ -166,7 +203,7 @@ const retry = () => job.value && run(() => store.retry(job.value!.id))
 const verify = () => job.value && run(async () => (action.value = await store.verify(job.value!.id)))
 const rollback = () => job.value && run(async () => (action.value = await store.rollback(job.value!.id)))
 const meta = computed(() => (job.value ? [{ label: 'Certificate', value: job.value.certificate_id, copyable: true }, { label: 'Serial', value: job.value.certificate_serial }, { label: 'Retries', value: `${job.value.retry_count} / ${job.value.max_retries}` }, { label: 'Message', value: job.value.status_message }] : []))
-const childColumns: Column<Job>[] = [{ key: 'target_configuration_id', label: 'Configuration' }, { key: 'status', label: 'Status', width: 'sm' }, { key: 'progress', label: 'Progress', align: 'end', format: (c) => c.progress + '%' }, { key: 'created_at', label: 'Created', sortable: true, defaultDir: 'desc', hideOnStack: true, format: (c) => when(c.created_at) }]
+const childColumns: Column<Job>[] = [{ key: 'target_configuration_id', label: 'Configuration' }, { key: 'status', label: 'Status', width: 'sm' }, { key: 'progress', label: 'Progress', align: 'end', format: (c) => c.progress + '%' }, { key: 'error', label: 'Error', format: (c) => c.error ?? '' }, { key: 'created_at', label: 'Created', sortable: true, defaultDir: 'desc', hideOnStack: true, format: (c) => when(c.created_at) }]
 const historyColumns: Column<HistoryRow>[] = [{ key: 'action', label: 'Action' }, { key: 'result', label: 'Result', width: 'sm' }, { key: 'duration_ms', label: 'Duration', align: 'end', format: (h) => h.duration_ms + ' ms' }, { key: 'message', label: 'Message' }, { key: 'created_at', label: 'When', sortable: true, defaultDir: 'desc', hideOnStack: true, format: (h) => when(h.created_at) }]
 </script>
 
@@ -196,6 +233,9 @@ const historyColumns: Column<HistoryRow>[] = [{ key: 'action', label: 'Action' }
         <UiAlert v-if="action" :kind="action.success ? 'success' : 'warning'" class="mb-3">{{ action.action }}: {{ action.message || (action.success ? 'ok' : 'failed') }}</UiAlert>
         <div class="mb-2 flex flex-wrap gap-1"><UiStatusChip :status="job.status" :colors="statusColors" /><UiBadge>{{ job.type }}</UiBadge><UiBadge>{{ job.triggered_by }}</UiBadge></div>
         <progress class="progress mb-3 h-1.5 w-full" :class="progressClass[job.status]" :value="job.progress" max="100" aria-label="Job progress" />
+        <UiAlert v-if="job.error" :kind="job.status === 'failed' ? 'error' : 'warning'" :title="job.status === 'failed' ? 'Deployment failed' : 'Last error'" class="mb-3" data-test="job-error">
+          <pre class="whitespace-pre-wrap break-words font-mono text-xs">{{ job.error }}</pre>
+        </UiAlert>
         <UiKeyValueTable :items="meta" class="mb-3" />
         <section v-if="delivery" class="mb-3" data-test="job-hosts">
           <h3 class="mb-1 text-sm font-medium">Hosts<template v-if="delivery.name"> · {{ delivery.name }}</template></h3>

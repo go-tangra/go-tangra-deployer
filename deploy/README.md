@@ -76,8 +76,16 @@ per attached configuration; deploying to a single configuration creates a
 **direct** job. A distributed worker pool claims due jobs (single-winner lease),
 runs child/direct jobs (parents aggregate: completed/failed/partial), and
 retries with exponential backoff up to `max_retries`. Live progress is published
-as `deployment.started` / `deployment.completed` / `deployment.failed` for the
-gateway SSE hub, so the UI updates without polling. A cleanup worker deletes jobs
+as `deployment.started` / `deployment.completed` / `deployment.failed` /
+`job.updated` (status, progress, message, failure cause) to the platform event
+bus, which the gateway relays at `/gateway/v1/stream`, so the UI updates without
+polling. Job events are **addressed only to the tenant's members holding
+`deployer` `jobs:read`**, never broadcast: the deployer resolves them through
+auth (`Profiles/ListMembers` + `Authorization/Check`, cached 30 s, so a grant or
+revocation takes effect within that window) and drops an event when auth is
+unreachable with nothing cached. auth's `deploy/policy.yaml` must allow the
+deployer's SPIFFE id to call `/auth.v1.Profiles/ListMembers`. A failed job keeps
+the provider's or lcm's error (`error`, credentials redacted) until it succeeds. A cleanup worker deletes jobs
 older than the configured retention.
 
 ## Security notes

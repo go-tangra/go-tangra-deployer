@@ -66,6 +66,18 @@ administrators assign them or clone them into custom roles:
 | `operator` | Deployer operator | configurations:read, targets:read, jobs:read, jobs:manage, deploy:execute |
 | `viewer` | Deployer viewer | configurations:read, targets:read, jobs:read, stats:read |
 
+Built-in role grants (`pkg/deployermanifest.Grants`): `owner` and `admin`
+hold every deployer permission; `operator` everything but `backup:manage`;
+`auditor` holds `stats:read` and `jobs:read`; `member` holds
+`configurations:read`, `targets:read` and `stats:read` — **not** `jobs:read`,
+so members neither open deployment jobs nor receive live job events. The
+registration declares this grant set complete (`DeclaresGrants`, auth SDK
+`sdk/v4.3.0`), so auth also revokes a withdrawn grant from the built-in roles
+of existing tenants at the next registration (within five minutes; logged as
+`auth registration: built-in grants revoked`). This needs an auth with
+`declares_builtin_grants` (go-tangra-auth#15); an older auth ignores the flag
+and only adds grants.
+
 Skipped built-in grants (warn) and rejected roles (error) are logged as
 `auth registration: ...`.
 

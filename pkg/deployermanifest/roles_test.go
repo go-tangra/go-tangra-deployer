@@ -59,6 +59,9 @@ func TestRegistration(t *testing.T) {
 			t.Errorf("permission %d: %+v", i, got)
 		}
 	}
+	if !reg.DeclaresGrants || !reg.Request().GetDeclaresBuiltinGrants() {
+		t.Fatal("the built-in grant set must be declared complete (withdrawn grants are revoked)")
+	}
 	for _, slug := range []string{"owner", "admin", "member", "auditor", "operator"} {
 		if !slices.Equal(reg.BuiltinGrants[slug], deployermanifest.Grants[slug]) {
 			t.Errorf("grant %s: %v", slug, reg.BuiltinGrants[slug])
