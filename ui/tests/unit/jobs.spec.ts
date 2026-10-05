@@ -6,7 +6,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import Jobs from '@/views/jobs/index.vue'
 import Dashboard from '@/views/dashboard/index.vue'
-import { useLive } from '@/stores/live'
+import { useLive, setPlatformBus, PLATFORM_STREAM } from '@/stores/live'
 import { LIVE_RELOAD_MS } from '@/stores/jobs'
 
 type Call = { url: string; init: RequestInit }
@@ -216,6 +216,73 @@ describe('jobs: server paging, sorting and live events', () => {
     await flushPromises()
     expect(document.body.querySelector('aside[role=dialog] [data-test=job-hosts]')).toBeNull()
     w.unmount()
+  })
+
+  it('the drawer shows the failure cause and follows the job live (status, error, history)', async () => {
+    const calls = fetchMock(server(1, (url) => {
+      if (url.includes('/jobs/e1/result')) return { ...job('e1'), result: { message: 'ok' }, history: [] }
+      if (url.includes('/history?')) return { items: [], total: 0, page: 1, page_size: 10, sort: 'created_at', order: 'desc' }
+      if (url.startsWith('/api/deployer/v1/jobs?')) return { items: [job('e1', { status: 'retrying', error: 'lcm down' })], total: 1, page: 1, page_size: 25, sort: 'created_at', order: 'desc' }
+      return undefined
+    }))
+    const r = mkRouter()
+    await r.push('/deployer/jobs')
+    const w = mount(Jobs, { global: { plugins: [r] }, attachTo: document.body })
+    await flushPromises()
+    await w.find('[data-test="job-row-e1"]').trigger('click')
+    await flushPromises()
+    const alert = () => document.body.querySelector('aside[role=dialog] [data-test=job-error]')
+    expect(alert()!.textContent).toContain('Last error')
+    expect(alert()!.textContent).toContain('lcm down')
+    const histories = () => calls.filter((c) => c.url.includes('/jobs/e1/history?')).length
+    const before = histories()
+
+    vi.useFakeTimers()
+    // A progress tick patches in place without reloading the detail.
+    useLive()._emit('job.updated', JSON.stringify({ job_id: 'e1', status: 'retrying', progress: 40, error: 'lcm down' }))
+    await vi.advanceTimersByTimeAsync(LIVE_RELOAD_MS + 1)
+    expect(histories()).toBe(before)
+    // The failure replaces the cause and reloads history and result.
+    useLive()._emit('deployment.failed', JSON.stringify({ job_id: 'e1', status: 'failed', progress: 40, status_message: 'deployment failed', error: 'endpoint said 401: invalid token [redacted]' }))
+    await vi.advanceTimersByTimeAsync(LIVE_RELOAD_MS + 1)
+    vi.useRealTimers()
+    await flushPromises()
+    expect(alert()!.textContent).toContain('Deployment failed')
+    expect(alert()!.textContent).toContain('invalid token [redacted]')
+    expect(histories()).toBeGreaterThan(before)
+    // A success clears the cause.
+    useLive()._emit('deployment.completed', JSON.stringify({ job_id: 'e1', status: 'completed', progress: 100, error: '' }))
+    await flushPromises()
+    expect(alert()).toBeNull()
+    w.unmount()
+  })
+
+  it('subscribes through the shell bus when booted, else opens the gateway stream', () => {
+    const opened: string[] = []
+    vi.stubGlobal('EventSource', class extends FakeSource { constructor(url: string) { super(); opened.push(url) } })
+    const live = useLive()
+    const release = live.connect()
+    expect(opened).toEqual([PLATFORM_STREAM])
+    release()
+
+    const subs: string[] = []
+    const handlers = new Map<string, (d: unknown) => void>()
+    setPlatformBus({ on: (t, fn) => { subs.push(t); handlers.set(t, fn); return () => handlers.delete(t) } })
+    try {
+      const seen: unknown[] = []
+      const off = live.on((t, d) => seen.push([t, d]))
+      const rel = live.connect()
+      expect(opened).toHaveLength(1) // no second connection
+      expect(subs).toEqual(['deployment.started', 'deployment.completed', 'deployment.failed', 'job.updated'])
+      expect(live.connected).toBe(true)
+      handlers.get('deployment.failed')!({ job_id: 'x', status: 'failed', error: 'boom' })
+      expect(seen).toEqual([['deployment.failed', { job_id: 'x', status: 'failed', error: 'boom' }]])
+      rel()
+      off()
+      expect(handlers.size).toBe(0)
+    } finally {
+      setPlatformBus(null)
+    }
   })
 
   it('dashboard falls back to list totals on its own first pages when statistics are unavailable', async () => {

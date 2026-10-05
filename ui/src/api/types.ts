@@ -166,6 +166,8 @@ export interface Job {
   certificate_serial?: string
   status: JobStatus
   status_message?: string
+  /** The cause of the last failure (provider or lcm error); cleared by a success. */
+  error?: string
   progress: number
   retry_count: number
   max_retries: number
@@ -184,7 +186,7 @@ export interface HistoryEntry {
 }
 
 export interface JobResult extends Job {
-  result?: { message?: string; details?: Record<string, unknown> } | null
+  result?: { message?: string; error?: string; details?: Record<string, unknown> } | null
   history: HistoryEntry[]
   children?: Job[]
 }

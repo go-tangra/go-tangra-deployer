@@ -22,12 +22,30 @@ export interface JobFilter extends Record<string, string | undefined> {
   target_id?: string | undefined
 }
 
-/** A live job event payload (deployment.completed / deployment.failed / job.updated). */
+/** A live job event payload (deployment.started|completed|failed, job.updated). */
 export interface JobEvent {
   job_id?: string
   id?: string
+  parent_job_id?: string
   status?: JobStatus
+  status_message?: string
+  /** The cause of the last failure; "" once a deployment succeeds. */
+  error?: string
   progress?: number
+  retry_count?: number
+  completed_at?: string | null
+}
+
+/** The job with the event's fields applied (fields the event omits are kept). */
+export function patchJob(cur: Job, ev: JobEvent): Job {
+  const next: Job = { ...cur }
+  if (ev.status) next.status = ev.status
+  if (typeof ev.progress === 'number') next.progress = ev.progress
+  if (typeof ev.status_message === 'string') next.status_message = ev.status_message
+  if (typeof ev.error === 'string') next.error = ev.error
+  if (typeof ev.retry_count === 'number') next.retry_count = ev.retry_count
+  if (typeof ev.completed_at === 'string') next.completed_at = ev.completed_at
+  return next
 }
 
 export const useJobs = defineStore('deployer-jobs', () => {
@@ -88,8 +106,8 @@ export const useJobs = defineStore('deployer-jobs', () => {
   }
 
   /**
-   * Applies a live event: a job on the current page has its status and
-   * progress patched in place; any other job (new, or on another page) causes
+   * Applies a live event: a job on the current page has its status, progress,
+   * message and error patched in place; any other job (new, or on another page) causes
    * a debounced reload of the current page so totals and order stay right.
    */
   function applyEvent(ev: JobEvent): void {
@@ -100,8 +118,7 @@ export const useJobs = defineStore('deployer-jobs', () => {
       scheduleReload()
       return
     }
-    const cur = paged.items.value[i]!
-    paged.items.value[i] = { ...cur, ...(ev.status ? { status: ev.status } : {}), ...(typeof ev.progress === 'number' ? { progress: ev.progress } : {}) }
+    paged.items.value[i] = patchJob(paged.items.value[i]!, ev)
   }
 
   return { ...paged, result, children, history, cancel, retry, verify, rollback, patch, applyEvent, scheduleReload, cancelReload }

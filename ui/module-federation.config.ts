@@ -23,6 +23,7 @@ export const remoteConfig = {
   exposes: {
     './routes': './src/remote/routes.ts',
     './nav': './src/remote/nav.ts',
+    './boot': './src/remote/boot.ts',
   },
   shared,
   // The shell loads remotes at runtime; no consumer imports generated types.

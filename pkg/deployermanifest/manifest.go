@@ -168,7 +168,7 @@ func Manifest() (gatewayclient.Manifest, error) {
 		Methods:     Methods,
 		Permissions: Permissions,
 		Abilities:   Abilities,
-		Exposes:     []string{"./routes", "./nav"},
+		Exposes:     []string{"./routes", "./nav", "./boot"},
 		Nav:         Nav,
 	}, nil
 }
