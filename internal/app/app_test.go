@@ -27,6 +27,7 @@ import (
 	"github.com/go-tangra/go-tangra/v4"
 
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/app"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/audience"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/config"
 
 	_ "github.com/go-tangra/go-tangra-deployer/v4/internal/providers/all"
@@ -120,6 +121,7 @@ func options() app.Options {
 		Migrate:  true,
 		KEK:      make([]byte, 32),
 		Verifier: fakeVerifier{},
+		Audience: audience.Static{},
 		Freya:    []freya.Option{freya.WithInsecureLocalDev(), freya.WithAllowAllPolicy()},
 	}
 }

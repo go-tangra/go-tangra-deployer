@@ -20,6 +20,7 @@ import (
 	"github.com/go-tangra/go-tangra-auth/sdk/v4/pkg/authclient"
 	"github.com/go-tangra/go-tangra-portal/sdk/v4/pkg/gatewayclient"
 
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/audience"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/audit"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/config"
@@ -53,6 +54,8 @@ type Options struct {
 	Logger   slog.Handler
 	KEK      []byte
 	Verifier httpapi.Verifier
+	// Audience resolves who may receive job events (nil: the auth service).
+	Audience audience.Resolver
 	Freya    []freya.Option
 	Migrate  bool
 	Remote   fs.FS // built federated UI remote (nil serves no remote)
@@ -82,12 +85,30 @@ type App struct {
 	workers []func(context.Context)
 }
 
-// hubPublisher forwards realtime events to the platform bus.
-type hubPublisher struct{ hub *stream.Hub }
+// hubPublisher forwards job events to the platform bus, addressed to the
+// tenant's users holding jobs:read only — never broadcast to the tenant. When
+// the readers cannot be resolved the event is dropped (fail closed); the
+// jobs API still serves the state.
+type hubPublisher struct {
+	hub     *stream.Hub
+	readers audience.Resolver
+	log     *slog.Logger
+}
 
 func (p hubPublisher) Publish(ctx context.Context, tenantID, eventType string, payload any) {
-	if p.hub != nil {
-		_, _ = p.hub.PublishID(ctx, tenantID, nil, true, eventType, payload, false)
+	if p.hub == nil || p.readers == nil {
+		return
+	}
+	users, err := p.readers.JobReaders(ctx, tenantID)
+	if err != nil {
+		p.log.Warn("deployer: job event not sent: readers unavailable", "tenant_id", tenantID, "event", eventType, "err", err)
+		return
+	}
+	for i := 0; i < len(users); i += stream.MaxTargets {
+		to := users[i:min(i+stream.MaxTargets, len(users))]
+		if _, err := p.hub.PublishID(ctx, tenantID, to, false, eventType, payload, false); err != nil {
+			p.log.Warn("deployer: job event not sent", "tenant_id", tenantID, "event", eventType, "err", err)
+		}
 	}
 }
 
@@ -150,16 +171,22 @@ func Build(ctx context.Context, cfg config.Config, o Options) (a *App, err error
 	a.Repo = repodb.New(a.Store)
 	az := authz.New(a.Repo)
 
-	// Verifier (platform token) from auth.
+	// Verifier (platform token) and the job-event audience from auth.
 	a.Verifier = o.Verifier
-	if a.Verifier == nil {
+	readers := o.Audience
+	if a.Verifier == nil || readers == nil {
 		conn, cerr := a.Freya.Client(ctx, "auth")
 		if cerr != nil {
 			return nil, fmt.Errorf("auth client: %w", cerr)
 		}
-		a.Verifier = authclient.New(authclient.Config{Issuer: cfg.Gateway.Issuer},
-			authclient.GRPCKeys{Client: authv1.NewKeysClient(conn)},
-			authclient.GRPCRevocations{Client: authv1.NewSessionsClient(conn)})
+		if a.Verifier == nil {
+			a.Verifier = authclient.New(authclient.Config{Issuer: cfg.Gateway.Issuer},
+				authclient.GRPCKeys{Client: authv1.NewKeysClient(conn)},
+				authclient.GRPCRevocations{Client: authv1.NewSessionsClient(conn)})
+		}
+		if readers == nil {
+			readers = audience.New(conn)
+		}
 	}
 
 	// lcm client (mTLS to lcm's browser API port).
@@ -196,7 +223,7 @@ func Build(ctx context.Context, cfg config.Config, o Options) (a *App, err error
 	cs.SetAuditor(aw)
 	ds := deploy.New(a.Repo, az)
 	tgs := targets.New(a.Repo, az)
-	a.Jobs = jobs.New(a.Repo, az, lcmC, cs, hubPublisher{a.Hub}, jobs.Config{
+	a.Jobs = jobs.New(a.Repo, az, lcmC, cs, hubPublisher{hub: a.Hub, readers: readers, log: a.Log}, jobs.Config{
 		Workers: cfg.Jobs.Workers, Interval: cfg.Interval(), Lease: cfg.Lease(), JobTimeout: cfg.JobTimeout(),
 		MaxRetries: cfg.Jobs.MaxRetries, RetryDelay: cfg.RetryDelay(), Backoff: cfg.Jobs.BackoffMultiplier, Cleanup: cfg.CleanupWindow(),
 	})
