@@ -45,7 +45,8 @@ LABEL org.opencontainers.image.source="https://github.com/go-tangra/go-tangra-de
       org.opencontainers.image.title="go-tangra-deployer" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}"
-RUN apk add --no-cache ca-certificates postgresql-client && adduser -D -u 10001 app
+# /state is owned by app so a named volume mounted there (join bundle) is writable.
+RUN apk add --no-cache ca-certificates postgresql-client && adduser -D -u 10001 app && install -d -o app -g app -m 0700 /state
 COPY --from=build /out/deployersvc /usr/local/bin/
 COPY deploy /app/deploy
 WORKDIR /app

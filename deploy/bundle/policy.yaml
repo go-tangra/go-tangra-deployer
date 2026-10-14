@@ -1,0 +1,9 @@
+# Freya service-to-service policy for deployer (rendered for this core's
+# trust domain): deny by default; only the gateway reaches the module.
+version: deployer-join-1
+rules:
+  - id: gateway-forwards
+    from: ["spiffe://${TRUST_DOMAIN}/svc/gateway"]
+    to: ["deployer"]
+    operations: ["GET *", "HEAD *", "POST *", "PUT *"]
+    effect: allow
