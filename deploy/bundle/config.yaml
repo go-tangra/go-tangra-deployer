@@ -1,0 +1,41 @@
+# deployer configuration, rendered by the gateway's add-module wizard: every
+# ${...} below was filled from the core's own configuration, generated values
+# or the inputs given in the wizard.
+service_name: deployer
+trust_domain: ${TRUST_DOMAIN}
+env: production
+identity:
+  provider: provided
+enroll:
+  enabled: true
+  enroll_url: ${LCM_ENROLL_URL}
+  lcm_grpc: ${LCM_GRPC}
+  tenant_id: ${MESH_TENANT_ID}
+  token_file: /tokens/enrollment.token
+  state_file: /state/svid.json
+authz: { source: file, path: /app/policy.yaml }
+server: { grpc_addr: 0.0.0.0:9945, http_addr: 0.0.0.0:9946 }
+admin: { addr: 127.0.0.1:9690 }
+discovery:
+  static:
+    gateway: ["${GATEWAY_GRPC}"]
+    auth: ["${AUTH_GRPC}"]
+    lcm: ["${LCM_GRPC}"]
+limits: { max_request_bytes: 16842752 }
+limits_deployer: { backup_max_bytes: 16777216, config_max_bytes: 16384, filter_max_length: 256 }
+db:
+  dsn: postgres://deployer_app:${GEN_PASSWORD_2}@deployer-db:5432/deployer?sslmode=verify-full&sslrootcert=/tls/ca.pem
+  migrate_dsn: postgres://postgres:${GEN_PASSWORD_1}@deployer-db:5432/deployer?sslmode=verify-full&sslrootcert=/tls/ca.pem
+  max_conns: 16
+# The core's event bus: certificate events drive auto-deploy; job events
+# reach the browser through the gateway.
+valkey:
+  addresses: ["${VALKEY_ADDRESS}"]
+  username: deployer
+  password: "${VALKEY_PASSWORD}"
+  ca_file: /tls/valkey-ca.pem
+kek: { source: env, env: DEPLOYER_KEK }
+jobs: { workers: 5, interval_seconds: 5, lease_seconds: 300, max_retries: 3, retry_delay_seconds: 60, backoff_multiplier: 2.0, job_timeout_seconds: 300, cleanup_days: 30 }
+events: { enabled: true }
+gateway: { service: gateway, issuer: ${GATEWAY_ISSUER} }
+lcm: { service: lcm }

@@ -1,0 +1,54 @@
+# deployer join bundle, rendered by the gateway's add-module wizard.
+#   docker compose up -d
+# Values come from .env (written by the gateway: core addresses, generated
+# passwords and keys, and the host inputs you gave). private/ holds the
+# single-use enrolment token, the mesh CA and this bundle's own TLS material.
+name: tangra-deployer
+services:
+  deployer-db:
+    image: timescale/timescaledb:2.17.2-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: deployer
+      POSTGRES_PASSWORD: ${GEN_PASSWORD_1}
+      DEPLOYER_APP_PASSWORD: ${GEN_PASSWORD_2}
+    # The server key must belong to the postgres user: copy it before start.
+    entrypoint: ["sh", "-c", "install -d -o postgres -m 0700 /tls-pg && install -o postgres -m 0600 /tls/deployer-db.key /tls-pg/server.key && install -o postgres -m 0644 /tls/deployer-db.crt /tls-pg/server.crt && exec docker-entrypoint.sh \"$$@\"", "--"]
+    command: ["postgres", "-c", "ssl=on", "-c", "ssl_cert_file=/tls-pg/server.crt", "-c", "ssl_key_file=/tls-pg/server.key"]
+    volumes:
+      - deployer-db:/var/lib/postgresql/data
+      - ./private/tls:/tls:ro
+      - ./init-db.sh:/docker-entrypoint-initdb.d/10-app-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d deployer"]
+      interval: 5s
+      retries: 30
+  deployer:
+    image: ${MODULE_IMAGE}:${MODULE_VERSION}
+    restart: unless-stopped
+    # Applies its migrations on start, then serves.
+    command: ["-config", "/app/config.yaml"]
+    environment:
+      DEPLOYER_KEK: ${GEN_KEY_1}
+      FREYA_ADVERTISE_HOST: ${MODULE_ADVERTISE_HOST}
+    ports:
+      - "${MODULE_BIND_IP}:9945:9945"
+      - "${MODULE_BIND_IP}:9946:9946"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./policy.yaml:/app/policy.yaml:ro
+      - ./private/enrollment.token:/tokens/enrollment.token:ro
+      - ./private/tls/ca.pem:/tls/ca.pem:ro
+      - ${VALKEY_CA_FILE}:/tls/valkey-ca.pem:ro
+      - deployer-state:/state
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9690/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+    depends_on:
+      deployer-db: { condition: service_healthy }
+volumes:
+  deployer-db: {}
+  deployer-state: {}
