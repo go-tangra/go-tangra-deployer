@@ -6,8 +6,6 @@ order: 20
 tags: [deployer, configurations, providers, credentials]
 requires: configurations:read
 ---
-# Manage configurations
-
 A configuration is one endpoint the deployer can install certificates on: a
 provider, its settings and its credentials. Everyone with
 `configurations:read` can list and open configurations; creating, changing,

@@ -6,8 +6,6 @@ order: 40
 tags: [deployer, jobs, retry, rollback, verify, troubleshooting]
 requires: jobs:read
 ---
-# Follow, retry, verify and roll back jobs
-
 Every deployment is a job. Open **Deployer → Jobs** to see them, newest
 first. The list updates live: you do not need to refresh. You can filter it
 by status and job type.

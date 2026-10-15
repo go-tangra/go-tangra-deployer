@@ -5,8 +5,6 @@ kind: reference
 order: 60
 tags: [deployer, reference, jobs, states, permissions, api, limits]
 ---
-# Reference
-
 ## Job fields
 
 | Field | Meaning |

@@ -5,8 +5,6 @@ kind: guide
 order: 0
 tags: [deployer, certificates, overview]
 ---
-# Deployer
-
 The deployer takes certificates issued by **lcm** (the Certificates module) and
 installs them on your infrastructure. It can deploy on demand, or
 automatically whenever lcm issues or renews a certificate that matches your

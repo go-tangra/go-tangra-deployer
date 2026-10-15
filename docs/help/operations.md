@@ -6,8 +6,6 @@ order: 90
 tags: [deployer, operations, configuration, policy, troubleshooting]
 audience: operator
 ---
-# Operate the deployer
-
 The deployer runs as `deployersvc` (image `ghcr.io/go-tangra/go-tangra-deployer`).
 
 ```sh

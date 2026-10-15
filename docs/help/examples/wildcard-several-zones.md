@@ -6,8 +6,6 @@ order: 50
 tags: [deployer, example, cloudflare, wildcard, auto-deploy, overrides]
 requires: targets:manage
 ---
-# Example: one Cloudflare token, several zones
-
 **Goal.** Your company has two domains on Cloudflare, `example.com` and
 `example.net`. lcm issues a wildcard certificate for each. Whenever either
 certificate is issued or renewed, it should be uploaded to its own zone,
@@ -49,17 +47,21 @@ Create two targets in **Deployer → Targets**, each with
 the `example.net` certificate. Each certificate therefore reaches exactly one
 target.
 
-The same through the API (the zone ID is a 32-character hex string):
+The same through the API. Create the target with
+`POST /api/deployer/v1/targets`:
 
 ```json
-POST /api/deployer/v1/targets
 {
   "name": "example-com",
   "auto_deploy": true,
   "certificate_filters": [{"common_name_pattern": "*.example.com"}]
 }
+```
 
-POST /api/deployer/v1/targets/<target id>/configurations
+Then attach the configuration and supply the zone (a 32-character hex
+string) with `POST /api/deployer/v1/targets/<target id>/configurations`:
+
+```json
 {
   "configuration_ids": ["<cloudflare-main id>"],
   "config_overrides": {

@@ -6,8 +6,6 @@ order: 30
 tags: [deployer, targets, auto-deploy, filters, renewal]
 requires: targets:read
 ---
-# Deploy automatically on issue and renewal
-
 A **target** groups configurations. With **auto-deploy** on, the deployer
 watches lcm: whenever lcm issues or renews a certificate that matches one of
 the target's filters, it deploys that certificate to every configuration
@@ -86,13 +84,10 @@ go (URLs, the appliance host) are never overridable. See
 
 The portal deploys by hand to one configuration at a time. To deploy a
 certificate to every configuration of a target at once, call the API with the
-`deploy:execute` permission:
+`deploy:execute` permission: `POST /api/deployer/v1/deploy/target` with
+the `X-CSRF-Token` header and this JSON body:
 
-```http
-POST /api/deployer/v1/deploy/target
-Content-Type: application/json
-X-CSRF-Token: <token>
-
+```json
 {"certificate_id": "<lcm certificate id>", "target_id": "<target id>"}
 ```
 

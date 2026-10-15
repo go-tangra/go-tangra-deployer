@@ -6,8 +6,6 @@ order: 10
 tags: [deployer, getting-started, dummy]
 requires: configurations:manage
 ---
-# Get started
-
 This walk-through deploys a certificate to the **Dummy** provider, which
 installs nothing and always succeeds. It shows the whole flow without touching
 real infrastructure.
