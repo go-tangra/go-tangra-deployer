@@ -137,6 +137,10 @@ func TestBuildWiresTheService(t *testing.T) {
 	if a.Freya == nil || a.Store == nil || a.Repo == nil || a.Env == nil || a.HTTP == nil || a.Jobs == nil || a.Hub == nil {
 		t.Fatalf("app not fully wired: %+v", a)
 	}
+	// The embedded help pages are loaded; their digest goes to the gateway.
+	if a.Docs.Empty() || a.Docs.Digest == "" {
+		t.Fatal("help docs not loaded")
+	}
 
 	// The wired HTTP surface serves the deployer API: the providers catalogue is
 	// reachable with the injected admin token and rejects an anonymous caller.
