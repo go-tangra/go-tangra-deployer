@@ -25,14 +25,18 @@ You need the `configurations:manage` and `deploy:execute` permissions (the
 
 ## 2. Find a certificate
 
-The deployer deploys certificates that lcm issued. Open **Certificates**,
-pick a certificate (or issue one) and copy its ID.
+The deployer deploys certificates that lcm issued or imported. Note the host
+name of a certificate in lcm's **Certificates** (or issue one); you look it up
+by that name when you deploy.
 
 ## 3. Deploy
 
 1. Back in **Deployer → Configurations**, choose **Deploy** on the
    `test-dummy` row.
-2. Paste the certificate ID into **Certificate ID** and confirm.
+2. Type the certificate's host name (or part of it) into **Host name** and pick
+   the certificate from the list. lcm's live certificates for that name are
+   listed: exact names first, then a wildcard certificate covering it. An exact
+   or only match is preselected. Then confirm.
 3. A message confirms that the deployment started and shows the job ID.
 
 ## 4. Watch the job

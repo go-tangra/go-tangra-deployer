@@ -47,6 +47,7 @@ cannot help, for example:
   value is missing; fill it in on the configuration or the target;
 - `certificate has no stored private key` — lcm holds no key for this
   certificate, and the provider needs one;
+- `certificate not found in lcm` — lcm has no certificate with this ID;
 - `credentials unavailable` — the stored credentials could not be opened;
 - `no hosts matched` — the Inventory agent selection matches no host;
 - a FortiGate `MANUAL REVIEW REQUIRED` stop.
