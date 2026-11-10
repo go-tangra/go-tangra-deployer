@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -21,7 +22,47 @@ import (
 )
 
 // ErrNotFound is returned when lcm has no such certificate.
-var ErrNotFound = errors.New("lcmclient: certificate not found")
+var ErrNotFound = provider.ErrCertificateNotFound
+
+// ErrBadName is returned when lcm rejects the host name searched for.
+var ErrBadName = errors.New("lcmclient: not a host name")
+
+// Match is a live host certificate lcm found for a host name (metadata only).
+type Match struct {
+	ID       string    `json:"id"`
+	Subject  string    `json:"subject"`
+	SANs     []string  `json:"sans"`
+	Serial   string    `json:"serial"`
+	IssuerID string    `json:"issuer_id"`
+	Status   string    `json:"status"` // active | expiring
+	NotAfter time.Time `json:"not_after"`
+	HasKey   bool      `json:"has_key"`
+}
+
+// FindCertificates asks lcm for the tenant's live host certificates matching
+// name (exact names first, then the wildcard covering it, then names
+// containing it).
+func (c *Client) FindCertificates(ctx context.Context, tenantID, name string, limit int) ([]Match, error) {
+	r, err := c.cc.Find(ctx, &lcmv1.FindCertificatesRequest{TenantId: tenantID, Name: name, Limit: int32(min(max(limit, 0), 50))}) // #nosec G115 -- bounded above
+	if err != nil {
+		if st, _ := status.FromError(err); st.Code() == codes.InvalidArgument {
+			return nil, ErrBadName
+		}
+		return nil, fmt.Errorf("lcmclient: find: %w", err)
+	}
+	out := make([]Match, 0, len(r.GetCertificates()))
+	for _, m := range r.GetCertificates() {
+		v := Match{ID: m.GetId(), Subject: m.GetSubject(), SANs: m.GetSans(), Serial: m.GetSerial(), IssuerID: m.GetIssuerId(), HasKey: m.GetHasKey(), Status: "active"}
+		if m.GetStatus() == lcmv1.CertificateStatus_CERTIFICATE_STATUS_EXPIRING {
+			v.Status = "expiring"
+		}
+		if ts := m.GetNotAfter(); ts != nil {
+			v.NotAfter = ts.AsTime()
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
 
 // Client fetches certificates from lcm over the module gRPC channel.
 type Client struct {

@@ -6,7 +6,7 @@
 // write-only: secrets are never pre-filled, blank keeps the stored value.
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { UiPage, UiAlert, UiCard, UiButton, UiDataTable, UiStatusChip, UiBadge, UiIcon, UiDrawer, UiDialog, UiForm, UiInput, UiSelect, UiTooltip, UiSkeleton, useConfirm, useListQuery, useToast, type Column, type SelectOption } from '@go-tangra/ui'
-import { nonEmpty, useZodForm } from '@go-tangra/ui/forms'
+import { useZodForm } from '@go-tangra/ui/forms'
 import { z } from 'zod'
 import { CONFIG_LIST, useConfigurations } from '@/stores/configurations'
 import { useProviders } from '@/stores/providers'
@@ -15,6 +15,7 @@ import { configurationSchema, describeFieldErrors } from '@/schemas'
 import { buildPayload, configFields, credentialFields, initialValues, labels, optionsAtDefaults, targetSupplied, unknownKeys, validateInput, validateLabel, PATH_CONFIG, PATH_CREDENTIALS } from '@/schemas/providerFields'
 import ProviderConfigForm from '@/components/ProviderConfigForm.vue'
 import HostPicker from '@/components/HostPicker.vue'
+import CertificatePicker from '@/components/CertificatePicker.vue'
 import { CAPABILITY } from '@/api/inventory'
 import type { Configuration, MatchedHost, Provider, ValidateResult } from '@/api/types'
 
@@ -216,9 +217,11 @@ async function remove(): Promise<void> {
 }
 
 // --- direct deployment ------------------------------------------------------
+// The operator types a host name and picks lcm's certificate for it.
+const CERTIFICATE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const deployFor = ref<Configuration | null>(null)
 const deployOpen = ref(false)
-const deployForm = useZodForm(z.object({ certificate_id: nonEmpty(64) }), {
+const deployForm = useZodForm(z.object({ certificate_id: z.string().regex(CERTIFICATE_ID, 'Type a host name and pick a certificate.') }), {
   onSubmit: async (v) => store.deploy(v.certificate_id, deployFor.value!.id),
   onSuccess: (jobId) => {
     deployOpen.value = false
@@ -331,7 +334,7 @@ const columns: Column<Configuration>[] = [
 
     <UiDialog v-model="deployOpen" :title="'Deploy to ' + (deployFor?.name ?? '')" size="sm">
       <UiForm :form="deployForm">
-        <UiInput v-bind="deployForm.field('certificate_id')" label="Certificate ID" hint="The lcm certificate to deploy." required autocomplete="off" data-test="deploy-certificate" />
+        <CertificatePicker v-bind="deployForm.field('certificate_id')" :disabled="deployForm.submitting.value" />
       </UiForm>
       <template #actions>
         <UiButton variant="text" @click="deployOpen = false">Cancel</UiButton>

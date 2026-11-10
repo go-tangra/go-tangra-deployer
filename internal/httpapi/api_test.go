@@ -29,6 +29,7 @@ import (
 const (
 	apiTenant = "11111111-1111-7111-8111-111111111111"
 	apiAdmin  = "22222222-2222-7222-8222-222222222222"
+	apiCert   = "01a1c472-ea51-7485-8344-9390d39bb85a"
 )
 
 // fakeVerifier maps a bearer token to a fixed identity.
@@ -51,8 +52,9 @@ func (fakeCerts) FetchCertificate(_ context.Context, _, id string, _ bool) (prov
 }
 
 type apiFixture struct {
-	s   *Server
-	mem *memstore.Mem
+	s      *Server
+	mem    *memstore.Mem
+	finder *fakeFinder
 }
 
 func newAPI(t *testing.T) *apiFixture {
@@ -68,6 +70,7 @@ func newAPI(t *testing.T) *apiFixture {
 	ds := deploy.New(mem, az)
 	tgs := targets.New(mem, az)
 	js := jobs.New(mem, az, fakeCerts{}, cs, nil, jobs.Config{Workers: 1})
+	ff := &fakeFinder{}
 
 	v := fakeVerifier{ids: map[string]authclient.Identity{
 		"admin": {UserID: apiAdmin, TenantID: apiTenant, Roles: []string{"admin"}},
@@ -76,8 +79,8 @@ func newAPI(t *testing.T) *apiFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.Register(Deps{Configs: cs, Targets: tgs, Deploy: ds, Jobs: js, Stats: stats.New(mem), Backup: backup.New(mem)})
-	return &apiFixture{s: s, mem: mem}
+	s.Register(Deps{Configs: cs, Targets: tgs, Deploy: ds, Jobs: js, Stats: stats.New(mem), Backup: backup.New(mem), Certificates: ff})
+	return &apiFixture{s: s, mem: mem, finder: ff}
 }
 
 // req drives one request as the admin (empty tok => no Authorization). Mutating
@@ -203,16 +206,16 @@ func TestTargetsAndDeploy(t *testing.T) {
 	}
 
 	// Deploy (direct) → 202.
-	dw := f.req(t, "POST", p+"/deploy", "admin", `{"certificate_id":"cert-1","configuration_id":"`+cfgID+`"}`)
+	dw := f.req(t, "POST", p+"/deploy", "admin", `{"certificate_id":"`+apiCert+`","configuration_id":"`+cfgID+`"}`)
 	if dw.Code != 202 {
 		t.Fatalf("deploy: %d %s", dw.Code, dw.Body.String())
 	}
 	// Deploy to target → 202.
-	if w := f.req(t, "POST", p+"/deploy/target", "admin", `{"certificate_id":"cert-1","target_id":"`+tid+`"}`); w.Code != 202 {
+	if w := f.req(t, "POST", p+"/deploy/target", "admin", `{"certificate_id":"`+apiCert+`","target_id":"`+tid+`"}`); w.Code != 202 {
 		t.Fatalf("deploy target: %d %s", w.Code, w.Body.String())
 	}
 	// Deploy to configurations → 202.
-	if w := f.req(t, "POST", p+"/deploy/configurations", "admin", `{"certificate_id":"cert-1","configuration_ids":["`+cfgID+`"]}`); w.Code != 202 {
+	if w := f.req(t, "POST", p+"/deploy/configurations", "admin", `{"certificate_id":"`+apiCert+`","configuration_ids":["`+cfgID+`"]}`); w.Code != 202 {
 		t.Fatalf("deploy configs: %d %s", w.Code, w.Body.String())
 	}
 }
@@ -220,7 +223,7 @@ func TestTargetsAndDeploy(t *testing.T) {
 func TestJobsLifecycleEndpoints(t *testing.T) {
 	f := newAPI(t)
 	cfgID := decode(t, f.req(t, "POST", p+"/configurations", "admin", `{"name":"ep","provider_type":"dummy"}`))["id"].(string)
-	jobID := decode(t, f.req(t, "POST", p+"/deploy", "admin", `{"certificate_id":"cert-1","configuration_id":"`+cfgID+`"}`))["job_id"].(string)
+	jobID := decode(t, f.req(t, "POST", p+"/deploy", "admin", `{"certificate_id":"`+apiCert+`","configuration_id":"`+cfgID+`"}`))["job_id"].(string)
 
 	if w := f.req(t, "GET", p+"/jobs", "admin", ""); w.Code != 200 {
 		t.Fatalf("list jobs: %d", w.Code)

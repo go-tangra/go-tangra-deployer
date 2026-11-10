@@ -164,6 +164,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/deployer/v1/certificates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description lcm's live host certificates for a host name: exact names first, then the wildcard covering it, then names containing it (at most 20). */
+        get: operations["findCertificates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/deployer/v1/deploy": {
         parameters: {
             query?: never;
@@ -429,6 +446,20 @@ export interface components {
             detail?: Record<string, never>;
         };
         Uuid: string;
+        /** @description a live lcm host certificate (metadata only) */
+        CertificateMatch: {
+            id: components["schemas"]["Uuid"];
+            subject: string;
+            sans: string[];
+            serial: string;
+            issuer_id: string;
+            /** @enum {string} */
+            status: "active" | "expiring";
+            /** Format: date-time */
+            not_after: string;
+            /** @description lcm holds the private key (providers that install the key need it) */
+            has_key: boolean;
+        };
         Configuration: {
             id: string;
             name: string;
@@ -1140,6 +1171,47 @@ export interface operations {
         responses: {
             /** @description detached */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    findCertificates: {
+        parameters: {
+            query: {
+                /** @description host name or part of one */
+                name: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description matches */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["CertificateMatch"][];
+                    };
+                };
+            };
+            /** @description not a host name (detail.param = name) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description lcm unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

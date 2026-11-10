@@ -52,6 +52,19 @@ components:
     Uuid:
       type: string
       pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+    CertificateMatch:
+      type: object
+      description: a live lcm host certificate (metadata only)
+      required: [id, subject, sans, serial, issuer_id, status, not_after, has_key]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        subject: { type: string }
+        sans: { type: array, items: { type: string } }
+        serial: { type: string }
+        issuer_id: { type: string }
+        status: { type: string, enum: [active, expiring] }
+        not_after: { type: string, format: date-time }
+        has_key: { type: boolean, description: 'lcm holds the private key (providers that install the key need it)' }
     Configuration:
       type: object
       required: [id, name, description, provider_type, config, has_credentials, status, status_message, created_at, updated_at]
@@ -384,6 +397,17 @@ paths:
   /api/deployer/v1/targets/{id}/configurations/remove:
     post: { operationId: detachConfigurations, x-freya-permission: 'targets:manage', parameters: [{ $ref: '#/components/parameters/csrf' }, { $ref: '#/components/parameters/id' }], responses: { '200': { description: detached } } }
 
+  /api/deployer/v1/certificates:
+    get:
+      operationId: findCertificates
+      description: "lcm's live host certificates for a host name: exact names first, then the wildcard covering it, then names containing it (at most 20)."
+      x-freya-permission: 'deploy:execute'
+      parameters:
+        - { name: name, in: query, required: true, description: 'host name or part of one', schema: { type: string, minLength: 1, maxLength: 253 } }
+      responses:
+        '200': { description: matches, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/CertificateMatch' } } } } } } }
+        '422': { description: 'not a host name (detail.param = name)', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '503': { description: 'lcm unavailable' }
   /api/deployer/v1/deploy:
     post: { operationId: deploy, x-freya-permission: 'deploy:execute', x-freya-timeout-seconds: 30, parameters: [{ $ref: '#/components/parameters/csrf' }], responses: { '202': { description: 'accepted; outcome over SSE' } } }
   /api/deployer/v1/deploy/target:

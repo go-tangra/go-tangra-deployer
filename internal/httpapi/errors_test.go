@@ -71,9 +71,9 @@ func TestNotFoundFailures(t *testing.T) {
 	status(t, f, "POST", p+"/jobs/"+absentID+"/retry", `{}`, 404, "not_found")
 
 	// Deploy to absent config / target / job.
-	status(t, f, "POST", p+"/deploy", `{"certificate_id":"c","configuration_id":"`+absentID+`"}`, 404, "not_found")
-	status(t, f, "POST", p+"/deploy/target", `{"certificate_id":"c","target_id":"`+absentID+`"}`, 404, "not_found")
-	status(t, f, "POST", p+"/deploy/configurations", `{"certificate_id":"c","configuration_ids":["`+absentID+`"]}`, 404, "not_found")
+	status(t, f, "POST", p+"/deploy", `{"certificate_id":"`+apiCert+`","configuration_id":"`+absentID+`"}`, 404, "not_found")
+	status(t, f, "POST", p+"/deploy/target", `{"certificate_id":"`+apiCert+`","target_id":"`+absentID+`"}`, 404, "not_found")
+	status(t, f, "POST", p+"/deploy/configurations", `{"certificate_id":"`+apiCert+`","configuration_ids":["`+absentID+`"]}`, 404, "not_found")
 	status(t, f, "POST", p+"/deploy/"+absentID+"/verify", `{}`, 404, "not_found")
 	status(t, f, "POST", p+"/deploy/"+absentID+"/rollback", `{}`, 404, "not_found")
 }
@@ -88,7 +88,7 @@ func TestUnsupportedParentJob(t *testing.T) {
 		t.Fatalf("attach: %d %s", w.Code, w.Body.String())
 	}
 	// Deploy to the target → PARENT job id in the 202 response.
-	dw := f.req(t, "POST", p+"/deploy/target", "admin", `{"certificate_id":"cert-1","target_id":"`+tid+`"}`)
+	dw := f.req(t, "POST", p+"/deploy/target", "admin", `{"certificate_id":"`+apiCert+`","target_id":"`+tid+`"}`)
 	if dw.Code != 202 {
 		t.Fatalf("deploy target: %d %s", dw.Code, dw.Body.String())
 	}
@@ -108,11 +108,11 @@ func TestDeployPreconditions(t *testing.T) {
 	if err := f.mem.SetConfigurationStatus(context.Background(), apiTenant, cfgID, store.ConfigInactive, "", nil); err != nil {
 		t.Fatalf("set inactive: %v", err)
 	}
-	status(t, f, "POST", p+"/deploy", `{"certificate_id":"cert-1","configuration_id":"`+cfgID+`"}`, 422, "validation_failed")
+	status(t, f, "POST", p+"/deploy", `{"certificate_id":"`+apiCert+`","configuration_id":"`+cfgID+`"}`, 422, "validation_failed")
 
 	// ErrNoConfigs: a target with nothing attached.
 	tid := decode(t, f.req(t, "POST", p+"/targets", "admin", `{"name":"empty","certificate_filters":[]}`))["id"].(string)
-	status(t, f, "POST", p+"/deploy/target", `{"certificate_id":"cert-1","target_id":"`+tid+`"}`, 422, "validation_failed")
+	status(t, f, "POST", p+"/deploy/target", `{"certificate_id":"`+apiCert+`","target_id":"`+tid+`"}`, 422, "validation_failed")
 }
 
 // TestBackupBadSchema maps backup.ErrBadSchema → 422 validation_failed.

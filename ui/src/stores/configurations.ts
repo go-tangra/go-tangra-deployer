@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import type { ListParams, ListQueryOptions } from '@go-tangra/ui'
 import { api } from '@/api/client'
 import { registerReasons } from '@go-tangra/ui/forms'
-import type { Configuration, ConfigurationInput, ValidateResult } from '@/api/types'
+import type { CertificateMatch, Configuration, ConfigurationInput, ValidateResult } from '@/api/types'
 import { fetchAll, pagedList } from '@/stores/paged'
 
 // The deployer's own refusal reasons (closed vocabulary; server detail never shown).
@@ -74,5 +74,11 @@ export const useConfigurations = defineStore('deployer-configurations', () => {
     return res.job_id
   }
 
-  return { ...paged, options, loadOptions, get, create, update, remove, validate, deploy }
+  /** lcm's live certificates for a host name (exact, then wildcard, then partial). */
+  async function findCertificates(name: string): Promise<CertificateMatch[]> {
+    const res = await api<{ items: CertificateMatch[] }>('GET', 'certificates', undefined, { query: { name } })
+    return res.items ?? []
+  }
+
+  return { ...paged, options, loadOptions, get, create, update, remove, validate, deploy, findCertificates }
 })

@@ -57,7 +57,11 @@ The deployer **never stores certificate bytes** (SR-002). At deploy time it
 fetches the certificate + chain + retained private key from lcm over SPIFFE mTLS
 via `lcm.v1.Certificates/Download` (keyed by the lcm certificate id), hands the
 bundle to the provider, and drops it. lcm's `deploy/policy.yaml` must allow the
-deployer's SPIFFE id to call that RPC.
+deployer's SPIFFE id to call that RPC, and `lcm.v1.Certificates/Find` (lcm ≥
+4.10.0), which the Deploy dialog uses to look certificates up by host name
+(`GET /api/deployer/v1/certificates?name=`). The deploy routes refuse a
+`certificate_id` that is not a UUID (a pasted serial number or host name), and
+a job whose certificate lcm does not have fails at once instead of retrying.
 
 ## Auto-deploy
 

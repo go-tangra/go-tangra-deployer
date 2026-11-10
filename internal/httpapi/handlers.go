@@ -1,9 +1,12 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/configs"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/lcmclient"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/targets"
@@ -161,6 +164,9 @@ func (s *Server) Register(d Deps) {
 			Fail(w, r, nil, err)
 			return
 		}
+		if !certificateIDOK(w, in.CertificateID) {
+			return
+		}
 		jobID, err := d.Deploy.Deploy(r.Context(), subj, in.CertificateID, in.ConfigurationID, "")
 		if err != nil {
 			failSvc(w, err)
@@ -180,6 +186,9 @@ func (s *Server) Register(d Deps) {
 		}
 		if err := DecodeJSON(r, &in, 0); err != nil {
 			Fail(w, r, nil, err)
+			return
+		}
+		if !certificateIDOK(w, in.CertificateID) {
 			return
 		}
 		jobID, err := d.Deploy.DeployToTarget(r.Context(), subj, in.CertificateID, in.TargetID, "")
@@ -203,12 +212,42 @@ func (s *Server) Register(d Deps) {
 			Fail(w, r, nil, err)
 			return
 		}
+		if !certificateIDOK(w, in.CertificateID) {
+			return
+		}
 		ids, err := d.Deploy.DeployToConfigurations(r.Context(), subj, in.CertificateID, in.ConfigurationIDs, "")
 		if err != nil {
 			failSvc(w, err)
 			return
 		}
 		WriteJSON(w, http.StatusAccepted, map[string]any{"status": "processing", "job_ids": ids})
+	})
+
+	// lcm certificates by host name (the Deploy dialog): metadata only.
+	s.MustHandle("GET", p+"/certificates", func(w http.ResponseWriter, r *http.Request) {
+		subj, err := subjects(r)
+		if err != nil {
+			failSvc(w, err)
+			return
+		}
+		name := strings.TrimSpace(r.URL.Query().Get("name"))
+		if name == "" || len(name) > 253 {
+			WriteDetail(w, ErrValidation, map[string]any{"param": "name"})
+			return
+		}
+		if d.Certificates == nil {
+			WriteError(w, ErrUnavailable.Status, ErrUnavailable.Reason)
+			return
+		}
+		items, err := d.Certificates.FindCertificates(r.Context(), subj.TenantID, name, 20)
+		switch {
+		case errors.Is(err, lcmclient.ErrBadName):
+			WriteDetail(w, ErrValidation, map[string]any{"param": "name"})
+		case err != nil:
+			WriteError(w, ErrUnavailable.Status, ErrUnavailable.Reason)
+		default:
+			WriteJSON(w, http.StatusOK, map[string]any{"items": items})
+		}
 	})
 
 	// Targets.

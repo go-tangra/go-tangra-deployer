@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"regexp"
 
 	"github.com/go-tangra/go-tangra/v4/listquery"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/configs"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/deploy"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/jobs"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/lcmclient"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/stats"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/targets"
 )
@@ -23,6 +26,28 @@ type Deps struct {
 	Jobs    *jobs.Service
 	Stats   *stats.Service
 	Backup  *backup.Service
+	// Certificates looks lcm certificates up by host name for the Deploy
+	// dialog (nil: the lookup answers temporarily_unavailable).
+	Certificates CertificateFinder
+}
+
+// CertificateFinder finds lcm certificates by host name (lcmclient.Client).
+type CertificateFinder interface {
+	FindCertificates(ctx context.Context, tenantID, name string, limit int) ([]lcmclient.Match, error)
+}
+
+// certificateIDRE is the shape of an lcm certificate id.
+var certificateIDRE = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// certificateIDOK refuses a certificate_id that is not an lcm certificate id
+// (a pasted serial number or host name), which lcm could never resolve.
+func certificateIDOK(w http.ResponseWriter, id string) bool {
+	if certificateIDRE.MatchString(id) {
+		return true
+	}
+	msg := "must be a certificate ID (UUID), not a serial number or host name"
+	WriteDetail(w, ErrValidation, map[string]any{"field": "certificate_id", "message": msg, "fields": map[string]string{"certificate_id": msg}})
+	return false
 }
 
 // subjects derives the authz subject from the verified platform identity.

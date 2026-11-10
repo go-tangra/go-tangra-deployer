@@ -103,6 +103,12 @@ func (s *Service) process(ctx context.Context, log *slog.Logger, j store.Deploym
 			s.failWith(ctx, &j, "certificate has no stored private key", err)
 			return
 		}
+		if errors.Is(err, provider.ErrCertificateNotFound) {
+			// No such certificate in lcm (deleted, another tenant, or not a
+			// certificate id at all): retrying cannot help either.
+			s.failWith(ctx, &j, "certificate not found in lcm", err)
+			return
+		}
 		setError(&j, "certificate fetch failed", err.Error(), nil)
 		s.retryOrFail(ctx, &j, "certificate fetch failed")
 		return
