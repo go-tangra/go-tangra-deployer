@@ -27,6 +27,9 @@ var (
 	// no private key for a certificate (issued from a CSR, or the key was
 	// already handed out). Retrying cannot help: the job fails at once.
 	ErrKeyUnavailable = errors.New("provider: certificate has no stored private key")
+	// ErrCertificateNotFound is returned by the certificate fetcher when lcm
+	// has no such certificate. Retrying cannot help: the job fails at once.
+	ErrCertificateNotFound = errors.New("provider: certificate not found")
 )
 
 // CertificateData is the material a provider installs. Fetched from lcm at deploy

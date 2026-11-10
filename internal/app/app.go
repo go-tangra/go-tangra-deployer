@@ -261,7 +261,7 @@ func Build(ctx context.Context, cfg config.Config, o Options) (a *App, err error
 	if a.HTTP, err = httpapi.NewHandler(a.Freya, hopts...); err != nil {
 		return nil, err
 	}
-	a.HTTP.Register(httpapi.Deps{Configs: cs, Targets: tgs, Deploy: ds, Jobs: a.Jobs, Stats: stats.New(a.Repo), Backup: backup.New(a.Repo)})
+	a.HTTP.Register(httpapi.Deps{Configs: cs, Targets: tgs, Deploy: ds, Jobs: a.Jobs, Stats: stats.New(a.Repo), Backup: backup.New(a.Repo), Certificates: lcmC})
 	// Help bundle for the gateway only (its verified service identity, behind
 	// the Freya security chain); mounted before the catch-all, which would
 	// otherwise shadow it.

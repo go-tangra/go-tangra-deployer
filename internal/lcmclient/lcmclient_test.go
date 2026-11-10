@@ -19,14 +19,54 @@ import (
 
 // fakeCerts is a fake lcm.v1.Certificates client.
 type fakeCerts struct {
-	lastReq *lcmv1.DownloadRequest
-	bundle  *lcmv1.CertificateBundle
-	err     error
+	lastReq  *lcmv1.DownloadRequest
+	bundle   *lcmv1.CertificateBundle
+	lastFind *lcmv1.FindCertificatesRequest
+	found    *lcmv1.FindCertificatesResponse
+	err      error
 }
 
 func (f *fakeCerts) Download(_ context.Context, in *lcmv1.DownloadRequest, _ ...grpc.CallOption) (*lcmv1.CertificateBundle, error) {
 	f.lastReq = in
 	return f.bundle, f.err
+}
+
+func (f *fakeCerts) Find(_ context.Context, in *lcmv1.FindCertificatesRequest, _ ...grpc.CallOption) (*lcmv1.FindCertificatesResponse, error) {
+	f.lastFind = in
+	return f.found, f.err
+}
+
+func TestFindCertificates(t *testing.T) {
+	exp := time.Now().Add(24 * time.Hour).Truncate(time.Second)
+	fc := &fakeCerts{found: &lcmv1.FindCertificatesResponse{Certificates: []*lcmv1.Certificate{
+		{Id: "c1", Subject: "pbx.example.com", Sans: []string{"pbx.example.com"}, Serial: "42", IssuerId: "i1", NotAfter: timestamppb.New(exp), Status: lcmv1.CertificateStatus_CERTIFICATE_STATUS_ACTIVE, HasKey: true},
+		{Id: "c2", Subject: "*.example.com", Status: lcmv1.CertificateStatus_CERTIFICATE_STATUS_EXPIRING},
+	}}}
+	got, err := lcmclient.New(fc).FindCertificates(context.Background(), "tenant-1", "pbx.example.com", 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fc.lastFind.GetTenantId() != "tenant-1" || fc.lastFind.GetName() != "pbx.example.com" || fc.lastFind.GetLimit() != 50 {
+		t.Fatalf("request = %+v", fc.lastFind)
+	}
+	if len(got) != 2 {
+		t.Fatalf("matches = %+v", got)
+	}
+	m := got[0]
+	if m.ID != "c1" || m.Subject != "pbx.example.com" || len(m.SANs) != 1 || m.Serial != "42" || m.IssuerID != "i1" || m.Status != "active" || !m.NotAfter.Equal(exp) || !m.HasKey {
+		t.Fatalf("match not mapped: %+v", m)
+	}
+	if got[1].Status != "expiring" || got[1].HasKey || !got[1].NotAfter.IsZero() {
+		t.Fatalf("second match: %+v", got[1])
+	}
+	fc.err = status.Error(codes.InvalidArgument, "name: must be a host name or part of one")
+	if _, err := lcmclient.New(fc).FindCertificates(context.Background(), "t", "a b", 0); !errors.Is(err, lcmclient.ErrBadName) {
+		t.Fatalf("invalid name = %v", err)
+	}
+	fc.err = status.Error(codes.Unavailable, "temporarily_unavailable")
+	if _, err := lcmclient.New(fc).FindCertificates(context.Background(), "t", "pbx", 0); err == nil || errors.Is(err, lcmclient.ErrBadName) {
+		t.Fatalf("unavailable = %v", err)
+	}
 }
 
 func TestFetchCertificateMapsBundleAndTenant(t *testing.T) {

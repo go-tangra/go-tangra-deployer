@@ -279,6 +279,20 @@ func TestKeyUnavailableFailsWithoutRetry(t *testing.T) {
 	}
 }
 
+// A certificate lcm does not have (a serial pasted as its id, a deleted
+// certificate) fails the job at once (no retries).
+func TestCertificateNotFoundFailsWithoutRetry(t *testing.T) {
+	ctx := context.Background()
+	kc := &keyCerts{err: provider.ErrCertificateNotFound}
+	m, _, js := kitWith(t, kc, jobs.Config{Workers: 2, Lease: time.Minute})
+	id := directJob(t, js, refConfig(t, m, "dummy", map[string]any{}).ID, store.TriggerManual, 0)
+	js.Once(ctx, nil)
+	r, _ := jobResult(t, js, id)
+	if r.Status != store.JobFailed || r.RetryCount != 0 || r.StatusMessage != "certificate not found in lcm" {
+		t.Fatalf("job = %+v", r.View)
+	}
+}
+
 // Verify of a reference provider fetches without the key and passes the job
 // metadata.
 func TestVerifyReferenceProvider(t *testing.T) {

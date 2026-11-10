@@ -94,6 +94,10 @@ build that skips CI must be rebuilt.
 unreachable or its policy does not allow `/lcm.v1.Certificates/Download` for
 the deployer. Check the lcm policy and `discovery.static.lcm`.
 
+**The Deploy dialog cannot list certificates.** The host-name lookup calls
+`/lcm.v1.Certificates/Find` (lcm 4.10.0 or later); lcm's policy must allow it
+for the deployer next to `Download`.
+
 **Jobs fail with `certificate has no stored private key`.** lcm keeps no private
 key for that certificate, and the provider needs one. Reissue the
 certificate in lcm so that lcm retains its key. The job is not retried.

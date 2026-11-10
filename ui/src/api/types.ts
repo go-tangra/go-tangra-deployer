@@ -197,6 +197,18 @@ export interface ActionResult {
   message?: string
 }
 
+// A live lcm host certificate found by host name (GET /certificates?name=).
+export interface CertificateMatch {
+  id: string
+  subject: string
+  sans: string[]
+  serial: string
+  issuer_id: string
+  status: 'active' | 'expiring'
+  not_after: string
+  has_key: boolean
+}
+
 // Dashboard statistics (best-effort; unpopulated fields render as zero).
 export interface Stats {
   jobs_by_status?: Record<string, number>
