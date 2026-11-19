@@ -3,8 +3,10 @@ package jobs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -62,23 +64,23 @@ func (s *Service) process(ctx context.Context, log *slog.Logger, j store.Deploym
 	start := s.now()
 	cfgID := strp(j.TargetConfigurationID)
 	if cfgID == "" {
-		s.failWith(ctx, &j, "job has no configuration", nil)
+		s.failWith(ctx, &j, StageConfiguration, "job has no configuration", nil)
 		return
 	}
 	conf, err := s.st.GetConfiguration(ctx, j.TenantID, cfgID)
 	if err != nil {
-		s.failWith(ctx, &j, "configuration unavailable", err)
+		s.failWith(ctx, &j, StageConfiguration, "configuration unavailable", err)
 		return
 	}
 	p, err := provider.Get(conf.ProviderType)
 	if err != nil {
-		s.failWith(ctx, &j, "unknown provider", err)
+		s.failWith(ctx, &j, StageConfiguration, "unknown provider", err)
 		return
 	}
 	creds, err := s.cred.OpenCredentials(conf)
 	if err != nil {
 		// The unseal error names no secret material.
-		s.failWith(ctx, &j, "credentials unavailable", err)
+		s.failWith(ctx, &j, StageCredentials, "credentials unavailable", err)
 		return
 	}
 	caps := p.Capabilities()
@@ -90,7 +92,7 @@ func (s *Service) process(ctx context.Context, log *slog.Logger, j store.Deploym
 	if missing := provider.MissingRequired(caps, effective); len(missing) > 0 {
 		msg := provider.IncompleteMessage(missing)
 		s.history(ctx, j, store.ActionDeploy, store.ResultFailure, msg, 0, nil)
-		s.failWith(ctx, &j, msg, nil)
+		s.failWith(ctx, &j, StageConfiguration, msg, nil)
 		return
 	}
 	s.publish(ctx, "deployment.started", j)
@@ -100,19 +102,21 @@ func (s *Service) process(ctx context.Context, log *slog.Logger, j store.Deploym
 	if err != nil {
 		if errors.Is(err, provider.ErrKeyUnavailable) {
 			// lcm holds no key for this certificate: retrying cannot help.
-			s.failWith(ctx, &j, "certificate has no stored private key", err)
+			s.failWith(ctx, &j, StageCertificate, "certificate has no stored private key", err)
 			return
 		}
 		if errors.Is(err, provider.ErrCertificateNotFound) {
 			// No such certificate in lcm (deleted, another tenant, or not a
 			// certificate id at all): retrying cannot help either.
-			s.failWith(ctx, &j, "certificate not found in lcm", err)
+			s.failWith(ctx, &j, StageCertificate, "certificate not found in lcm", err)
 			return
 		}
-		setError(&j, "certificate fetch failed", err.Error(), nil)
+		setError(&j, StageCertificate, "certificate fetch failed", err.Error(), nil)
 		s.retryOrFail(ctx, &j, "certificate fetch failed")
 		return
 	}
+	// The job names what it deploys from here on (also on a failure below).
+	j.CertificateSerial, j.CertificateName = cert.SerialNumber, cert.Name()
 	dctx, cancel := context.WithTimeout(provider.WithJob(ctx, s.jobMeta(j, tgt, hasTarget)), s.jobTimeout())
 	defer cancel()
 	res, derr := p.Deploy(dctx, &cert, effective, creds, func(pct int, note string) {
@@ -139,7 +143,7 @@ func (s *Service) process(ctx context.Context, log *slog.Logger, j store.Deploym
 		if derr != nil {
 			detail = provider.Redact(derr.Error(), creds)
 		}
-		setError(&j, msg, detail, details)
+		setError(&j, StageDeploy, msg, detail, details)
 		s.history(ctx, j, store.ActionDeploy, store.ResultFailure, historyMessage(msg, detail), dur, details)
 		if res != nil && res.Permanent {
 			s.fail(ctx, &j, msg)
@@ -201,12 +205,12 @@ func (s *Service) retryOrFail(ctx context.Context, j *store.DeploymentJob, msg s
 
 // failWith records the failure's cause on the job (err's text, or msg when
 // there is none) and fails it.
-func (s *Service) failWith(ctx context.Context, j *store.DeploymentJob, msg string, err error) {
+func (s *Service) failWith(ctx context.Context, j *store.DeploymentJob, stage, msg string, err error) {
 	detail := msg
 	if err != nil {
 		detail = err.Error()
 	}
-	setError(j, msg, detail, nil)
+	setError(j, stage, msg, detail, nil)
 	s.fail(ctx, j, msg)
 }
 
@@ -246,13 +250,17 @@ func (s *Service) aggregateFromChild(ctx context.Context, child store.Deployment
 	}
 }
 
-// aggregateParent sets a parent's status from its children.
+// aggregateParent sets a parent's status from its children. A failed or
+// partial parent records which children failed and why, so the parent alone
+// says what went wrong; it also takes the certificate's name and serial from
+// a child that fetched it.
 func (s *Service) aggregateParent(ctx context.Context, parent store.DeploymentJob) {
 	kids, err := s.st.ListChildJobs(ctx, parent.TenantID, parent.ID)
 	if err != nil || len(kids) == 0 {
 		return
 	}
 	var done, failed, total int
+	var failures []string
 	for _, k := range kids {
 		total++
 		switch k.Status {
@@ -260,21 +268,49 @@ func (s *Service) aggregateParent(ctx context.Context, parent store.DeploymentJo
 			done++
 		case store.JobFailed, store.JobCancelled:
 			failed++
+			failures = append(failures, s.childFailure(ctx, k))
+		}
+		if parent.CertificateName == "" && k.CertificateName != "" {
+			parent.CertificateSerial, parent.CertificateName = k.CertificateSerial, k.CertificateName
 		}
 	}
 	parent.Progress = done * 100 / total
 	switch {
 	case done == total:
+		parent.Result = nil
 		s.setStatus(ctx, &parent, store.JobCompleted, "all deployments completed")
 	case failed == total:
-		s.setStatus(ctx, &parent, store.JobFailed, "all deployments failed")
+		setError(&parent, StageChildren, "all deployments failed", strings.Join(failures, "\n"), nil)
+		s.setStatus(ctx, &parent, store.JobFailed, fmt.Sprintf("all %d deployments failed", total))
 	case done+failed == total:
-		s.setStatus(ctx, &parent, store.JobPartial, "some deployments failed")
+		setError(&parent, StageChildren, "some deployments failed", strings.Join(failures, "\n"), nil)
+		s.setStatus(ctx, &parent, store.JobPartial, fmt.Sprintf("%d of %d deployments failed", failed, total))
 	default:
 		parent.Status = store.JobProcessing
 		_ = s.st.UpdateJob(ctx, parent)
 	}
 	s.publish(ctx, "job.updated", parent)
+}
+
+// childFailure is one line of a parent's error: the child's configuration
+// (name and provider), the failed step and the child's error.
+func (s *Service) childFailure(ctx context.Context, k store.DeploymentJob) string {
+	where := strp(k.TargetConfigurationID)
+	if c, err := s.st.GetConfiguration(ctx, k.TenantID, where); err == nil {
+		where = c.Name + " (" + c.ProviderType + ")"
+	}
+	if k.Status == store.JobCancelled {
+		return where + ": cancelled"
+	}
+	f := jobFailure(k)
+	msg := f.Error
+	if msg == "" {
+		msg = k.StatusMessage
+	}
+	if f.Stage != "" {
+		return where + " [" + f.Stage + "]: " + msg
+	}
+	return where + ": " + msg
 }
 
 // effective layers the parent target's per-configuration override (if any)

@@ -144,7 +144,7 @@ func (c *Consumer) Handle(ctx context.Context, tenantID, certID string, isRenewa
 		if err != nil || len(cfgIDs) == 0 {
 			continue // a match needs >= 1 configuration
 		}
-		if err := c.spawn(ctx, tenantID, t.ID, cert.ID, trigger, cfgIDs); err != nil {
+		if err := c.spawn(ctx, tenantID, t.ID, cert, trigger, cfgIDs); err != nil {
 			c.log.Warn("deployer: auto-deploy job creation failed", "target", t.ID, "err", err)
 			continue
 		}
@@ -153,12 +153,14 @@ func (c *Consumer) Handle(ctx context.Context, tenantID, certID string, isRenewa
 	return created, nil
 }
 
-func (c *Consumer) spawn(ctx context.Context, tenantID, targetID, certID, trigger string, cfgIDs []string) error {
+func (c *Consumer) spawn(ctx context.Context, tenantID, targetID string, cert provider.CertificateData, trigger string, cfgIDs []string) error {
 	parentID := store.NewID()
+	certID, serial, name := cert.ID, cert.SerialNumber, cert.Name()
 	tgt := targetID
 	return c.st.Atomic(ctx, tenantID, func(tx repo.Store) error {
 		if e := tx.InsertJob(ctx, store.DeploymentJob{
 			ID: parentID, TenantID: tenantID, DeploymentTargetID: &tgt, CertificateID: certID,
+			CertificateSerial: serial, CertificateName: name,
 			Status: store.JobPending, MaxRetries: 3, TriggeredBy: trigger,
 		}); e != nil {
 			return e
@@ -167,7 +169,8 @@ func (c *Consumer) spawn(ctx context.Context, tenantID, targetID, certID, trigge
 			cc, pid := cid, parentID
 			if e := tx.InsertJob(ctx, store.DeploymentJob{
 				ID: store.NewID(), TenantID: tenantID, TargetConfigurationID: &cc, ParentJobID: &pid,
-				CertificateID: certID, Status: store.JobPending, MaxRetries: 3, TriggeredBy: trigger,
+				CertificateID: certID, CertificateSerial: serial, CertificateName: name,
+				Status: store.JobPending, MaxRetries: 3, TriggeredBy: trigger,
 			}); e != nil {
 				return e
 			}

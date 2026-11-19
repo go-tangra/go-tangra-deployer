@@ -97,10 +97,24 @@ type View struct {
 	ParentJobID           string `json:"parent_job_id,omitempty"`
 	CertificateID         string `json:"certificate_id"`
 	CertificateSerial     string `json:"certificate_serial,omitempty"`
-	Status                string `json:"status"`
-	StatusMessage         string `json:"status_message,omitempty"`
+	// CertificateName is the certificate's CN (else first SAN), known once the
+	// job fetched it from lcm (auto-deploy jobs know it at creation).
+	CertificateName string `json:"certificate_name,omitempty"`
+	// TargetName, ConfigurationName and ProviderType name where the job
+	// deploys: a parent's target, a child's parent target, and the
+	// configuration of a child or direct job. Empty once deleted.
+	TargetName        string `json:"target_name,omitempty"`
+	ConfigurationName string `json:"configuration_name,omitempty"`
+	ProviderType      string `json:"provider_type,omitempty"`
+	Status            string `json:"status"`
+	StatusMessage     string `json:"status_message,omitempty"`
 	// Error is the cause of the last failure (cleared by a success).
-	Error       string     `json:"error,omitempty"`
+	Error string `json:"error,omitempty"`
+	// ErrorStage is the step that failed (StageConfiguration, StageCredentials,
+	// StageCertificate, StageDeploy, StageChildren) and ErrorSource who
+	// reported the error: "deployer", "lcm" or "provider".
+	ErrorStage  string     `json:"error_stage,omitempty"`
+	ErrorSource string     `json:"error_source,omitempty"`
 	Progress    int        `json:"progress"`
 	RetryCount  int        `json:"retry_count"`
 	MaxRetries  int        `json:"max_retries"`
@@ -110,43 +124,74 @@ type View struct {
 }
 
 func view(j store.DeploymentJob) View {
+	f := jobFailure(j)
 	return View{
 		ID: j.ID, Type: j.JobType(), DeploymentTargetID: strp(j.DeploymentTargetID),
 		TargetConfigurationID: strp(j.TargetConfigurationID), ParentJobID: strp(j.ParentJobID),
-		CertificateID: j.CertificateID, CertificateSerial: j.CertificateSerial, Status: j.Status,
-		StatusMessage: j.StatusMessage, Error: jobError(j), Progress: j.Progress, RetryCount: j.RetryCount, MaxRetries: j.MaxRetries,
+		CertificateID: j.CertificateID, CertificateSerial: j.CertificateSerial, CertificateName: j.CertificateName,
+		Status: j.Status, StatusMessage: j.StatusMessage, Error: f.Error, ErrorStage: f.Stage, ErrorSource: stageSource(f.Stage),
+		Progress: j.Progress, RetryCount: j.RetryCount, MaxRetries: j.MaxRetries,
 		TriggeredBy: j.TriggeredBy, CreatedAt: j.CreatedAt, CompletedAt: j.CompletedAt,
 	}
+}
+
+// Failure stages: the step of a job that failed, recorded with the error.
+const (
+	StageConfiguration = "configuration" // loading or completing the configuration (deployer)
+	StageCredentials   = "credentials"   // opening the sealed credentials (deployer)
+	StageCertificate   = "certificate"   // fetching the certificate (lcm)
+	StageDeploy        = "deploy"        // the provider and its endpoint
+	StageChildren      = "children"      // a parent: the failures of its children
+)
+
+// stageSource is who reported a failure at stage: the deployer itself, lcm,
+// or the provider (its endpoint's answer, or the provider's own refusal).
+func stageSource(stage string) string {
+	switch stage {
+	case StageConfiguration, StageCredentials, StageChildren:
+		return "deployer"
+	case StageCertificate:
+		return "lcm"
+	case StageDeploy:
+		return "provider"
+	}
+	return ""
 }
 
 // MaxErrorLen bounds the stored failure cause (it travels in live events).
 const MaxErrorLen = 4096
 
-// setError records a failure on the job's result: the summary (message), the
-// underlying cause (error, bounded) and the provider's details.
-func setError(j *store.DeploymentJob, msg, cause string, details map[string]any) {
+// setError records a failure on the job's result: the step that failed
+// (stage), the summary (message), the underlying cause (error, bounded) and
+// the provider's details.
+func setError(j *store.DeploymentJob, stage, msg, cause string, details map[string]any) {
 	if len(cause) > MaxErrorLen {
 		cause = strings.ToValidUTF8(cause[:MaxErrorLen], "") + "…"
 	}
-	r := map[string]any{"message": msg, "error": cause}
+	r := map[string]any{"message": msg, "error": cause, "stage": stage}
 	if len(details) > 0 {
 		r["details"] = details
 	}
 	j.Result = resultJSON(r)
 }
 
-// jobError reads the failure cause from the job's result ("" when none).
-func jobError(j store.DeploymentJob) string {
-	if len(j.Result) == 0 {
-		return ""
+// failure is the recorded cause of a job's last failure.
+type failure struct {
+	Error string `json:"error"`
+	Stage string `json:"stage"`
+}
+
+// jobFailure reads the failure cause from the job's result (zero when none).
+// Results recorded before stages were kept have no stage.
+func jobFailure(j store.DeploymentJob) failure {
+	var f failure
+	if len(j.Result) == 0 || json.Unmarshal(j.Result, &f) != nil {
+		return failure{}
 	}
-	var r struct {
-		Error string `json:"error"`
+	if f.Error == "" {
+		f.Stage = ""
 	}
-	if json.Unmarshal(j.Result, &r) != nil {
-		return ""
-	}
-	return r.Error
+	return f
 }
 
 // publish emits a realtime job event on the platform bus: the job's id, its
@@ -159,7 +204,8 @@ func (s *Service) publish(ctx context.Context, typ string, j store.DeploymentJob
 	v := view(j)
 	s.pub.Publish(ctx, j.TenantID, typ, map[string]any{
 		"job_id": v.ID, "type": v.Type, "parent_job_id": v.ParentJobID, "status": v.Status,
-		"status_message": v.StatusMessage, "error": v.Error, "progress": v.Progress,
+		"status_message": v.StatusMessage, "error": v.Error, "error_stage": v.ErrorStage, "error_source": v.ErrorSource,
+		"progress": v.Progress, "certificate_name": v.CertificateName, "certificate_serial": v.CertificateSerial,
 		"retry_count": v.RetryCount, "max_retries": v.MaxRetries, "completed_at": v.CompletedAt,
 	})
 }
@@ -180,7 +226,7 @@ func (s *Service) Get(ctx context.Context, subj authz.Subjects, id string) (View
 	if err != nil {
 		return View{}, nf(err)
 	}
-	return view(j), nil
+	return s.named(ctx, subj.TenantID, []View{view(j)})[0], nil
 }
 
 // HistoryEntry is one deployment-history record as returned to clients.
@@ -211,7 +257,9 @@ func (s *Service) GetResult(ctx context.Context, subj authz.Subjects, id string)
 	if err != nil {
 		return Result{}, nf(err)
 	}
+	n := s.newNames(subj.TenantID)
 	res := Result{View: view(j), History: []HistoryEntry{}}
+	n.fill(ctx, &res.View)
 	if len(j.Result) > 0 {
 		res.Result = json.RawMessage(j.Result)
 	}
@@ -229,7 +277,9 @@ func (s *Service) GetResult(ctx context.Context, subj authz.Subjects, id string)
 		}
 		res.Children = make([]View, 0, len(kids))
 		for _, k := range kids {
-			res.Children = append(res.Children, view(k))
+			v := view(k)
+			n.fill(ctx, &v)
+			res.Children = append(res.Children, v)
 		}
 	}
 	return res, nil
@@ -335,11 +385,7 @@ func (s *Service) List(ctx context.Context, subj authz.Subjects, f repo.JobFilte
 	if err != nil {
 		return nil, err
 	}
-	out := make([]View, 0, len(rows))
-	for _, j := range rows {
-		out = append(out, view(j))
-	}
-	return out, nil
+	return s.named(ctx, subj.TenantID, views(rows)), nil
 }
 
 // Page returns one page of the tenant's jobs (filtered in SQL, req's
@@ -352,7 +398,7 @@ func (s *Service) Page(ctx context.Context, subj authz.Subjects, f repo.JobFilte
 	if err != nil {
 		return listquery.Page[View]{}, err
 	}
-	return listquery.NewPage(views(rows), total, applied), nil
+	return listquery.NewPage(s.named(ctx, subj.TenantID, views(rows)), total, applied), nil
 }
 
 // PageChildren returns one page of a job's child jobs (store.ChildJobList).
@@ -367,7 +413,7 @@ func (s *Service) PageChildren(ctx context.Context, subj authz.Subjects, id stri
 	if err != nil {
 		return listquery.Page[View]{}, err
 	}
-	return listquery.NewPage(views(rows), total, applied), nil
+	return listquery.NewPage(s.named(ctx, subj.TenantID, views(rows)), total, applied), nil
 }
 
 // PageHistory returns one page of a job's deployment history
@@ -396,6 +442,78 @@ func views(rows []store.DeploymentJob) []View {
 		out = append(out, view(j))
 	}
 	return out
+}
+
+// names resolves the target, configuration and provider names of job views
+// (one lookup per distinct id), so a job says where it deploys without the
+// caller looking ids up. A deleted target or configuration leaves its name
+// empty; the id stays.
+type names struct {
+	s       *Service
+	tenant  string
+	configs map[string]store.TargetConfiguration
+	targets map[string]string
+	parents map[string]string // parent job id -> its target id
+}
+
+func (s *Service) newNames(tenantID string) *names {
+	return &names{s: s, tenant: tenantID, configs: map[string]store.TargetConfiguration{}, targets: map[string]string{}, parents: map[string]string{}}
+}
+
+func (n *names) config(ctx context.Context, id string) store.TargetConfiguration {
+	if id == "" {
+		return store.TargetConfiguration{}
+	}
+	c, ok := n.configs[id]
+	if !ok {
+		c, _ = n.s.st.GetConfiguration(ctx, n.tenant, id)
+		n.configs[id] = c
+	}
+	return c
+}
+
+func (n *names) target(ctx context.Context, id string) string {
+	if id == "" {
+		return ""
+	}
+	name, ok := n.targets[id]
+	if !ok {
+		if t, err := n.s.st.GetTarget(ctx, n.tenant, id); err == nil {
+			name = t.Name
+		}
+		n.targets[id] = name
+	}
+	return name
+}
+
+func (n *names) parentTarget(ctx context.Context, parentID string) string {
+	tid, ok := n.parents[parentID]
+	if !ok {
+		if p, err := n.s.st.GetJob(ctx, n.tenant, parentID); err == nil {
+			tid = strp(p.DeploymentTargetID)
+		}
+		n.parents[parentID] = tid
+	}
+	return tid
+}
+
+func (n *names) fill(ctx context.Context, v *View) {
+	tid := v.DeploymentTargetID
+	if tid == "" && v.ParentJobID != "" {
+		tid = n.parentTarget(ctx, v.ParentJobID)
+	}
+	v.TargetName = n.target(ctx, tid)
+	c := n.config(ctx, v.TargetConfigurationID)
+	v.ConfigurationName, v.ProviderType = c.Name, c.ProviderType
+}
+
+// named resolves the names of vs in place and returns it.
+func (s *Service) named(ctx context.Context, tenantID string, vs []View) []View {
+	n := s.newNames(tenantID)
+	for i := range vs {
+		n.fill(ctx, &vs[i])
+	}
+	return vs
 }
 
 func historyEntry(h store.DeploymentHistory) HistoryEntry {

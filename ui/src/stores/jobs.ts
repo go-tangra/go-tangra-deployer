@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import type { ListParams, ListQueryOptions } from '@go-tangra/ui'
 import { api } from '@/api/client'
-import type { ActionResult, HistoryEntry, Job, JobResult, JobStatus } from '@/api/types'
+import type { ActionResult, ErrorSource, ErrorStage, HistoryEntry, Job, JobResult, JobStatus } from '@/api/types'
 import { pagedList, type Page } from '@/stores/paged'
 
 /** Sortable fields of GET /jobs (server Spec store.JobList). */
@@ -31,6 +31,10 @@ export interface JobEvent {
   status_message?: string
   /** The cause of the last failure; "" once a deployment succeeds. */
   error?: string
+  error_stage?: ErrorStage | ''
+  error_source?: ErrorSource | ''
+  certificate_name?: string
+  certificate_serial?: string
   progress?: number
   retry_count?: number
   completed_at?: string | null
@@ -43,6 +47,12 @@ export function patchJob(cur: Job, ev: JobEvent): Job {
   if (typeof ev.progress === 'number') next.progress = ev.progress
   if (typeof ev.status_message === 'string') next.status_message = ev.status_message
   if (typeof ev.error === 'string') next.error = ev.error
+  if (ev.error_stage) next.error_stage = ev.error_stage
+  else if (ev.error_stage === '') delete next.error_stage
+  if (ev.error_source) next.error_source = ev.error_source
+  else if (ev.error_source === '') delete next.error_source
+  if (ev.certificate_name) next.certificate_name = ev.certificate_name
+  if (ev.certificate_serial) next.certificate_serial = ev.certificate_serial
   if (typeof ev.retry_count === 'number') next.retry_count = ev.retry_count
   if (typeof ev.completed_at === 'string') next.completed_at = ev.completed_at
   return next
