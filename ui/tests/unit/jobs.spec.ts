@@ -220,6 +220,36 @@ describe('jobs: server paging, sorting and live events', () => {
     w.unmount()
   })
 
+  it('a failed job names its certificate, where it deploys, the failed step, who reported it and the provider details', async () => {
+    const error = 'MANUAL REVIEW REQUIRED: not auto-bound'
+    const failed = job('f1', {
+      status: 'failed', certificate_name: 'star.server-lab.eu', target_name: 'test-target', configuration_name: 'fg-office', provider_type: 'fortigate',
+      error, error_stage: 'deploy', error_source: 'provider',
+    })
+    fetchMock(server(1, (url) => {
+      if (url.includes('/jobs/f1/result')) return { ...failed, result: { error, details: { host: '192.168.100.98', foreign_references: ['ssl-ssh-profile:test_profile'] } }, history: [] }
+      if (url.includes('/history?')) return { items: [], total: 0, page: 1, page_size: 10, sort: 'created_at', order: 'desc' }
+      if (url.startsWith('/api/deployer/v1/jobs?')) return { items: [failed], total: 1, page: 1, page_size: 25, sort: 'created_at', order: 'desc' }
+      return undefined
+    }))
+    const r = mkRouter()
+    await r.push('/deployer/jobs')
+    const w = mount(Jobs, { global: { plugins: [r] }, attachTo: document.body })
+    await flushPromises()
+    const row = w.find('[data-test="job-row-f1"]')
+    expect(row.text()).toContain('star.server-lab.eu')
+    expect(row.text()).toContain('test-target › fg-office (fortigate)')
+    expect(row.text()).toContain('MANUAL REVIEW REQUIRED')
+    await row.trigger('click')
+    await flushPromises()
+    const drawer = document.body.querySelector('aside[role=dialog]')!
+    expect(drawer.querySelector('[data-test=job-error-origin]')?.textContent).toBe('Failed while deploying with the provider · reported by the fortigate provider (its endpoint or its own checks)')
+    const details = drawer.querySelector('[data-test=job-details]')?.textContent ?? ''
+    expect(details).toContain('192.168.100.98')
+    expect(details).toContain('ssl-ssh-profile:test_profile')
+    w.unmount()
+  })
+
   it('the drawer shows the failure cause and follows the job live (status, error, history)', async () => {
     const calls = fetchMock(server(1, (url) => {
       if (url.includes('/jobs/e1/result')) return { ...job('e1'), result: { message: 'ok' }, history: [] }

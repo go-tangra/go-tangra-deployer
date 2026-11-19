@@ -2,16 +2,17 @@
 // Deployment jobs: a filter bar (status, type), a server-paged table (whole-list
 // header sorting on the server's sort fields; page / size / sort in the URL:
 // ?jobs.page=…), live status patches over the platform stream, and a detail
-// drawer — the failure cause, child jobs and history (server-paged) — that
+// drawer — where the job deploys, the failed step and who reported the error,
+// the provider's details, child jobs and history (server-paged) — that
 // follows the job live.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { UiPage, UiAlert, UiCard, UiForm, UiSelect, UiButton, UiDataTable, UiStatusChip, UiBadge, UiLiveIndicator, UiDrawer, UiKeyValueTable, useListQuery, type Column, type SelectOption } from '@go-tangra/ui'
+import { UiPage, UiAlert, UiCard, UiForm, UiSelect, UiButton, UiDataTable, UiStatusChip, UiBadge, UiLiveIndicator, UiDrawer, UiKeyValueTable, useListQuery, type Column, type KeyValue, type SelectOption } from '@go-tangra/ui'
 import { useZodForm } from '@go-tangra/ui/forms'
 import { DETAIL_LIST, JOB_LIST, LIVE_RELOAD_MS, patchJob, useJobs, type JobEvent, type JobFilter } from '@/stores/jobs'
 import { useLive } from '@/stores/live'
 import { describe } from '@/api/client'
 import { jobFilterSchema, JOB_STATUSES, JOB_TYPES } from '@/schemas'
-import type { ActionResult, DeliveryCounts, HistoryEntry, HostResult, Job } from '@/api/types'
+import type { ActionResult, DeliveryCounts, ErrorStage, HistoryEntry, HostResult, Job } from '@/api/types'
 
 const store = useJobs()
 const live = useLive()
@@ -58,13 +59,37 @@ const refresh = () => void fetchJobs()
 const statusColors = { partial: 'warning', processing: 'info', retrying: 'warning', cancelled: 'neutral', pending: 'neutral' } as const
 const progressClass: Record<string, string> = { completed: 'progress-success', failed: 'progress-error', partial: 'progress-warning', processing: 'progress-info', retrying: 'progress-warning', cancelled: 'progress-neutral', pending: 'progress-neutral' }
 const when = (s?: string) => (s ? new Date(s).toLocaleString() : '')
+/** The certificate's name, else its lcm id (before the job fetched it). */
+const certName = (j: Job) => j.certificate_name || j.certificate_id
+/** Where a job deploys: target, configuration and provider, as far as known. */
+function where(j: Job): string {
+  const conf = j.configuration_name || j.target_configuration_id
+  const parts = [j.target_name, conf && (j.provider_type ? `${conf} (${j.provider_type})` : conf)].filter(Boolean)
+  return parts.join(' › ') || j.deployment_target_id || ''
+}
+const STAGE_LABELS: Record<ErrorStage, string> = {
+  configuration: 'loading the configuration',
+  credentials: 'opening the stored credentials',
+  certificate: 'fetching the certificate from lcm',
+  deploy: 'deploying with the provider',
+  children: 'child deployments',
+}
+/** "Failed while …, reported by …" for the job's last failure. */
+function origin(j: Job): string {
+  if (!j.error_stage) return ''
+  const by = j.error_source === 'provider' ? `the ${j.provider_type || 'provider'} provider (its endpoint or its own checks)` : j.error_source === 'lcm' ? 'lcm' : 'the deployer'
+  return `Failed while ${STAGE_LABELS[j.error_stage]} · reported by ${by}`
+}
+const firstLine = (s?: string) => (s ?? '').split('\n')[0]!
 // Only the server's sort fields (JOB_LIST) are sortable; job_type shows row.type.
 const columns: Column<Job>[] = [
-  { key: 'certificate_id', label: 'Certificate' },
+  { key: 'certificate_id', label: 'Certificate', format: certName },
+  { key: 'where', label: 'Deploys to', format: where },
   { key: 'job_type', label: 'Type', width: 'sm', sortable: true },
   { key: 'triggered_by', label: 'Trigger', hideOnStack: true },
   { key: 'status', label: 'Status', width: 'sm', sortable: true },
   { key: 'progress', label: 'Progress', width: 'md', format: (j) => j.progress + '%' },
+  { key: 'error', label: 'Error', hideOnStack: true, format: (j) => firstLine(j.error) },
   { key: 'created_at', label: 'Created', format: (j) => when(j.created_at), sortable: true, defaultDir: 'desc', hideOnStack: true },
   { key: 'completed_at', label: 'Completed', format: (j) => when(j.completed_at), sortable: true, defaultDir: 'desc', hideOnStack: true },
 ]
@@ -108,12 +133,19 @@ watch(lqh.query, () => drawer.value && void fetchHistory())
 // --- per-host results of a by-reference delivery (inventory-agent) ---
 interface Delivery { name?: string | undefined; counts: DeliveryCounts; hosts: (HostResult & Record<string, unknown>)[]; truncated: boolean; unknown: string[] }
 const delivery = ref<Delivery | null>(null)
+/** Any other provider's result details (the endpoint, names, reasons). */
+const details = ref<KeyValue[]>([])
+const detailValue = (v: unknown) => (v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v))
 async function fetchResult(): Promise<void> {
   const j = selected.value
   if (!j || j.type === 'parent') return
   try {
     const d = (await store.result(j.id)).result?.details
-    if (selected.value?.id !== j.id || !d || typeof d.counts !== 'object' || !Array.isArray(d.hosts)) return
+    if (selected.value?.id !== j.id || !d) return
+    if (typeof d.counts !== 'object' || !Array.isArray(d.hosts)) {
+      details.value = Object.entries(d).map(([k, v]) => ({ label: k, value: detailValue(v) }))
+      return
+    }
     delivery.value = { name: typeof d.name === 'string' ? d.name : undefined, counts: d.counts as DeliveryCounts, hosts: (d.hosts as HostResult[]).map((h) => ({ ...h, id: h.host_id })), truncated: d.hosts_truncated === true, unknown: Array.isArray(d.unknown_host_ids) ? (d.unknown_host_ids as string[]) : [] }
   } catch {
     /* the result is optional detail; history still shows the outcome */
@@ -177,6 +209,7 @@ function open(j: Job): void {
   history.value = []
   historyTotal.value = 0
   delivery.value = null
+  details.value = []
   drawer.value = true
   // Another job starts at page 1 of its children and history. A page change
   // also fires the query watchers; track() drops the superseded response.
@@ -202,8 +235,22 @@ const cancel = () => job.value && run(() => store.cancel(job.value!.id))
 const retry = () => job.value && run(() => store.retry(job.value!.id))
 const verify = () => job.value && run(async () => (action.value = await store.verify(job.value!.id)))
 const rollback = () => job.value && run(async () => (action.value = await store.rollback(job.value!.id)))
-const meta = computed(() => (job.value ? [{ label: 'Certificate', value: job.value.certificate_id, copyable: true }, { label: 'Serial', value: job.value.certificate_serial }, { label: 'Retries', value: `${job.value.retry_count} / ${job.value.max_retries}` }, { label: 'Message', value: job.value.status_message }] : []))
-const childColumns: Column<Job>[] = [{ key: 'target_configuration_id', label: 'Configuration' }, { key: 'status', label: 'Status', width: 'sm' }, { key: 'progress', label: 'Progress', align: 'end', format: (c) => c.progress + '%' }, { key: 'error', label: 'Error', format: (c) => c.error ?? '' }, { key: 'created_at', label: 'Created', sortable: true, defaultDir: 'desc', hideOnStack: true, format: (c) => when(c.created_at) }]
+const meta = computed<KeyValue[]>(() => {
+  const j = job.value
+  if (!j) return []
+  const rows: KeyValue[] = [
+    { label: 'Certificate', value: j.certificate_name || '—' },
+    { label: 'Certificate ID', value: j.certificate_id, copyable: true },
+    { label: 'Serial', value: j.certificate_serial, copyable: true },
+    { label: 'Target', value: j.target_name || j.deployment_target_id },
+  ]
+  if (j.type !== 'parent') {
+    rows.push({ label: 'Configuration', value: j.configuration_name || j.target_configuration_id }, { label: 'Provider', value: j.provider_type })
+  }
+  rows.push({ label: 'Job ID', value: j.id, copyable: true }, { label: 'Retries', value: `${j.retry_count} / ${j.max_retries}` }, { label: 'Message', value: j.status_message })
+  return rows.filter((r) => r.value)
+})
+const childColumns: Column<Job>[] = [{ key: 'configuration_name', label: 'Configuration', format: (c) => c.configuration_name || c.target_configuration_id || '' }, { key: 'provider_type', label: 'Provider', width: 'sm' }, { key: 'status', label: 'Status', width: 'sm' }, { key: 'progress', label: 'Progress', align: 'end', format: (c) => c.progress + '%' }, { key: 'error_stage', label: 'Failed at', width: 'sm', format: (c) => c.error_stage ?? '' }, { key: 'error', label: 'Error', format: (c) => c.error ?? '' }, { key: 'created_at', label: 'Created', sortable: true, defaultDir: 'desc', hideOnStack: true, format: (c) => when(c.created_at) }]
 const historyColumns: Column<HistoryRow>[] = [{ key: 'action', label: 'Action' }, { key: 'result', label: 'Result', width: 'sm' }, { key: 'duration_ms', label: 'Duration', align: 'end', format: (h) => h.duration_ms + ' ms' }, { key: 'message', label: 'Message' }, { key: 'created_at', label: 'When', sortable: true, defaultDir: 'desc', hideOnStack: true, format: (h) => when(h.created_at) }]
 </script>
 
@@ -234,9 +281,14 @@ const historyColumns: Column<HistoryRow>[] = [{ key: 'action', label: 'Action' }
         <div class="mb-2 flex flex-wrap gap-1"><UiStatusChip :status="job.status" :colors="statusColors" /><UiBadge>{{ job.type }}</UiBadge><UiBadge>{{ job.triggered_by }}</UiBadge></div>
         <progress class="progress mb-3 h-1.5 w-full" :class="progressClass[job.status]" :value="job.progress" max="100" aria-label="Job progress" />
         <UiAlert v-if="job.error" :kind="job.status === 'failed' ? 'error' : 'warning'" :title="job.status === 'failed' ? 'Deployment failed' : 'Last error'" class="mb-3" data-test="job-error">
+          <p v-if="origin(job)" class="mb-1 text-sm" data-test="job-error-origin">{{ origin(job) }}</p>
           <pre class="whitespace-pre-wrap break-words font-mono text-xs">{{ job.error }}</pre>
         </UiAlert>
         <UiKeyValueTable :items="meta" class="mb-3" />
+        <section v-if="details.length" class="mb-3" data-test="job-details">
+          <h3 class="mb-1 text-sm font-medium">Provider details</h3>
+          <UiKeyValueTable :items="details" />
+        </section>
         <section v-if="delivery" class="mb-3" data-test="job-hosts">
           <h3 class="mb-1 text-sm font-medium">Hosts<template v-if="delivery.name"> · {{ delivery.name }}</template></h3>
           <div class="mb-2 flex flex-wrap gap-1" data-test="job-counts">

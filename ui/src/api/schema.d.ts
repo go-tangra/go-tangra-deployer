@@ -678,11 +678,30 @@ export interface components {
             target_configuration_id?: string;
             parent_job_id?: string;
             certificate_id: string;
+            /** @description set once the job fetched the certificate from lcm */
             certificate_serial?: string;
+            /** @description common name (else first SAN), set once the job fetched the certificate */
+            certificate_name?: string;
+            /** @description the target of a parent job, or of a child job's parent; empty once deleted */
+            target_name?: string;
+            /** @description the configuration of a child or direct job; empty once deleted */
+            configuration_name?: string;
+            /** @description the provider of that configuration */
+            provider_type?: string;
             status: string;
             status_message?: string;
-            /** @description cause of the last failure (provider or lcm error, credentials redacted); cleared by a success */
+            /** @description cause of the last failure (provider or lcm error, credentials redacted); for a parent, one line per failed child; cleared by a success */
             error?: string;
+            /**
+             * @description the step that failed (absent on failures recorded before 4.11)
+             * @enum {string}
+             */
+            error_stage?: "configuration" | "credentials" | "certificate" | "deploy" | "children";
+            /**
+             * @description who reported the error: the deployer itself, lcm, or the provider and its endpoint
+             * @enum {string}
+             */
+            error_source?: "deployer" | "lcm" | "provider";
             progress: number;
             retry_count: number;
             max_retries: number;

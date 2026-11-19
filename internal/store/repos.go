@@ -324,13 +324,13 @@ func TargetConfigurationIDsFor(ctx context.Context, tx pgx.Tx, tenantID string, 
 
 // ---- jobs ----
 
-const jobCols = "id, tenant_id, deployment_target_id, target_configuration_id, parent_job_id, certificate_id, certificate_serial, status, status_message, progress, retry_count, max_retries, triggered_by, result, lease_until, started_at, completed_at, next_retry_at, created_at, updated_at"
+const jobCols = "id, tenant_id, deployment_target_id, target_configuration_id, parent_job_id, certificate_id, certificate_serial, status, status_message, progress, retry_count, max_retries, triggered_by, result, lease_until, started_at, completed_at, next_retry_at, created_at, updated_at, certificate_name"
 
 func scanJob(row pgx.Row) (DeploymentJob, error) {
 	var j DeploymentJob
 	err := row.Scan(&j.ID, &j.TenantID, &j.DeploymentTargetID, &j.TargetConfigurationID, &j.ParentJobID,
 		&j.CertificateID, &j.CertificateSerial, &j.Status, &j.StatusMessage, &j.Progress, &j.RetryCount, &j.MaxRetries,
-		&j.TriggeredBy, &j.Result, &j.LeaseUntil, &j.StartedAt, &j.CompletedAt, &j.NextRetryAt, &j.CreatedAt, &j.UpdatedAt)
+		&j.TriggeredBy, &j.Result, &j.LeaseUntil, &j.StartedAt, &j.CompletedAt, &j.NextRetryAt, &j.CreatedAt, &j.UpdatedAt, &j.CertificateName)
 	if err != nil {
 		return DeploymentJob{}, notFound(err)
 	}
@@ -341,11 +341,11 @@ func scanJob(row pgx.Row) (DeploymentJob, error) {
 func InsertJob(ctx context.Context, tx pgx.Tx, j DeploymentJob) error {
 	_, err := tx.Exec(ctx, `INSERT INTO deployer_jobs
 		(id, tenant_id, deployment_target_id, target_configuration_id, parent_job_id, certificate_id, certificate_serial,
-		 status, status_message, progress, retry_count, max_retries, triggered_by, result, next_retry_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+		 status, status_message, progress, retry_count, max_retries, triggered_by, result, next_retry_at, certificate_name)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
 		j.ID, j.TenantID, j.DeploymentTargetID, j.TargetConfigurationID, j.ParentJobID, j.CertificateID, j.CertificateSerial,
 		defaultStr(j.Status, "pending"), j.StatusMessage, j.Progress, j.RetryCount, defaultInt(j.MaxRetries, 3),
-		defaultStr(j.TriggeredBy, "manual"), j.Result, j.NextRetryAt)
+		defaultStr(j.TriggeredBy, "manual"), j.Result, j.NextRetryAt, j.CertificateName)
 	return err
 }
 
@@ -471,10 +471,11 @@ func pageJobs(ctx context.Context, tx pgx.Tx, tenantID string, c JobConds, req l
 // UpdateJob rewrites the mutable columns.
 func UpdateJob(ctx context.Context, tx pgx.Tx, j DeploymentJob) error {
 	ct, err := tx.Exec(ctx, `UPDATE deployer_jobs SET status=$3, status_message=$4, progress=$5, retry_count=$6,
-		triggered_by=$7, result=$8, lease_until=$9, started_at=$10, completed_at=$11, next_retry_at=$12, updated_at=now()
+		triggered_by=$7, result=$8, lease_until=$9, started_at=$10, completed_at=$11, next_retry_at=$12,
+		certificate_serial=$13, certificate_name=$14, updated_at=now()
 		WHERE tenant_id=$1 AND id=$2`,
 		j.TenantID, j.ID, j.Status, j.StatusMessage, j.Progress, j.RetryCount, j.TriggeredBy, j.Result,
-		j.LeaseUntil, j.StartedAt, j.CompletedAt, j.NextRetryAt)
+		j.LeaseUntil, j.StartedAt, j.CompletedAt, j.NextRetryAt, j.CertificateSerial, j.CertificateName)
 	if err != nil {
 		return err
 	}
@@ -632,7 +633,7 @@ func defaultInt(n, d int) int {
 
 func jobColsPrefixed(alias string) string {
 	// jobCols with an alias prefix for the UPDATE ... RETURNING.
-	cols := []string{"id", "tenant_id", "deployment_target_id", "target_configuration_id", "parent_job_id", "certificate_id", "certificate_serial", "status", "status_message", "progress", "retry_count", "max_retries", "triggered_by", "result", "lease_until", "started_at", "completed_at", "next_retry_at", "created_at", "updated_at"}
+	cols := []string{"id", "tenant_id", "deployment_target_id", "target_configuration_id", "parent_job_id", "certificate_id", "certificate_serial", "status", "status_message", "progress", "retry_count", "max_retries", "triggered_by", "result", "lease_until", "started_at", "completed_at", "next_retry_at", "created_at", "updated_at", "certificate_name"}
 	out := ""
 	for i, c := range cols {
 		if i > 0 {

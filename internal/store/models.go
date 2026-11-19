@@ -91,6 +91,7 @@ type DeploymentJob struct {
 	ParentJobID           *string // set for CHILD
 	CertificateID         string
 	CertificateSerial     string
+	CertificateName       string // CN (else first SAN) of the certificate, set when fetched
 	Status                string
 	StatusMessage         string
 	Progress              int

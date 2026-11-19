@@ -45,6 +45,15 @@ type CertificateData struct {
 	ExpiresAt        time.Time
 }
 
+// Name is how a job names the certificate: the common name, else the first
+// SAN.
+func (c CertificateData) Name() string {
+	if c.CommonName != "" || len(c.SANs) == 0 {
+		return c.CommonName
+	}
+	return c.SANs[0]
+}
+
 // Result is the outcome of a Deploy/Verify/Rollback. Message is client-safe.
 // Permanent marks a failure that a retry cannot fix (a missing appliance
 // profile, a refused request, "no hosts matched"): the job fails without

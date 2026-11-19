@@ -23,18 +23,41 @@ children that finished.
 
 ## Read a job
 
+The list shows for each job the certificate (its name once the job has
+fetched it, else its lcm ID), where it deploys (target › configuration
+(provider)) and the first line of its last error.
+
 Open a job to see:
 
-- **Certificate** and **Serial** of the deployed certificate;
-- **Retries**, as used / allowed, for example `1 / 3`;
-- **Message**, the latest progress note;
+- **Certificate**, **Certificate ID** and **Serial** of the deployed
+  certificate;
+- **Target**, **Configuration** and **Provider** it deploys to;
+- **Job ID**, **Retries** (used / allowed, for example `1 / 3`) and
+  **Message**, the latest progress note;
 - the error of the last failure (titled **Deployment failed** while the job
-  is failed). It is the provider's or lcm's own message, with credentials
-  removed, so it usually names the real cause;
+  is failed), with the step that failed and who reported it (see below). It
+  is the provider's or lcm's own message, with credentials removed, so it
+  usually names the real cause. A parent job lists one line per failed
+  child: `configuration (provider) [step]: error`;
+- **Provider details**: what the provider reported with its result, for
+  example the FortiGate host and the objects that blocked a binding;
 - **History**: every deploy, verify and rollback attempt with its result and
   duration;
-- **Child deployments** for a parent job;
+- **Child deployments** for a parent job, with each child's configuration,
+  provider, failed step and error;
 - **Hosts** for the Inventory agent provider: the state each host reported.
+
+### Where a failure comes from
+
+| Failed while | Reported by | Typical cause |
+|---|---|---|
+| loading the configuration | the deployer | the configuration was deleted, its provider is unknown, or a required value is missing |
+| opening the stored credentials | the deployer | the key-encryption key changed; re-enter the credentials |
+| fetching the certificate from lcm | lcm | lcm unreachable, the certificate is gone, or lcm keeps no private key for it |
+| deploying with the provider | the provider | the endpoint refused or could not be reached, or the provider stopped on its own safety check (for example a FortiGate `MANUAL REVIEW REQUIRED`) |
+| child deployments | the deployer | a parent job: see the failed children |
+
+Failures recorded before deployer 4.11 show no step.
 
 ## Automatic retries
 

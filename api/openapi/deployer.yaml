@@ -262,10 +262,16 @@ components:
         target_configuration_id: { type: string }
         parent_job_id: { type: string }
         certificate_id: { type: string }
-        certificate_serial: { type: string }
+        certificate_serial: { type: string, description: 'set once the job fetched the certificate from lcm' }
+        certificate_name: { type: string, description: 'common name (else first SAN), set once the job fetched the certificate' }
+        target_name: { type: string, description: 'the target of a parent job, or of a child job''s parent; empty once deleted' }
+        configuration_name: { type: string, description: 'the configuration of a child or direct job; empty once deleted' }
+        provider_type: { type: string, description: 'the provider of that configuration' }
         status: { type: string }
         status_message: { type: string }
-        error: { type: string, description: 'cause of the last failure (provider or lcm error, credentials redacted); cleared by a success' }
+        error: { type: string, description: 'cause of the last failure (provider or lcm error, credentials redacted); for a parent, one line per failed child; cleared by a success' }
+        error_stage: { type: string, enum: [configuration, credentials, certificate, deploy, children], description: 'the step that failed (absent on failures recorded before 4.11)' }
+        error_source: { type: string, enum: [deployer, lcm, provider], description: 'who reported the error: the deployer itself, lcm, or the provider and its endpoint' }
         progress: { type: integer }
         retry_count: { type: integer }
         max_retries: { type: integer }

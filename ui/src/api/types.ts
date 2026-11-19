@@ -156,6 +156,9 @@ export interface TargetInput {
   certificate_filters: CertificateFilter[]
 }
 
+export type ErrorStage = 'configuration' | 'credentials' | 'certificate' | 'deploy' | 'children'
+export type ErrorSource = 'deployer' | 'lcm' | 'provider'
+
 export interface Job {
   id: string
   type: JobType
@@ -164,10 +167,20 @@ export interface Job {
   parent_job_id?: string
   certificate_id: string
   certificate_serial?: string
+  /** Common name (else first SAN), known once the job fetched the certificate. */
+  certificate_name?: string
+  /** The target of a parent, or of a child's parent. */
+  target_name?: string
+  /** The configuration of a child or direct job, and its provider. */
+  configuration_name?: string
+  provider_type?: string
   status: JobStatus
   status_message?: string
   /** The cause of the last failure (provider or lcm error); cleared by a success. */
   error?: string
+  /** The step that failed and who reported the error. */
+  error_stage?: ErrorStage
+  error_source?: ErrorSource
   progress: number
   retry_count: number
   max_retries: number
