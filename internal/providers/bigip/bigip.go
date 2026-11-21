@@ -229,11 +229,12 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 		return failed("failed to upload private key: %v", err), nil
 	}
 
-	// Step 3: upload and install the CA chain if provided (non-fatal).
+	// Step 3: upload and install the issuing CA chain if any (non-fatal); the
+	// profile serves it after the certificate. Roots are left out.
 	boundChain := ""
-	if cert.CertificateChain != "" {
+	if issuers := cert.IssuerChain(); issuers != "" {
 		note(progress, 55, "Uploading certificate chain to BIG-IP")
-		if err := c.installCrypto(ctx, "cert", "certificate", chainFull, cert.CertificateChain); err != nil {
+		if err := c.installCrypto(ctx, "cert", "certificate", chainFull, issuers); err != nil {
 			note(progress, 60, "Warning: failed to upload certificate chain")
 		} else {
 			boundChain = chainFull

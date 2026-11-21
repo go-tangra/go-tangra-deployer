@@ -163,8 +163,10 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 		"Certificate": b64(cert.CertificatePEM),
 		"PrivateKey":  b64(cert.PrivateKeyPEM),
 	}
-	if cert.CertificateChain != "" {
-		body["CertificateChain"] = b64(cert.CertificateChain)
+	// ACM serves Certificate followed by CertificateChain: the issuing CAs,
+	// roots left out.
+	if issuers := cert.IssuerChain(); issuers != "" {
+		body["CertificateChain"] = b64(issuers)
 	}
 	if arn := str(config, "certificate_arn"); arn != "" {
 		body["CertificateArn"] = arn // reimport into the same ACM entry

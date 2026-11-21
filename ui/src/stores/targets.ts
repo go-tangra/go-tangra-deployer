@@ -40,5 +40,14 @@ export const useTargets = defineStore('deployer-targets', () => {
     await api('POST', 'targets/' + id + '/configurations/remove', { configuration_ids: configurationIds })
   }
 
-  return { ...paged, get, create, update, remove, attach, detach }
+  /**
+   * Deploys a certificate to a target: one parent job plus one child job per
+   * attached configuration (each with the target's overrides). Returns the parent job id.
+   */
+  async function deploy(certificateId: string, targetId: string): Promise<string> {
+    const res = await api<{ job_id: string }>('POST', 'deploy/target', { certificate_id: certificateId, target_id: targetId })
+    return res.job_id
+  }
+
+  return { ...paged, get, create, update, remove, attach, detach, deploy }
 })

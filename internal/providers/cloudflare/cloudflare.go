@@ -241,9 +241,11 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 	base := p.base()
 
 	note(progress, 10, "preparing certificate bundle")
-	certBundle := cert.CertificatePEM
-	if cert.CertificateChain != "" {
-		certBundle = certBundle + "\n" + cert.CertificateChain
+	// The certificate followed by its issuing CAs (roots left out): Cloudflare
+	// serves the uploaded bundle as is.
+	certBundle := cert.Bundle()
+	if certBundle == "" {
+		certBundle = cert.CertificatePEM
 	}
 
 	note(progress, 30, "checking for existing certificate")

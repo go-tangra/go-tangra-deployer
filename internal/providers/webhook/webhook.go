@@ -70,16 +70,19 @@ func (Provider) Capabilities() provider.Capabilities {
 // payload is the JSON body sent to the endpoint. Key material is included only
 // on deploy (verify/rollback identify the cert by id/serial).
 type payload struct {
-	Action           string            `json:"action"`
-	CertificateID    string            `json:"certificate_id"`
-	SerialNumber     string            `json:"serial_number"`
-	CommonName       string            `json:"common_name"`
-	SANs             []string          `json:"sans,omitempty"`
-	CertificatePEM   string            `json:"certificate_pem,omitempty"`
-	CertificateChain string            `json:"certificate_chain,omitempty"`
-	PrivateKeyPEM    string            `json:"private_key_pem,omitempty"`
-	ExpiresAt        int64             `json:"expires_at,omitempty"`
-	Metadata         map[string]string `json:"metadata,omitempty"`
+	Action           string   `json:"action"`
+	CertificateID    string   `json:"certificate_id"`
+	SerialNumber     string   `json:"serial_number"`
+	CommonName       string   `json:"common_name"`
+	SANs             []string `json:"sans,omitempty"`
+	CertificatePEM   string   `json:"certificate_pem,omitempty"`
+	CertificateChain string   `json:"certificate_chain,omitempty"`
+	// CertificateBundle is the certificate followed by its issuing CA
+	// certificates, roots left out (the "fullchain" a TLS server serves).
+	CertificateBundle string            `json:"certificate_bundle_pem,omitempty"`
+	PrivateKeyPEM     string            `json:"private_key_pem,omitempty"`
+	ExpiresAt         int64             `json:"expires_at,omitempty"`
+	Metadata          map[string]string `json:"metadata,omitempty"`
 }
 
 // endpointResponse is the optional structured reply from the endpoint.
@@ -146,7 +149,7 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 	pl := payload{
 		Action: "deploy", CertificateID: cert.ID, SerialNumber: cert.SerialNumber,
 		CommonName: cert.CommonName, SANs: cert.SANs, CertificatePEM: cert.CertificatePEM,
-		CertificateChain: cert.CertificateChain, PrivateKeyPEM: cert.PrivateKeyPEM,
+		CertificateChain: cert.CertificateChain, CertificateBundle: cert.Bundle(), PrivateKeyPEM: cert.PrivateKeyPEM,
 	}
 	if !cert.ExpiresAt.IsZero() {
 		pl.ExpiresAt = cert.ExpiresAt.Unix()

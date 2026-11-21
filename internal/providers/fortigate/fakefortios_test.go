@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"math/big"
 	"net/http"
@@ -70,7 +71,9 @@ type fakeFortiOS struct {
 	failPost    int
 	failDelete  int
 	failImport  int
-	importBody  string // body of a failing import response
+	importBody  string   // body of a failing import response
+	cas         []string // CA store (PEM), in import order
+	failCA      int      // status for a CA import
 	tokenHeader string
 }
 
@@ -232,6 +235,21 @@ func (f *fakeFortiOS) serve(t *testing.T) *httptest.Server {
 			default:
 				reply(w, 200, []map[string]any{{"name": n, "certificate": pemStr}})
 			}
+		case p == "cmdb/certificate/ca":
+			list := []map[string]any{}
+			for i, c := range f.cas {
+				list = append(list, map[string]any{"name": fmt.Sprintf("CA_Cert_%d", i+1), "ca": c})
+			}
+			reply(w, 200, list)
+		case p == "monitor/vpn-certificate/ca/import":
+			if f.failCA != 0 {
+				w.WriteHeader(f.failCA)
+				_, _ = io.WriteString(w, `{"status":"error","error":-1}`)
+				return
+			}
+			dec, _ := base64.StdEncoding.DecodeString(body["file_content"].(string))
+			f.cas = append(f.cas, string(dec))
+			reply(w, 200, nil)
 		case p == "monitor/vpn-certificate/local/import":
 			if f.failImport != 0 {
 				w.WriteHeader(f.failImport)

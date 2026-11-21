@@ -127,6 +127,64 @@ func (c *fgClient) importCert(ctx context.Context, name, certPEM, keyPEM, scope 
 	return nil
 }
 
+// caCert is the subset of a certificate/ca entry read here.
+type caCert struct {
+	Name string `json:"name"`
+	CA   string `json:"ca"`
+}
+
+// ensureCAs imports the issuing CA certificates into the FortiGate CA store so
+// the device serves the full chain after the local certificate (a local
+// certificate holds the leaf only; FortiOS rejects a chain there with -145).
+// CAs already on the device (identical DER) are not imported again. It returns
+// how many were imported and how many were already present.
+func (c *fgClient) ensureCAs(ctx context.Context, pems []string, scope string) (imported, present int, err error) {
+	if len(pems) == 0 {
+		return 0, 0, nil
+	}
+	r, err := c.cmdbGet(ctx, "certificate/ca")
+	if err != nil {
+		return 0, 0, err
+	}
+	if !r.ok() {
+		return 0, 0, apiError("list CA certificates", r)
+	}
+	var list []caCert
+	if err := jsonResults(r, &list); err != nil {
+		return 0, 0, err
+	}
+	have := map[string]bool{}
+	for _, x := range list {
+		if b, _ := pem.Decode([]byte(x.CA)); b != nil {
+			have[string(b.Bytes)] = true
+		}
+	}
+	for _, p := range pems {
+		b, _ := pem.Decode([]byte(p))
+		if b == nil {
+			continue
+		}
+		if have[string(b.Bytes)] {
+			present++
+			continue
+		}
+		r, err := c.monitorPost(ctx, "vpn-certificate/ca/import", map[string]any{
+			"import_method": "file",
+			"file_content":  base64.StdEncoding.EncodeToString([]byte(p)),
+			"scope":         scope,
+		})
+		if err != nil {
+			return imported, present, err
+		}
+		if !r.ok() {
+			return imported, present, apiError("import CA certificate", r)
+		}
+		have[string(b.Bytes)] = true
+		imported++
+	}
+	return imported, present, nil
+}
+
 // deleteCert deletes a local certificate. A 404 is treated as success.
 func (c *fgClient) deleteCert(ctx context.Context, name string) error {
 	r, err := c.cmdbDelete(ctx, "certificate/local/"+escapeMkey(name))
