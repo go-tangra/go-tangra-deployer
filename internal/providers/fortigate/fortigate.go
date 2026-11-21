@@ -5,6 +5,9 @@
 // certificate (leaf only — FortiOS rejects a chain with -145) is imported via
 // POST /api/v2/monitor/vpn-certificate/local/import (type=regular) and every
 // call is scoped to a VDOM (?vdom=) and authenticated with a bearer API token.
+// The issuing CA certificates (chain without roots) are imported into the CA
+// store (vpn-certificate/ca/import) when not already there, so the device
+// serves the certificate with its issuer.
 // Three replace strategies are selected by replace_strategy:
 //
 //   - "ssl_profile" (default): import under a dated name (or reuse the
@@ -225,11 +228,38 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 	leafCert := leafCertPEM(cert.CertificatePEM)
 	base := baseName(leafCert, cert)
 
+	// The issuing CAs go to the CA store instead, so the device serves the full
+	// chain (certificate + issuer). Not fatal: the certificate itself still
+	// deploys; the outcome is reported in the result.
+	issuers := cert.IssuerCerts()
+	if len(issuers) > 0 {
+		note(progress, 12, "Importing issuing CA certificates")
+	}
+	imported, present, caErr := c.ensureCAs(ctx, issuers, cfg.importScope)
+	res, err := p.deployStrategy(ctx, c, cfg, base, leafCert, cert.PrivateKeyPEM, progress)
+	if res != nil {
+		if res.Details == nil {
+			res.Details = map[string]any{}
+		}
+		res.Details["issuer_cas_imported"] = imported
+		res.Details["issuer_cas_present"] = present
+		if caErr != nil {
+			res.Details["issuer_cas_error"] = caErr.Error()
+			if res.Success {
+				res.Message += " (warning: the issuing CA certificate could not be imported; clients may not get the full chain)"
+			}
+		}
+	}
+	return res, err
+}
+
+// deployStrategy runs the configured replace strategy for the leaf certificate.
+func (p Provider) deployStrategy(ctx context.Context, c *fgClient, cfg deployConfig, base, leafCert, keyPEM string, progress provider.ProgressFn) (*provider.Result, error) {
 	switch cfg.strategy {
 	case strategyDelete:
-		return p.deployDelete(ctx, c, cfg, base, leafCert, cert.PrivateKeyPEM, progress)
+		return p.deployDelete(ctx, c, cfg, base, leafCert, keyPEM, progress)
 	case strategyRebind:
-		return p.deployRebind(ctx, c, cfg, base, leafCert, cert.PrivateKeyPEM, progress)
+		return p.deployRebind(ctx, c, cfg, base, leafCert, keyPEM, progress)
 	default: // "ssl_profile" — production-safe default
 		// v4: names that could form a URL path segment are refused before
 		// anything is sent (stored rows predating the descriptor patterns).
@@ -239,7 +269,7 @@ func (p Provider) Deploy(ctx context.Context, cert *provider.CertificateData, co
 		if !profileSuffixPattern.MatchString(cfg.profileSuffix) {
 			return &provider.Result{Success: false, Permanent: true, Message: "profile_suffix is not a valid SSL/SSH profile name suffix"}, nil
 		}
-		return p.deploySSLProfile(ctx, c, cfg, base, leafCert, cert.PrivateKeyPEM, progress)
+		return p.deploySSLProfile(ctx, c, cfg, base, leafCert, keyPEM, progress)
 	}
 }
 

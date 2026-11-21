@@ -4,7 +4,8 @@
 // configuration, its override form generated from the provider descriptors
 // (feature 033, contracts/deployer-config-ui.md §4a, §6.11).
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { UiPage, UiAlert, UiCard, UiButton, UiDataTable, UiStatusChip, UiDrawer, UiForm, UiInput, UiSwitch, UiCheckbox, UiSection, UiBadge, UiIcon, useConfirm, useListQuery, type Column } from '@go-tangra/ui'
+import { UiPage, UiAlert, UiCard, UiButton, UiDataTable, UiStatusChip, UiDrawer, UiDialog, UiForm, UiInput, UiSwitch, UiCheckbox, UiSection, UiBadge, UiIcon, UiTooltip, useConfirm, useListQuery, useToast, type Column } from '@go-tangra/ui'
+import { z } from 'zod'
 import { useZodForm } from '@go-tangra/ui/forms'
 import { TARGET_LIST, useTargets } from '@/stores/targets'
 import { useConfigurations } from '@/stores/configurations'
@@ -14,12 +15,14 @@ import { describeFieldErrors, filterToApi, filterToForm, overridePrefix, targetF
 import { configFields, labels, overridableFields, overrideValues, PATH_CONFIG } from '@/schemas/providerFields'
 import ProviderConfigForm from '@/components/ProviderConfigForm.vue'
 import HostPicker from '@/components/HostPicker.vue'
+import CertificatePicker from '@/components/CertificatePicker.vue'
 import type { Configuration, Target } from '@/api/types'
 
 const store = useTargets()
 const configs = useConfigurations()
 const providers = useProviders()
 const confirm = useConfirm()
+const toast = useToast()
 const drawer = ref(false)
 const selected = ref<Target | null>(null)
 const detail = ref<Target | null>(null)
@@ -150,16 +153,37 @@ async function save(): Promise<void> {
   }
   await form.submit()
 }
-async function remove(): Promise<void> {
-  if (!selected.value || !(await confirm.ask({ title: `Delete ${selected.value.name}?`, danger: true, confirmLabel: 'Delete' }))) return
+async function remove(t: Target | null = selected.value): Promise<void> {
+  if (!t || !(await confirm.ask({ title: `Delete ${t.name}?`, text: 'Its configurations stay; they are only detached from this target. Past jobs are kept.', danger: true, confirmLabel: 'Delete' }))) return
   try {
-    await store.remove(selected.value.id)
-    drawer.value = false
+    await store.remove(t.id)
+    if (selected.value?.id === t.id) drawer.value = false
     void load()
   } catch (e) {
-    error.value = describe(e)
+    if (drawer.value) error.value = describe(e)
+    else toast.error(describe(e))
   }
 }
+
+// --- deploy to a target -----------------------------------------------------
+// Like a configuration's direct deployment: pick lcm's certificate by host
+// name; every configuration attached to the target deploys it.
+const CERTIFICATE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const deployFor = ref<Target | null>(null)
+const deployOpen = ref(false)
+const deployForm = useZodForm(z.object({ certificate_id: z.string().regex(CERTIFICATE_ID, 'Type a host name and pick a certificate.') }), {
+  onSubmit: async (v) => store.deploy(v.certificate_id, deployFor.value!.id),
+  onSuccess: (jobId) => {
+    deployOpen.value = false
+    toast.success(`Deployment started (job ${jobId}).`)
+  },
+})
+function startDeploy(t: Target): void {
+  deployFor.value = t
+  deployForm.reset({ certificate_id: '' })
+  deployOpen.value = true
+}
+const deployable = (t: Target) => (t.configuration_ids?.length ?? 0) > 0
 // Only the server's sort fields (TARGET_LIST) are sortable.
 const columns: Column<Target>[] = [
   { key: 'name', label: 'Name', sortable: true },
@@ -178,6 +202,15 @@ const filterErr = (i: number, k: string) => form.errors.value[`certificate_filte
     <UiCard :padded="false">
       <UiDataTable :items="store.items" :columns="columns" :loading="store.loading" :total="store.total" :page="lq.page.value" :page-size="lq.pageSize.value" :sort="lq.sort.value" caption="Targets" empty-title="No targets yet" clickable :row-attrs="(t) => ({ 'data-test': 'target-row-' + t.id })" data-test="targets-table" @row-click="open" @update:page="lq.setPage" @update:page-size="lq.setPageSize" @update:sort="lq.setSort">
         <template #cell-auto_deploy="{ row }"><UiStatusChip :status="row.auto_deploy ? 'on' : 'off'" :colors="{ on: 'success', off: 'neutral' }" /></template>
+        <template #actions="{ row }">
+          <div class="flex gap-1">
+            <UiTooltip v-if="!deployable(row)" text="Attach a configuration to deploy to this target" position="left">
+              <UiButton size="sm" variant="soft" icon="mdi-play" disabled :data-test="'target-deploy-' + row.id">Deploy</UiButton>
+            </UiTooltip>
+            <UiButton v-else size="sm" variant="soft" icon="mdi-play" :data-test="'target-deploy-' + row.id" @click.stop="startDeploy(row)">Deploy</UiButton>
+            <UiButton size="sm" variant="text" color="error" icon="mdi-delete-outline" :aria-label="'Delete ' + row.name" :data-test="'target-delete-' + row.id" @click.stop="remove(row)" />
+          </div>
+        </template>
       </UiDataTable>
     </UiCard>
     <UiDrawer v-model="drawer" :title="selected ? 'Edit target' : 'New target'" size="lg">
@@ -240,10 +273,21 @@ const filterErr = (i: number, k: string) => form.errors.value[`certificate_filte
         </div>
       </UiForm>
       <template #actions>
-        <UiButton v-if="selected" variant="text" color="error" @click="remove">Delete</UiButton>
+        <UiButton v-if="selected" variant="text" color="error" data-test="target-delete" @click="remove()">Delete</UiButton>
         <UiButton variant="text" @click="drawer = false">Cancel</UiButton>
         <UiButton :loading="form.submitting.value" data-test="target-save" @click="save">Save</UiButton>
       </template>
     </UiDrawer>
+
+    <UiDialog v-model="deployOpen" :title="'Deploy to ' + (deployFor?.name ?? '')" size="sm">
+      <p class="mb-3 text-sm text-base-content/70">Every configuration attached to this target ({{ deployFor?.configuration_ids?.length ?? 0 }}) deploys the certificate, with the target's settings.</p>
+      <UiForm :form="deployForm">
+        <CertificatePicker v-bind="deployForm.field('certificate_id')" :disabled="deployForm.submitting.value" />
+      </UiForm>
+      <template #actions>
+        <UiButton variant="text" @click="deployOpen = false">Cancel</UiButton>
+        <UiButton :loading="deployForm.submitting.value" data-test="target-deploy-submit" @click="deployForm.submit()">Deploy</UiButton>
+      </template>
+    </UiDialog>
   </UiPage>
 </template>
