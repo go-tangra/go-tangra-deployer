@@ -519,6 +519,13 @@ export interface components {
             name: string;
             description: string;
             auto_deploy: boolean;
+            /** @description E-mail each finished run of the target to the tenant owners, admins and deployer administrators (default false; omitted on update: unchanged). */
+            notify_enabled: boolean;
+            /**
+             * @description always: every finished run; failure: only failed or partial runs (default always; omitted on update: unchanged).
+             * @enum {string}
+             */
+            notify_on: "always" | "failure";
             certificate_filters: components["schemas"]["CertificateFilter"][];
             configuration_ids: string[];
             /** @description Per attached configuration (id -> override); overridable provider config only, never credentials. */

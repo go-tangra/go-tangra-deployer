@@ -43,11 +43,16 @@ export function filterToApi(f: { issuer?: string | undefined; common_name?: stri
   return out
 }
 
+/** When a target sends its status e-mail (notify_on). */
+export const NOTIFY_ON = ['always', 'failure'] as const
+
 /** POST/PUT /targets payload plus the attached configuration ids. */
 export const targetSchema = z.object({
   name: nonEmpty(200),
   description: optionalString(2000),
   auto_deploy: z.boolean().optional().transform((v) => v ?? false),
+  notify_enabled: z.boolean().optional().transform((v) => v ?? false),
+  notify_on: z.enum(NOTIFY_ON).optional().transform((v) => v ?? 'always'),
   certificate_filters: z.array(certificateFilterSchema).max(20).transform((fs) => fs.filter((f) => Object.values(f).some((v) => v))),
   configuration_ids: z.array(z.string()).optional().transform((v) => v ?? []),
 })

@@ -31,8 +31,14 @@ type Config struct {
 	// Inventory names the inventory peer of the inventory-agent provider
 	// (feature 033). Empty: the provider is not registered.
 	Inventory Inventory `yaml:"inventory"`
-	Enroll    Enroll    `yaml:"enroll"`
-	Limits    Limits    `yaml:"limits_deployer"`
+	// Auth names the auth service (token keys, job-event audience and the
+	// recipients of target status e-mails).
+	Auth Auth `yaml:"auth"`
+	// Notification names the notification module that sends target status
+	// e-mails, and the portal origin their links open.
+	Notification Notification `yaml:"notification"`
+	Enroll       Enroll       `yaml:"enroll"`
+	Limits       Limits       `yaml:"limits_deployer"`
 }
 
 // DB configures TimescaleDB.
@@ -92,6 +98,20 @@ type Inventory struct {
 	Service string `yaml:"service"`
 }
 
+// Auth names the auth service (mesh discovery name).
+type Auth struct {
+	Service string `yaml:"service"`
+}
+
+// Notification configures target status e-mails: the notification module's
+// discovery name and, optionally, the portal's https origin (e.g.
+// https://portal.example.org) so an e-mail links to the deployment. Without
+// portal_url the e-mail carries no link.
+type Notification struct {
+	Service   string `yaml:"service"`
+	PortalURL string `yaml:"portal_url"`
+}
+
 // Enroll makes the service obtain its SVID by enrolling with lcm over the
 // network (the multi-host path); app.Build injects the enroll identity provider.
 type Enroll struct {
@@ -123,7 +143,10 @@ func Default() Config {
 		Events:  Events{Enabled: true},
 		Gateway: Gateway{Service: "gateway"},
 		LCM:     LCM{Service: "lcm"},
-		Limits:  Limits{BackupMaxBytes: 16 << 20, ConfigMaxBytes: 16 << 10, FilterMaxLength: 256},
+		Auth:    Auth{Service: "auth"},
+		// Notification: the module's discovery name (notifyclient.Service).
+		Notification: Notification{Service: "notification"},
+		Limits:       Limits{BackupMaxBytes: 16 << 20, ConfigMaxBytes: 16 << 10, FilterMaxLength: 256},
 	}
 }
 
@@ -204,6 +227,17 @@ func (c Config) Validate() error {
 	}
 	if c.LCM.Service == "" {
 		return errors.New("config: lcm.service is required")
+	}
+	if !serviceName.MatchString(c.Auth.Service) {
+		return errors.New("config: auth.service must be a service name ([a-z][a-z0-9-]{0,62})")
+	}
+	if !serviceName.MatchString(c.Notification.Service) {
+		return errors.New("config: notification.service must be a service name ([a-z][a-z0-9-]{0,62})")
+	}
+	if p := c.Notification.PortalURL; p != "" {
+		if pu, err := url.Parse(p); err != nil || pu.Scheme != "https" || pu.Host == "" || (pu.Path != "" && pu.Path != "/") || pu.RawQuery != "" || pu.Fragment != "" || pu.User != nil {
+			return errors.New("config: notification.portal_url must be an https origin")
+		}
 	}
 	if c.Inventory.Service != "" && !serviceName.MatchString(c.Inventory.Service) {
 		return errors.New("config: inventory.service must be a service name ([a-z][a-z0-9-]{0,62})")

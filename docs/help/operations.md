@@ -46,6 +46,9 @@ start with `config: <file>: ...`. Besides the framework keys (`service_name`,
 | `gateway.service` | `gateway` | mesh name of the gateway; the only peer allowed to fetch the help pages |
 | `gateway.issuer` | — | required, an `https://` origin: the platform token issuer |
 | `lcm.service` | `lcm` | where certificates are downloaded from |
+| `auth.service` | `auth` | token keys, job-event audience and the recipients of status e-mails |
+| `notification.service` | `notification` | sends target status e-mails |
+| `notification.portal_url` | empty | the portal's `https://` origin; when set, status e-mails link to the job |
 | `inventory.service` | empty | set (for example `inventory`) to enable the Inventory agent provider |
 | `enroll.*` | — | `enabled`, `enroll_url`, `lcm_grpc`, `tenant_id`, `token_file`, `state_file` for SVID enrollment |
 | `limits_deployer.*` | 16 MiB / 16 KiB / 256 | `backup_max_bytes`, `config_max_bytes`, `filter_max_length`; range-checked at start |
@@ -74,7 +77,11 @@ Other modules must admit `spiffe://<trust domain>/svc/deployer`:
 |---|---|---|
 | lcm | `/lcm.v1.Certificates/Download` | fetch certificate, chain and key at deploy time |
 | auth | `/auth.v1.Profiles/ListMembers` | address job events to users holding `jobs:read` |
+| auth | `/auth.v1.Profiles/Members`, `/auth.v1.Profiles/Contacts` | recipients of target status e-mails (owners, admins, deployer administrators) |
+| notification | `/notification.v1.Notifier/Send` | target status e-mails (template `deployer.deployment_finished`) |
 | inventory | `inventory.v1.CertificateDeliveryService` methods | Inventory agent provider; inventory's `cert_delivery.sources` must also list `deployer` |
+
+Status e-mails also need `discovery.static.notification`.
 
 For the Inventory agent provider the deployer also needs
 `discovery.static.inventory` and `inventory: { service: inventory }`.

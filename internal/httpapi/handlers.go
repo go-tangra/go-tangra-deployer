@@ -279,12 +279,15 @@ func (s *Server) Register(d Deps) {
 			Description string                    `json:"description"`
 			AutoDeploy  bool                      `json:"auto_deploy"`
 			Filters     []store.CertificateFilter `json:"certificate_filters"`
+			// Omitted: the defaults on create, unchanged on update.
+			NotifyEnabled *bool   `json:"notify_enabled"`
+			NotifyOn      *string `json:"notify_on"`
 		}
 		if err := DecodeJSON(r, &in, 0); err != nil {
 			Fail(w, r, nil, err)
 			return
 		}
-		v, err := d.Targets.Create(r.Context(), subj, targets.Input{Name: in.Name, Description: in.Description, AutoDeploy: in.AutoDeploy, Filters: in.Filters})
+		v, err := d.Targets.Create(r.Context(), subj, targets.Input{Name: in.Name, Description: in.Description, AutoDeploy: in.AutoDeploy, Filters: in.Filters, NotifyEnabled: in.NotifyEnabled, NotifyOn: in.NotifyOn})
 		if err != nil {
 			failSvc(w, err)
 			return
@@ -315,12 +318,15 @@ func (s *Server) Register(d Deps) {
 			Description string                    `json:"description"`
 			AutoDeploy  bool                      `json:"auto_deploy"`
 			Filters     []store.CertificateFilter `json:"certificate_filters"`
+			// Omitted: the defaults on create, unchanged on update.
+			NotifyEnabled *bool   `json:"notify_enabled"`
+			NotifyOn      *string `json:"notify_on"`
 		}
 		if err := DecodeJSON(r, &in, 0); err != nil {
 			Fail(w, r, nil, err)
 			return
 		}
-		v, err := d.Targets.Update(r.Context(), subj, r.PathValue("id"), targets.Input{Name: in.Name, Description: in.Description, AutoDeploy: in.AutoDeploy, Filters: in.Filters})
+		v, err := d.Targets.Update(r.Context(), subj, r.PathValue("id"), targets.Input{Name: in.Name, Description: in.Description, AutoDeploy: in.AutoDeploy, Filters: in.Filters, NotifyEnabled: in.NotifyEnabled, NotifyOn: in.NotifyOn})
 		if err != nil {
 			failSvc(w, err)
 			return

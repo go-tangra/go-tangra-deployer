@@ -4,7 +4,7 @@
 // configuration, its override form generated from the provider descriptors
 // (feature 033, contracts/deployer-config-ui.md §4a, §6.11).
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { UiPage, UiAlert, UiCard, UiButton, UiDataTable, UiStatusChip, UiDrawer, UiDialog, UiForm, UiInput, UiSwitch, UiCheckbox, UiSection, UiBadge, UiIcon, UiTooltip, useConfirm, useListQuery, useToast, type Column } from '@go-tangra/ui'
+import { UiPage, UiAlert, UiCard, UiButton, UiDataTable, UiStatusChip, UiDrawer, UiDialog, UiForm, UiInput, UiSwitch, UiSelect, UiCheckbox, UiSection, UiBadge, UiIcon, UiTooltip, useConfirm, useListQuery, useToast, type Column, type SelectOption } from '@go-tangra/ui'
 import { z } from 'zod'
 import { useZodForm } from '@go-tangra/ui/forms'
 import { TARGET_LIST, useTargets } from '@/stores/targets'
@@ -44,7 +44,7 @@ const configById = (id: string) => configs.options.find((c) => c.id === id)
 const providerOf = (c: Configuration) => providers.get(c.provider_type)
 const form = useZodForm(targetFormSchema({ configuration: configById, provider: (t) => providers.get(t) }), {
   onSubmit: async (v) => {
-    const input = { name: v.name, description: v.description, auto_deploy: v.auto_deploy, certificate_filters: v.certificate_filters.map(filterToApi) }
+    const input = { name: v.name, description: v.description, auto_deploy: v.auto_deploy, certificate_filters: v.certificate_filters.map(filterToApi), notify_enabled: v.notify_enabled, notify_on: v.notify_on }
     const id = selected.value ? (await store.update(selected.value.id, input), selected.value.id) : (await store.create(input)).id
     // One attach call: new configurations and those whose override changed.
     const before = new Set(selected.value?.configuration_ids ?? [])
@@ -104,7 +104,7 @@ async function open(t: Target | null): Promise<void> {
 function reset(t: Target | null): void {
   const overrides: Record<string, unknown> = {}
   for (const id of t?.configuration_ids ?? []) Object.assign(overrides, overrideInputs(id, t?.config_overrides?.[id]))
-  form.reset({ name: t?.name ?? '', description: t?.description ?? '', auto_deploy: t?.auto_deploy ?? false, certificate_filters: (t?.certificate_filters ?? []).map(filterToForm), configuration_ids: [...(t?.configuration_ids ?? [])], ...overrides })
+  form.reset({ name: t?.name ?? '', description: t?.description ?? '', auto_deploy: t?.auto_deploy ?? false, notify_enabled: t?.notify_enabled ?? false, notify_on: t?.notify_on ?? 'always', certificate_filters: (t?.certificate_filters ?? []).map(filterToForm), configuration_ids: [...(t?.configuration_ids ?? [])], ...overrides })
 }
 function overrideInputs(id: string, override?: Record<string, unknown>): Record<string, unknown> {
   const c = configById(id)
@@ -192,6 +192,12 @@ const columns: Column<Target>[] = [
   { key: 'configurations', label: 'Configurations', align: 'end', format: (t) => String(t.configuration_ids?.length || 0) },
   { key: 'created_at', label: 'Created', sortable: true, defaultDir: 'desc', hideOnStack: true, format: (t) => (t.created_at ? new Date(t.created_at).toLocaleString() : '') },
 ]
+// Status e-mails: who receives them and when.
+const notifyOptions: SelectOption[] = [
+  { title: 'Every finished deployment', value: 'always' },
+  { title: 'Only failures', value: 'failure' },
+]
+const NOTIFY_HINT = 'Tenant owners, admins and deployer administrators receive an e-mail when a deployment to this target finishes.'
 const filterErr = (i: number, k: string) => form.errors.value[`certificate_filters.${i}.${k}`]
 </script>
 
@@ -220,6 +226,8 @@ const filterErr = (i: number, k: string) => form.errors.value[`certificate_filte
           <UiInput v-bind="form.field('name')" label="Name" required data-test="target-name" />
           <UiInput v-bind="form.field('description')" label="Description" />
           <UiSwitch v-bind="form.field('auto_deploy')" label="Auto-deploy on issue/renewal" data-test="target-auto" />
+          <UiSwitch v-bind="form.field('notify_enabled')" label="Send notification" :hint="NOTIFY_HINT" data-test="target-notify" />
+          <UiSelect v-if="form.values.notify_enabled" v-bind="form.field('notify_on')" label="Notify on" :options="notifyOptions" :clearable="false" data-test="target-notify-on" />
           <UiSection title="Certificate filters" description="Empty filters match all certificates. Rules within a filter are AND-matched.">
             <div v-for="(f, i) in filters" :key="i" class="mb-2 rounded-box border border-base-300 p-3">
               <div class="grid grid-cols-1 gap-2 md:grid-cols-2">

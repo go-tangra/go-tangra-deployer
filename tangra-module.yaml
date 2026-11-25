@@ -31,4 +31,7 @@ host_inputs:
   - key: VALKEY_CA_FILE
     label: Host file of the CA certificate (PEM) of the core event bus (mounted read-only)
     pattern: '^/[A-Za-z0-9._/-]{0,254}$'
+  - key: NOTIFICATION_GRPC
+    label: Notification module gRPC address reachable from this host (host:port)
+    pattern: '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*:[1-9][0-9]{0,4}$'
 docs: https://github.com/go-tangra/go-tangra-deployer#readme

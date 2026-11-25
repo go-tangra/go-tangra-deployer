@@ -44,6 +44,11 @@ type Store interface {
 	ListJobs(ctx context.Context, tenantID string, f JobFilter) ([]store.DeploymentJob, error)
 	ListChildJobs(ctx context.Context, tenantID, parentID string) ([]store.DeploymentJob, error)
 	UpdateJob(ctx context.Context, j store.DeploymentJob) error
+	// ClaimJobNotification claims the status notification of a parent job's
+	// outcome: true for exactly one caller per distinct (job, status), so
+	// repeated or concurrent aggregation of one outcome notifies once and a
+	// changed outcome notifies again. UpdateJob never touches the claim.
+	ClaimJobNotification(ctx context.Context, tenantID, jobID, status string) (bool, error)
 	DeleteJobsOlderThan(ctx context.Context, cutoff time.Time) (int, error)
 	// ClaimDueJobs leases due pending/retryable jobs (system scope) so exactly
 	// one worker runs each (FOR UPDATE SKIP LOCKED in the DB impl).

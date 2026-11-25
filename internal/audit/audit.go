@@ -45,6 +45,10 @@ const (
 	// Feature 033.
 	ConfigurationValidated         EventType = "configuration_validated"
 	CertificateRevocationForwarded EventType = "certificate_revocation_forwarded"
+	// DeploymentNotified: a target run's status e-mail was handed to the
+	// notification module. Details carry the target id, the status and the
+	// recipient/sent/failed counts — never an address.
+	DeploymentNotified EventType = "deployment_notified"
 )
 
 // Subject kinds (closed set).
@@ -83,6 +87,7 @@ func init() {
 		GrantCreated, GrantRevoked, AccessRefused,
 		BackupExported, BackupExportedWithCred, BackupImported,
 		ConfigurationValidated, CertificateRevocationForwarded,
+		DeploymentNotified,
 	} {
 		known[t] = struct{}{}
 	}

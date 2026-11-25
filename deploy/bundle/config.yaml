@@ -21,6 +21,8 @@ discovery:
     gateway: ["${GATEWAY_GRPC}"]
     auth: ["${AUTH_GRPC}"]
     lcm: ["${LCM_GRPC}"]
+    # Target status e-mails (recipients come from auth).
+    notification: ["${NOTIFICATION_GRPC}"]
 limits: { max_request_bytes: 16842752 }
 limits_deployer: { backup_max_bytes: 16777216, config_max_bytes: 16384, filter_max_length: 256 }
 db:
@@ -39,3 +41,7 @@ jobs: { workers: 5, interval_seconds: 5, lease_seconds: 300, max_retries: 3, ret
 events: { enabled: true }
 gateway: { service: gateway, issuer: ${GATEWAY_ISSUER} }
 lcm: { service: lcm }
+auth: { service: auth }
+# Target status e-mails. portal_url (the portal's https origin, optional) adds
+# a link to the deployment in each e-mail.
+notification: { service: notification }

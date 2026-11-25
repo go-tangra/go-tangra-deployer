@@ -17,6 +17,7 @@ import (
 	"github.com/go-tangra/go-tangra/v4/listquery"
 
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/authz"
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/notify"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/repo"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
@@ -44,6 +45,12 @@ type Publisher interface {
 	Publish(ctx context.Context, tenantID, eventType string, payload any)
 }
 
+// Notifier e-mails a finished target run (notify.Notifier satisfies it; nil
+// disables). Notify must not block: it only enqueues.
+type Notifier interface {
+	Notify(o notify.Outcome) bool
+}
+
 // Config bounds the worker pool.
 type Config struct {
 	Workers    int
@@ -63,6 +70,7 @@ type Service struct {
 	cert CertFetcher
 	cred CredOpener
 	pub  Publisher
+	ntf  Notifier
 	cfg  Config
 	now  func() time.Time
 	log  *slog.Logger
@@ -84,6 +92,9 @@ func New(st repo.Store, az *authz.Authorizer, cert CertFetcher, cred CredOpener,
 
 // SetClock injects the clock (tests).
 func (s *Service) SetClock(now func() time.Time) { s.now = now }
+
+// SetNotifier sets the sink of target status e-mails (nil disables).
+func (s *Service) SetNotifier(n Notifier) { s.ntf = n }
 
 // SetLogger sets the logger for deploy-time warnings (default slog.Default()).
 func (s *Service) SetLogger(l *slog.Logger) { s.log = l }
