@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -152,13 +153,13 @@ func DeleteConfiguration(ctx context.Context, tx pgx.Tx, tenantID, id string) er
 
 // ---- targets ----
 
-const targetCols = "id, tenant_id, name, description, auto_deploy, certificate_filters, config_overrides, created_by, updated_by, created_at, updated_at"
+const targetCols = "id, tenant_id, name, description, auto_deploy, certificate_filters, config_overrides, created_by, updated_by, created_at, updated_at, notify_enabled, notify_on"
 
 func scanTarget(row pgx.Row) (DeploymentTarget, error) {
 	var t DeploymentTarget
 	var filters, overrides []byte
 	err := row.Scan(&t.ID, &t.TenantID, &t.Name, &t.Description, &t.AutoDeploy, &filters, &overrides,
-		&t.CreatedBy, &t.UpdatedBy, &t.CreatedAt, &t.UpdatedAt)
+		&t.CreatedBy, &t.UpdatedBy, &t.CreatedAt, &t.UpdatedAt, &t.NotifyEnabled, &t.NotifyOn)
 	if err != nil {
 		return DeploymentTarget{}, notFound(err)
 	}
@@ -174,10 +175,11 @@ func scanTarget(row pgx.Row) (DeploymentTarget, error) {
 // InsertTarget stores a target group.
 func InsertTarget(ctx context.Context, tx pgx.Tx, t DeploymentTarget) error {
 	_, err := tx.Exec(ctx, `INSERT INTO deployer_targets
-		(id, tenant_id, name, description, auto_deploy, certificate_filters, config_overrides, created_by, updated_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
+		(id, tenant_id, name, description, auto_deploy, certificate_filters, config_overrides, created_by, updated_by, notify_enabled, notify_on)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10)`,
 		t.ID, t.TenantID, t.Name, t.Description, t.AutoDeploy,
-		jsonOrEmpty(marshalJSON(t.CertificateFilters), "[]"), jsonOrEmpty(marshalJSON(t.ConfigOverrides), "{}"), t.CreatedBy)
+		jsonOrEmpty(marshalJSON(t.CertificateFilters), "[]"), jsonOrEmpty(marshalJSON(t.ConfigOverrides), "{}"), t.CreatedBy,
+		t.NotifyEnabled, NotifyOnOrDefault(t.NotifyOn))
 	return conflict(err)
 }
 
@@ -234,9 +236,11 @@ func PageTargets(ctx context.Context, tx pgx.Tx, tenantID string, req listquery.
 // UpdateTarget rewrites the mutable columns.
 func UpdateTarget(ctx context.Context, tx pgx.Tx, t DeploymentTarget) error {
 	ct, err := tx.Exec(ctx, `UPDATE deployer_targets SET name=$3, description=$4, auto_deploy=$5,
-		certificate_filters=$6, config_overrides=$7, updated_by=$8, updated_at=now() WHERE tenant_id=$1 AND id=$2`,
+		certificate_filters=$6, config_overrides=$7, updated_by=$8, notify_enabled=$9, notify_on=$10, updated_at=now()
+		WHERE tenant_id=$1 AND id=$2`,
 		t.TenantID, t.ID, t.Name, t.Description, t.AutoDeploy,
-		jsonOrEmpty(marshalJSON(t.CertificateFilters), "[]"), jsonOrEmpty(marshalJSON(t.ConfigOverrides), "{}"), t.UpdatedBy)
+		jsonOrEmpty(marshalJSON(t.CertificateFilters), "[]"), jsonOrEmpty(marshalJSON(t.ConfigOverrides), "{}"), t.UpdatedBy,
+		t.NotifyEnabled, NotifyOnOrDefault(t.NotifyOn))
 	if err != nil {
 		return conflict(err)
 	}
@@ -347,6 +351,21 @@ func InsertJob(ctx context.Context, tx pgx.Tx, j DeploymentJob) error {
 		defaultStr(j.Status, "pending"), j.StatusMessage, j.Progress, j.RetryCount, defaultInt(j.MaxRetries, 3),
 		defaultStr(j.TriggeredBy, "manual"), j.Result, j.NextRetryAt, j.CertificateName)
 	return err
+}
+
+// ClaimJobNotification records that the notification for a parent job's
+// outcome status is being sent. It reports true for exactly one caller per
+// distinct (job, status): a repeated aggregation of the same outcome claims
+// nothing, a changed outcome (a retried child turning partial into
+// completed) claims again.
+func ClaimJobNotification(ctx context.Context, tx pgx.Tx, tenantID, id, status string) (bool, error) {
+	var got string
+	err := tx.QueryRow(ctx, `UPDATE deployer_jobs SET notified_status=$3
+		WHERE tenant_id=$1 AND id=$2 AND notified_status IS DISTINCT FROM $3 RETURNING id`, tenantID, id, status).Scan(&got)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // GetJob by tenant + id.

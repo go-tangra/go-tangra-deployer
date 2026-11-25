@@ -119,12 +119,14 @@ components:
         subject_country: { type: string, description: 'subject C (exact)' }
     Target:
       type: object
-      required: [id, name, description, auto_deploy, certificate_filters, configuration_ids]
+      required: [id, name, description, auto_deploy, certificate_filters, configuration_ids, notify_enabled, notify_on]
       properties:
         id: { type: string }
         name: { type: string }
         description: { type: string }
         auto_deploy: { type: boolean }
+        notify_enabled: { type: boolean, description: 'E-mail each finished run of the target to the tenant owners, admins and deployer administrators (default false; omitted on update: unchanged).' }
+        notify_on: { type: string, enum: [always, failure], description: 'always: every finished run; failure: only failed or partial runs (default always; omitted on update: unchanged).' }
         certificate_filters: { type: array, items: { $ref: '#/components/schemas/CertificateFilter' } }
         configuration_ids: { type: array, items: { type: string } }
         config_overrides:

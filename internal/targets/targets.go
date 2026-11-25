@@ -61,7 +61,15 @@ type Input struct {
 	Description string
 	AutoDeploy  bool
 	Filters     []store.CertificateFilter
+	// NotifyEnabled and NotifyOn set the target's status e-mails; nil leaves
+	// them at their defaults on create (off, always) and unchanged on update,
+	// so a client that does not know them never switches them off.
+	NotifyEnabled *bool
+	NotifyOn      *string
 }
+
+// notifyOnMsg is the refusal of an unknown notify_on value.
+const notifyOnMsg = "notify_on must be always or failure"
 
 // View is a target as returned to clients.
 type View struct {
@@ -70,7 +78,11 @@ type View struct {
 	Description        string                    `json:"description"`
 	AutoDeploy         bool                      `json:"auto_deploy"`
 	CertificateFilters []store.CertificateFilter `json:"certificate_filters"`
-	ConfigurationIDs   []string                  `json:"configuration_ids"`
+	// NotifyEnabled e-mails each finished run to the tenant's owners, admins
+	// and deployer administrators; NotifyOn is always or failure.
+	NotifyEnabled    bool     `json:"notify_enabled"`
+	NotifyOn         string   `json:"notify_on"`
+	ConfigurationIDs []string `json:"configuration_ids"`
 	// ConfigOverrides holds the per-configuration overrides (provider config,
 	// never credentials).
 	ConfigOverrides map[string]map[string]any `json:"config_overrides"`
@@ -98,6 +110,7 @@ func toView(t store.DeploymentTarget, ids []string) View {
 		ov = map[string]map[string]any{}
 	}
 	return View{ID: t.ID, Name: t.Name, Description: t.Description, AutoDeploy: t.AutoDeploy, CertificateFilters: t.CertificateFilters,
+		NotifyEnabled: t.NotifyEnabled, NotifyOn: store.NotifyOnOrDefault(t.NotifyOn),
 		ConfigurationIDs: ids, ConfigOverrides: ov, CreatedAt: t.CreatedAt}
 }
 
@@ -109,11 +122,16 @@ func (s *Service) Create(ctx context.Context, subj authz.Subjects, in Input) (Vi
 	if l := len(in.Name); l < 1 || l > 100 {
 		return View{}, invalid("name", "name must be 1-100 characters")
 	}
+	if in.NotifyOn != nil && !store.ValidNotifyOn(*in.NotifyOn) {
+		return View{}, invalid("notify_on", notifyOnMsg)
+	}
 	t := store.DeploymentTarget{
 		ID: store.NewID(), TenantID: subj.TenantID, Name: in.Name, Description: in.Description,
 		AutoDeploy: in.AutoDeploy, CertificateFilters: in.Filters, ConfigOverrides: map[string]map[string]any{},
+		NotifyOn:  store.NotifyAlways,
 		CreatedBy: subj.ActorID(), UpdatedBy: subj.ActorID(),
 	}
+	applyNotify(&t, in)
 	if err := s.st.InsertTarget(ctx, t); err != nil {
 		if errors.Is(err, store.ErrConflict) {
 			return View{}, invalid("name", "a target with this name already exists")
@@ -204,10 +222,14 @@ func (s *Service) Update(ctx context.Context, subj authz.Subjects, id string, in
 	if err := s.az.Check(ctx, subj, authz.Target, id, authz.Manage); err != nil {
 		return View{}, mapNF(err)
 	}
+	if in.NotifyOn != nil && !store.ValidNotifyOn(*in.NotifyOn) {
+		return View{}, invalid("notify_on", notifyOnMsg)
+	}
 	t, err := s.st.GetTarget(ctx, subj.TenantID, id)
 	if err != nil {
 		return View{}, mapNF(err)
 	}
+	applyNotify(&t, in)
 	if in.Name != "" {
 		t.Name = in.Name
 	}
@@ -221,6 +243,16 @@ func (s *Service) Update(ctx context.Context, subj authz.Subjects, id string, in
 		return View{}, err
 	}
 	return s.view(ctx, subj.TenantID, t), nil
+}
+
+// applyNotify sets the notification fields the input carries.
+func applyNotify(t *store.DeploymentTarget, in Input) {
+	if in.NotifyEnabled != nil {
+		t.NotifyEnabled = *in.NotifyEnabled
+	}
+	if in.NotifyOn != nil {
+		t.NotifyOn = *in.NotifyOn
+	}
 }
 
 // Delete removes a target.

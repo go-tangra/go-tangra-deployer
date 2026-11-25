@@ -26,6 +26,7 @@ type Mem struct {
 	targets  map[string]store.DeploymentTarget
 	links    map[string]map[string]bool // targetID -> set(configID)
 	jobs     map[string]store.DeploymentJob
+	notified map[string]string // job id -> claimed notification status (deployer_jobs.notified_status)
 	history  []store.DeploymentHistory
 	audit    []store.AuditRow
 	Now      func() time.Time
@@ -36,7 +37,7 @@ type Mem struct {
 func New() *Mem {
 	return &Mem{
 		configs: map[string]store.TargetConfiguration{}, targets: map[string]store.DeploymentTarget{},
-		links: map[string]map[string]bool{}, jobs: map[string]store.DeploymentJob{}, Now: time.Now,
+		links: map[string]map[string]bool{}, jobs: map[string]store.DeploymentJob{}, notified: map[string]string{}, Now: time.Now,
 	}
 }
 
@@ -160,6 +161,7 @@ func (m *Mem) InsertTarget(_ context.Context, t store.DeploymentTarget) error {
 	if t.CreatedAt.IsZero() {
 		t.CreatedAt = m.Now()
 	}
+	t.NotifyOn = store.NotifyOnOrDefault(t.NotifyOn) // the column default
 	m.targets[t.ID] = t
 	return nil
 }
@@ -205,6 +207,7 @@ func (m *Mem) UpdateTarget(_ context.Context, t store.DeploymentTarget) error {
 	if x, ok := m.targets[t.ID]; !ok || x.TenantID != t.TenantID {
 		return ErrNotFound
 	}
+	t.NotifyOn = store.NotifyOnOrDefault(t.NotifyOn)
 	m.targets[t.ID] = t
 	return nil
 }
@@ -342,6 +345,28 @@ func (m *Mem) UpdateJob(_ context.Context, j store.DeploymentJob) error {
 	return nil
 }
 
+// ClaimJobNotification implements repo.Store: true once per distinct
+// (job, status), like the conditional UPDATE of the database store.
+func (m *Mem) ClaimJobNotification(_ context.Context, tenantID, id, status string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.fail(); err != nil {
+		return false, err
+	}
+	j, ok := m.jobs[id]
+	if !ok || j.TenantID != tenantID {
+		return false, nil
+	}
+	if prev, had := m.notified[id]; had && prev == status {
+		return false, nil
+	}
+	if m.notified == nil {
+		m.notified = map[string]string{}
+	}
+	m.notified[id] = status
+	return true, nil
+}
+
 func (m *Mem) DeleteJobsOlderThan(_ context.Context, cutoff time.Time) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -349,6 +374,7 @@ func (m *Mem) DeleteJobsOlderThan(_ context.Context, cutoff time.Time) (int, err
 	for id, j := range m.jobs {
 		if j.CreatedAt.Before(cutoff) {
 			delete(m.jobs, id)
+			delete(m.notified, id)
 			n++
 		}
 	}

@@ -59,6 +59,10 @@ type TargetExport struct {
 	CertificateFilters []store.CertificateFilter `json:"certificate_filters"`
 	ConfigOverrides    map[string]map[string]any `json:"config_overrides,omitempty"`
 	ConfigurationIDs   []string                  `json:"configuration_ids"`
+	// Status e-mails. Backups taken before they existed carry neither and
+	// import with notifications off.
+	NotifyEnabled bool   `json:"notify_enabled,omitempty"`
+	NotifyOn      string `json:"notify_on,omitempty"`
 }
 
 // JobExport is deployment-job metadata (no certificate bytes — jobs never hold any).
@@ -132,6 +136,7 @@ func (s *Service) Export(ctx context.Context, subj authz.Subjects, includeCreden
 		b.Targets = append(b.Targets, TargetExport{
 			ID: t.ID, Name: t.Name, Description: t.Description, AutoDeploy: t.AutoDeploy,
 			CertificateFilters: t.CertificateFilters, ConfigOverrides: t.ConfigOverrides, ConfigurationIDs: ids,
+			NotifyEnabled: t.NotifyEnabled, NotifyOn: store.NotifyOnOrDefault(t.NotifyOn),
 		})
 	}
 
@@ -214,6 +219,7 @@ func (s *Service) Import(ctx context.Context, subj authz.Subjects, b Backup, mod
 				ID: te.ID, TenantID: subj.TenantID, Name: te.Name, Description: te.Description,
 				AutoDeploy: te.AutoDeploy, CertificateFilters: te.CertificateFilters,
 				ConfigOverrides: te.ConfigOverrides, CreatedBy: subj.ActorID(), UpdatedBy: subj.ActorID(),
+				NotifyEnabled: te.NotifyEnabled, NotifyOn: store.NotifyOnOrDefault(te.NotifyOn),
 			}
 			if t.CertificateFilters == nil {
 				t.CertificateFilters = []store.CertificateFilter{}
@@ -250,6 +256,9 @@ func (s *Service) validate(ctx context.Context, tenantID string, b Backup) error
 		withCreds[ce.ID] = len(ce.CredentialsSealed) > 0
 	}
 	for i, te := range b.Targets {
+		if te.NotifyOn != "" && !store.ValidNotifyOn(te.NotifyOn) {
+			return &ValidationError{Field: fmt.Sprintf("targets[%d].notify_on", i), Msg: "notify_on must be always or failure"}
+		}
 		for cid, ov := range te.ConfigOverrides {
 			field := fmt.Sprintf("targets[%d].config_overrides", i)
 			if fe := provider.CheckConfig(ov); fe != nil {

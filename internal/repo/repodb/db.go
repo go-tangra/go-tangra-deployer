@@ -126,6 +126,10 @@ func (d *DB) ListChildJobs(ctx context.Context, tid, parentID string) (out []sto
 func (d *DB) UpdateJob(ctx context.Context, j store.DeploymentJob) error {
 	return d.tenant(ctx, j.TenantID, func(tx pgx.Tx) error { return store.UpdateJob(ctx, tx, j) })
 }
+func (d *DB) ClaimJobNotification(ctx context.Context, tid, id, status string) (ok bool, err error) {
+	err = d.tenant(ctx, tid, func(tx pgx.Tx) error { ok, err = store.ClaimJobNotification(ctx, tx, tid, id, status); return err })
+	return
+}
 func (d *DB) DeleteJobsOlderThan(ctx context.Context, cutoff time.Time) (n int, err error) {
 	err = d.system(ctx, func(tx pgx.Tx) error { n, err = store.DeleteJobsOlderThan(ctx, tx, cutoff); return err })
 	return

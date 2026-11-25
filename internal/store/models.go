@@ -30,7 +30,21 @@ const (
 	ResultSuccess = "success"
 	ResultFailure = "failure"
 	ResultPartial = "partial"
+
+	NotifyAlways  = "always"
+	NotifyFailure = "failure"
 )
+
+// ValidNotifyOn reports whether v is a notify_on value.
+func ValidNotifyOn(v string) bool { return v == NotifyAlways || v == NotifyFailure }
+
+// NotifyOnOrDefault returns v when valid, else NotifyAlways.
+func NotifyOnOrDefault(v string) string {
+	if ValidNotifyOn(v) {
+		return v
+	}
+	return NotifyAlways
+}
 
 // CertificateFilter is an AND-matched auto-deploy rule. An empty filter (all
 // fields blank) matches every certificate.
@@ -58,10 +72,15 @@ type DeploymentTarget struct {
 	AutoDeploy         bool
 	CertificateFilters []CertificateFilter
 	ConfigOverrides    map[string]map[string]any // configuration_id -> config overlay (never credentials)
-	CreatedBy          string
-	UpdatedBy          string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	// NotifyEnabled e-mails the outcome of each run of the target to the
+	// tenant's owners, admins and deployer administrators; NotifyOn is
+	// NotifyAlways (every finished run) or NotifyFailure (failed or partial).
+	NotifyEnabled bool
+	NotifyOn      string
+	CreatedBy     string
+	UpdatedBy     string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // TargetConfiguration is a single deployment endpoint.
