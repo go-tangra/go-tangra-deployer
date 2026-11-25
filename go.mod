@@ -6,9 +6,10 @@ toolchain go1.26.8
 
 require (
 	github.com/getkin/kin-openapi v0.149.0
-	github.com/go-tangra/go-tangra-auth/sdk/v4 v4.3.0
+	github.com/go-tangra/go-tangra-auth/sdk/v4 v4.6.0
 	github.com/go-tangra/go-tangra-inventory/sdk/v4 v4.4.0
 	github.com/go-tangra/go-tangra-lcm/sdk/v4 v4.2.0
+	github.com/go-tangra/go-tangra-notification/sdk/v4 v4.2.0
 	github.com/go-tangra/go-tangra-portal/sdk/v4 v4.2.1
 	github.com/go-tangra/go-tangra/v4 v4.10.2
 	github.com/jackc/pgx/v5 v5.11.0
@@ -44,7 +45,6 @@ require (
 	github.com/go-openapi/jsonpointer v0.22.5 // indirect
 	github.com/go-openapi/swag/jsonname v0.25.5 // indirect
 	github.com/go-playground/form/v4 v4.3.0 // indirect
-	github.com/go-tangra/go-tangra-notification/sdk/v4 v4.2.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
@@ -98,5 +98,3 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260831171406-18b4a7587f8a // indirect
 )
-
-replace github.com/go-tangra/go-tangra-auth/sdk/v4 => /tmp/claude-1000/-home-jadmin-projects-go-tangra-go-tangra-teleport/a4ef1fa0-9ccf-4e79-979c-69fa7217fcd8/scratchpad/auth/sdk
