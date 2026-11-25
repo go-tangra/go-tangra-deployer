@@ -140,6 +140,9 @@ export interface Target {
   description?: string | undefined
   auto_deploy: boolean
   certificate_filters: CertificateFilter[]
+  /** E-mail each finished run to the tenant owners, admins and deployer administrators. */
+  notify_enabled?: boolean
+  notify_on?: NotifyOn
   configuration_ids: string[]
   /** Per attached configuration (id -> override): overridable provider config only. */
   config_overrides?: Record<string, Record<string, unknown>>
@@ -149,11 +152,16 @@ export interface Target {
   updated_at?: string
 }
 
+/** always: every finished run; failure: only failed or partial runs. */
+export type NotifyOn = 'always' | 'failure'
+
 export interface TargetInput {
   name: string
   description?: string | undefined
   auto_deploy: boolean
   certificate_filters: CertificateFilter[]
+  notify_enabled: boolean
+  notify_on: NotifyOn
 }
 
 export type ErrorStage = 'configuration' | 'credentials' | 'certificate' | 'deploy' | 'children'

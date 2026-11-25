@@ -56,7 +56,7 @@ describe('deployer views on the kit', () => {
     ;(drawer.querySelector('[data-test=target-save]') as HTMLButtonElement).click()
     await flushPromises()
     const put = calls.find((c) => c.init.method === 'PUT')!
-    expect(JSON.parse(String(put.init.body))).toEqual({ name: 'Edge servers', auto_deploy: true, certificate_filters: [{ common_name_pattern: 'web-.*', subject_country: 'BG' }] }) // API field names; uneditable fields kept
+    expect(JSON.parse(String(put.init.body))).toEqual({ name: 'Edge servers', auto_deploy: true, certificate_filters: [{ common_name_pattern: 'web-.*', subject_country: 'BG' }], notify_enabled: false, notify_on: 'always' }) // API field names; uneditable fields kept
     const attach = calls.find((c) => c.init.method === 'POST' && c.url.endsWith('/targets/t1/configurations'))!
     expect(JSON.parse(String(attach.init.body))).toMatchObject({ configuration_ids: ['c2'] })
     w.unmount()

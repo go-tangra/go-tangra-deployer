@@ -4,8 +4,10 @@
 // ?jobs.page=…), live status patches over the platform stream, and a detail
 // drawer — where the job deploys, the failed step and who reported the error,
 // the provider's details, child jobs and history (server-paged) — that
-// follows the job live.
+// follows the job live. ?job=<id> (the link of a target status e-mail) opens
+// that job's drawer.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { UiPage, UiAlert, UiCard, UiForm, UiSelect, UiButton, UiDataTable, UiStatusChip, UiBadge, UiLiveIndicator, UiDrawer, UiKeyValueTable, useListQuery, type Column, type KeyValue, type SelectOption } from '@go-tangra/ui'
 import { useZodForm } from '@go-tangra/ui/forms'
 import { DETAIL_LIST, JOB_LIST, LIVE_RELOAD_MS, patchJob, useJobs, type JobEvent, type JobFilter } from '@/stores/jobs'
@@ -15,6 +17,8 @@ import { jobFilterSchema, JOB_STATUSES, JOB_TYPES } from '@/schemas'
 import type { ActionResult, DeliveryCounts, ErrorStage, HistoryEntry, HostResult, Job } from '@/api/types'
 
 const store = useJobs()
+const route = useRoute()
+const linkError = ref('')
 const live = useLive()
 const drawer = ref(false)
 const selected = ref<Job | null>(null)
@@ -41,6 +45,7 @@ let release: (() => void) | null = null
 let offLive: (() => void) | null = null
 onMounted(() => {
   void fetchJobs()
+  void openLinked()
   offLive = live.on(onLive)
   release = live.connect()
 })
@@ -201,6 +206,16 @@ async function load(): Promise<void> {
   error.value = ''
   await Promise.all([fetchChildren(), fetchHistory(), fetchResult()])
 }
+/** Opens the job a link names (?job=<id>). */
+async function openLinked(): Promise<void> {
+  const id = route?.query.job
+  if (typeof id !== 'string' || !id) return
+  try {
+    open(await store.result(id))
+  } catch (e) {
+    linkError.value = describe(e)
+  }
+}
 function open(j: Job): void {
   selected.value = j
   action.value = null
@@ -267,6 +282,7 @@ const historyColumns: Column<HistoryRow>[] = [{ key: 'action', label: 'Action' }
       </UiForm>
     </template>
     <UiAlert v-if="store.error" kind="error" class="mb-3">{{ store.error }}</UiAlert>
+    <UiAlert v-if="linkError" kind="error" class="mb-3" data-test="job-link-error">{{ linkError }}</UiAlert>
     <UiCard :padded="false">
       <UiDataTable :items="store.items" :columns="columns" :loading="store.loading" :total="store.total" :page="lq.page.value" :page-size="lq.pageSize.value" :sort="lq.sort.value" caption="Jobs" empty-title="No jobs yet" clickable :row-attrs="(j) => ({ 'data-test': 'job-row-' + j.id })" data-test="jobs-table" @row-click="open" @update:page="lq.setPage" @update:page-size="lq.setPageSize" @update:sort="lq.setSort">
         <template #cell-job_type="{ row }"><UiBadge>{{ row.type }}</UiBadge></template>
