@@ -65,6 +65,10 @@ type Options struct {
 	// inventory (tests: in-process fakes over bufconn).
 	LCMConn       grpc.ClientConnInterface
 	InventoryConn grpc.ClientConnInterface
+	// AuthConn and NotificationConn replace the mesh connections the target
+	// status e-mails use (recipients from auth, delivery by notification).
+	AuthConn         grpc.ClientConnInterface
+	NotificationConn grpc.ClientConnInterface
 }
 
 // App is the wired service.
@@ -185,7 +189,7 @@ func Build(ctx context.Context, cfg config.Config, o Options) (a *App, err error
 	a.Verifier = o.Verifier
 	readers := o.Audience
 	if a.Verifier == nil || readers == nil {
-		conn, cerr := a.Freya.Client(ctx, "auth")
+		conn, cerr := a.Freya.Client(ctx, cfg.Auth.Service)
 		if cerr != nil {
 			return nil, fmt.Errorf("auth client: %w", cerr)
 		}
@@ -238,6 +242,10 @@ func Build(ctx context.Context, cfg config.Config, o Options) (a *App, err error
 		MaxRetries: cfg.Jobs.MaxRetries, RetryDelay: cfg.RetryDelay(), Backoff: cfg.Jobs.BackoffMultiplier, Cleanup: cfg.CleanupWindow(),
 	})
 	a.Jobs.SetLogger(a.Log)
+	// Target status e-mails: queued by the scheduler, sent by their own worker.
+	ntf := a.newNotifier(o, aw)
+	a.Jobs.SetNotifier(ntf)
+	a.workers = append(a.workers, ntf.Run)
 	a.workers = append(a.workers, func(c context.Context) { a.Jobs.Run(c, a.Log) })
 
 	// Auto-deploy: consume certificate.issued/renewed from the shared platform

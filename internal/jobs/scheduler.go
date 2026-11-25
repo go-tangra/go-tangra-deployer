@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-tangra/go-tangra-deployer/v4/internal/notify"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/provider"
 	"github.com/go-tangra/go-tangra-deployer/v4/internal/store"
 )
@@ -259,6 +260,9 @@ func (s *Service) aggregateParent(ctx context.Context, parent store.DeploymentJo
 	if err != nil || len(kids) == 0 {
 		return
 	}
+	// A parent the user cancelled is not reported, even when a child still
+	// running finishes afterwards.
+	cancelled := parent.Status == store.JobCancelled
 	var done, failed, total int
 	var failures []string
 	for _, k := range kids {
@@ -290,6 +294,75 @@ func (s *Service) aggregateParent(ctx context.Context, parent store.DeploymentJo
 		_ = s.st.UpdateJob(ctx, parent)
 	}
 	s.publish(ctx, "job.updated", parent)
+	if !cancelled && done+failed == total {
+		s.notifyFinished(ctx, parent, kids, done, failed)
+	}
+}
+
+// notifyFinished hands a finished run to the notifier when its target sends
+// status e-mails for this outcome. Aggregation can run more than once per
+// parent (children finishing together, a retried child), so the outcome is
+// claimed first: only the caller that records a new notified status sends.
+func (s *Service) notifyFinished(ctx context.Context, parent store.DeploymentJob, kids []store.DeploymentJob, done, failed int) {
+	if s.ntf == nil || parent.DeploymentTargetID == nil {
+		return
+	}
+	tgt, err := s.st.GetTarget(ctx, parent.TenantID, *parent.DeploymentTargetID)
+	if err != nil || !NotifyWanted(tgt, parent.Status) {
+		return
+	}
+	won, err := s.st.ClaimJobNotification(ctx, parent.TenantID, parent.ID, parent.Status)
+	if err != nil {
+		s.logger().Warn("deployer: status notification claim failed", "tenant_id", parent.TenantID, "job_id", parent.ID, "err", err)
+		return
+	}
+	if !won {
+		return
+	}
+	o := notify.Outcome{
+		TenantID: parent.TenantID, JobID: parent.ID, TargetID: tgt.ID, TargetName: tgt.Name,
+		Status: parent.Status, TriggeredBy: parent.TriggeredBy, Certificate: parent.CertificateName,
+		Total: len(kids), Succeeded: done, Failed: failed, StartedAt: parent.CreatedAt, FinishedAt: s.now(),
+	}
+	if parent.CompletedAt != nil {
+		o.FinishedAt = *parent.CompletedAt
+	}
+	names := map[string]string{}
+	for _, k := range kids {
+		cid := strp(k.TargetConfigurationID)
+		name, ok := names[cid]
+		if !ok {
+			name = cid
+			if c, cerr := s.st.GetConfiguration(ctx, k.TenantID, cid); cerr == nil {
+				name = c.Name
+			}
+			names[cid] = name
+		}
+		r := notify.Result{Configuration: name, Status: k.Status}
+		if k.Status == store.JobFailed {
+			if r.Message = jobFailure(k).Error; r.Message == "" {
+				r.Message = k.StatusMessage
+			}
+		}
+		o.Results = append(o.Results, r)
+	}
+	s.ntf.Notify(o)
+}
+
+// NotifyWanted reports whether tgt sends a status e-mail for a run that
+// finished with status: notifications on, and notify_on always or (failure)
+// the run failed or partly failed.
+func NotifyWanted(tgt store.DeploymentTarget, status string) bool {
+	if !tgt.NotifyEnabled {
+		return false
+	}
+	switch status {
+	case store.JobCompleted:
+		return tgt.NotifyOn != store.NotifyFailure
+	case store.JobFailed, store.JobPartial:
+		return true
+	}
+	return false
 }
 
 // childFailure is one line of a parent's error: the child's configuration

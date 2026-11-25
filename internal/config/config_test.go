@@ -54,6 +54,9 @@ func TestDefaultsAreSane(t *testing.T) {
 	if !c.Events.Enabled {
 		t.Error("Default: Events.Enabled must default to true")
 	}
+	if c.Auth.Service != "auth" || c.Notification.Service != "notification" || c.Notification.PortalURL != "" {
+		t.Errorf("Default: Auth=%+v Notification=%+v", c.Auth, c.Notification)
+	}
 	if c.Gateway.Service != "gateway" || c.LCM.Service != "lcm" {
 		t.Errorf("Default: Gateway.Service=%q LCM.Service=%q, want gateway/lcm", c.Gateway.Service, c.LCM.Service)
 	}
@@ -102,6 +105,13 @@ func TestValidateAcceptsDevAndProduction(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatalf("Validate(verify-ca): unexpected error %v", err)
 	}
+	// A portal origin for status e-mail links is accepted.
+	for _, u := range []string{"https://portal.example.org", "https://portal.example.org:8443/"} {
+		c.Notification.PortalURL = u
+		if err := c.Validate(); err != nil {
+			t.Fatalf("Validate(portal_url %s): unexpected error %v", u, err)
+		}
+	}
 	// The env KEK source variant is accepted.
 	c.KEK = config.KEK{Source: "env", Env: "DEPLOYER_KEK"}
 	if err := c.Validate(); err != nil {
@@ -128,6 +138,11 @@ func TestValidateRejects(t *testing.T) {
 		"jobs backoff":      func(c *config.Config) { c.Jobs.BackoffMultiplier = 0 },
 		"jobs job timeout":  func(c *config.Config) { c.Jobs.JobTimeoutSeconds = 1 },
 		"jobs cleanup days": func(c *config.Config) { c.Jobs.CleanupDays = 0 },
+		"auth service":      func(c *config.Config) { c.Auth.Service = "" },
+		"notification svc":  func(c *config.Config) { c.Notification.Service = "Bad Name" },
+		"portal url http":   func(c *config.Config) { c.Notification.PortalURL = "http://portal.example.org" },
+		"portal url path":   func(c *config.Config) { c.Notification.PortalURL = "https://portal.example.org/x" },
+		"portal url query":  func(c *config.Config) { c.Notification.PortalURL = "https://portal.example.org?a=b" },
 		"gateway service":   func(c *config.Config) { c.Gateway.Service = "" },
 		"gateway issuer":    func(c *config.Config) { c.Gateway.Issuer = "http://insecure" },
 		"lcm service":       func(c *config.Config) { c.LCM.Service = "" },

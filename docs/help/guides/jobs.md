@@ -103,6 +103,16 @@ Notes:
 To see retries and errors without touching real infrastructure, edit a
 **Dummy** configuration, turn on **Fail** and deploy to it.
 
+## Status e-mails
+
+A target with **Send notification** on e-mails the outcome of each of its
+runs once every child finished — every outcome, or only failures (`failed`
+or `partial`), as chosen on the target. Tenant owners and admins and users
+with the deployer **administrator** role receive it, with the target, status,
+certificate, counts and one line per configuration. A retry that changes the
+outcome (for example `partial` to `completed`) sends one more e-mail; a job you
+cancel sends none.
+
 ## Who sees job events
 
 Live job updates go only to users who hold `jobs:read`. Users without it do

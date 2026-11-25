@@ -26,6 +26,7 @@ var joinValues = map[string]string{
 	"GEN_KEY_1":             "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
 	"MODULE_ADVERTISE_HOST": "deployer.example.org", "MODULE_BIND_IP": "10.0.0.5",
 	"VALKEY_ADDRESS": "valkey.example.org:6380", "VALKEY_PASSWORD": strings.Repeat("c", 32), "VALKEY_CA_FILE": "/etc/tangra/valkey-ca.pem",
+	"NOTIFICATION_GRPC": "notification.example.org:9745",
 }
 
 func render(t *testing.T, name string) string {

@@ -29,7 +29,27 @@ In the containerized platform stack it comes up with one command; see
 `container.yaml` sections: `db`, `valkey`, `kek` (envelope key), `jobs` (worker
 pool: workers, interval, lease, job timeout, retry policy, backoff, cleanup),
 `events` (auto-deploy consumer), `gateway`, `lcm` (`service: lcm` — the mesh
-peer certificates are fetched from), and `enroll` (SVID enrollment).
+peer certificates are fetched from), `auth` (`service: auth`), `notification`
+(`service: notification`, optional `portal_url` — target status e-mails, below),
+and `enroll` (SVID enrollment).
+
+## Status e-mails
+
+A target with **Send notification** on e-mails the outcome of each of its runs
+(manual, event or auto-renewal) once every configuration finished — on every
+outcome (`notify_on: always`) or only when one failed (`failure`: status
+`failed` or `partial`). A run the user cancels is not reported. Recipients are
+the tenant members holding the built-in role `owner` or `admin`, or the deployer
+role `administrator` (from auth `Profiles.Members` and `Profiles.Contacts`, at
+most 200 addresses); each gets the notification module's
+`deployer.deployment_finished` template. An outcome is claimed on the parent job
+(`notified_status`) before it is sent, so concurrent aggregation sends once and
+a retry that changes the outcome sends one update. Sending runs on its own
+worker with a bounded queue and never delays a deployment; auth's and
+notification's policies must allow the deployer's SPIFFE id to call
+`auth.v1.Profiles/Members`, `auth.v1.Profiles/Contacts` and
+`notification.v1.Notifier/Send`. With `notification.portal_url` set, the e-mail
+links to `<portal_url>/deployer/jobs?job=<job id>`.
 
 ## Providers
 
